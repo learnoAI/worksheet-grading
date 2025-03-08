@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String         @id @default(uuid())
+  username       String         @unique
+  password       String
+  role           UserRole
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  adminSchools   AdminSchool[]
+  notifications  Notification[]
+  studentClasses StudentClass[]
+  teacherClasses TeacherClass[]
+  worksheets     Worksheet[]    @relation("SubmittedBy")
+}
+
+model School {
+  id           String        @id @default(uuid())
+  name         String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  clusterId    String?
+  adminSchools AdminSchool[]
+  classes      Class[]
+  cluster      Cluster?      @relation(fields: [clusterId], references: [id])
+}
+
+model Cluster {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  schools   School[]
+}
+
+model Class {
+  id             String         @id @default(uuid())
+  name           String
+  schoolId       String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  school         School         @relation(fields: [schoolId], references: [id])
+  studentClasses StudentClass[]
+  teacherClasses TeacherClass[]
+  worksheets     Worksheet[]
+}
+
+model TeacherClass {
+  teacherId String
+  classId   String
+  createdAt DateTime @default(now())
+  class     Class    @relation(fields: [classId], references: [id])
+  teacher   User     @relation(fields: [teacherId], references: [id])
+
+  @@id([teacherId, classId])
+}
+
+model StudentClass {
+  studentId String
+  classId   String
+  createdAt DateTime @default(now())
+  class     Class    @relation(fields: [classId], references: [id])
+  student   User     @relation(fields: [studentId], references: [id])
+
+  @@id([studentId, classId])
+}
+
+model AdminSchool {
+  adminId   String
+  schoolId  String
+  createdAt DateTime @default(now())
+  admin     User     @relation(fields: [adminId], references: [id])
+  school    School   @relation(fields: [schoolId], references: [id])
+
+  @@id([adminId, schoolId])
+}
+
+model Worksheet {
+  id            String           @id @default(uuid())
+  notes         String?
+  status        ProcessingStatus @default(PENDING)
+  grade         Float?
+  submittedById String
+  classId       String
+  studentId     String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  class         Class            @relation(fields: [classId], references: [id])
+  submittedBy   User             @relation("SubmittedBy", fields: [submittedById], references: [id])
+  images        WorksheetImage[]
+}
+
+model WorksheetImage {
+  id          String    @id @default(uuid())
+  imageUrl    String
+  pageNumber  Int
+  worksheetId String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  worksheet   Worksheet @relation(fields: [worksheetId], references: [id], onDelete: Cascade)
+
+  @@index([worksheetId, pageNumber])
+}
+
+model Notification {
+  id        String             @id @default(uuid())
+  message   String
+  userId    String
+  status    NotificationStatus @default(UNREAD)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  user      User               @relation(fields: [userId], references: [id])
+}
+
+enum UserRole {
+  TEACHER
+  STUDENT
+  ADMIN
+  SUPERADMIN
+}
+
+enum ProcessingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum NotificationStatus {
+  READ
+  UNREAD
+}

@@ -1,0 +1,14 @@
+---
+description: the structure of the project - backend and frontend
+globs: 
+alwaysApply: false
+---
+Backend:
+- Express server
+- Typescript
+- Prisma with Postgres
+
+Frontend:
+- Next.JS 15 with react 19 and app router
+- Mainly server components - client components where necessary
+- ShadCN UI
