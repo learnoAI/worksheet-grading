@@ -32,6 +32,7 @@ async function createOrGetStudent(name: string, tokenNumber: string, index: numb
     const hashedPassword = await hashPassword('saarthi@123');
     return await prisma.user.create({
         data: {
+            name: name,
             username,
             tokenNumber,
             password: hashedPassword,

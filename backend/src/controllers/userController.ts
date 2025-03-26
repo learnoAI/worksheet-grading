@@ -15,7 +15,7 @@ export const createUser = async (req: Request, res: Response) => {
         return res.status(400).json({ errors: errors.array() });
     }
 
-    const { username, password, role } = req.body;
+    const { name, username, password, role } = req.body;
 
     try {
         // Check if username already exists
@@ -34,6 +34,7 @@ export const createUser = async (req: Request, res: Response) => {
         // Create new user
         const newUser = await prisma.user.create({
             data: {
+                name,
                 username,
                 password: hashedPassword,
                 role: role as UserRole

@@ -2,6 +2,19 @@ import { fetchAPI, API_BASE_URL } from './utils';
 import { Worksheet } from './types';
 
 interface GradedWorksheetData {
+    id?: string;
+    classId: string;
+    studentId: string;
+    template: {
+        worksheetNumber: number;
+    };
+    grade: number;
+    notes?: string;
+    submittedOn: string;
+}
+
+interface CreateGradedWorksheetData {
+    id?: string;
     classId: string;
     studentId: string;
     worksheetNumber: number;
@@ -9,7 +22,6 @@ interface GradedWorksheetData {
     notes?: string;
     submittedOn: string;
 }
-
 export const worksheetAPI = {
     uploadWorksheet: async (formData: FormData): Promise<Worksheet> => {
         const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -42,7 +54,7 @@ export const worksheetAPI = {
         return fetchAPI<Worksheet>(`/worksheets/${id}`);
     },
 
-    createGradedWorksheet: async (data: GradedWorksheetData): Promise<Worksheet> => {
+    createGradedWorksheet: async (data: CreateGradedWorksheetData): Promise<Worksheet> => {
         return fetchAPI<Worksheet>('/worksheets/grade', {
             method: 'POST',
             body: JSON.stringify(data)
@@ -58,8 +70,8 @@ export const worksheetAPI = {
         return fetchAPI<GradedWorksheetData | null>(`/worksheets/find?classId=${classId}&studentId=${studentId}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`);
     },
 
-    updateGradedWorksheet: async (worksheetNumber: number, data: GradedWorksheetData): Promise<GradedWorksheetData> => {
-        return fetchAPI<GradedWorksheetData>(`/worksheets/grade/${worksheetNumber}`, {
+    updateGradedWorksheet: async (id: string, data: CreateGradedWorksheetData): Promise<GradedWorksheetData> => {
+        return fetchAPI<GradedWorksheetData>(`/worksheets/grade/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data)
         });

@@ -3,13 +3,14 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { classAPI, worksheetAPI } from '@/lib/api';
+import { DataTable } from './data-table';
+import { columns, StudentGrade } from './columns';
 
 interface Class {
     id: string;
@@ -19,12 +20,8 @@ interface Class {
 interface Student {
     id: string;
     username: string;
-}
-
-interface StudentGrade {
-    studentId: string;
-    worksheetNumber: number;
-    grade: string;
+    name: string;
+    tokenNumber: string;
 }
 
 export default function GradeWorksheetPage() {
@@ -40,7 +37,7 @@ export default function GradeWorksheetPage() {
     const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
 
     // Student grades state
-    const [studentGrades, setStudentGrades] = useState<Record<string, StudentGrade>>({});
+    const [studentGrades, setStudentGrades] = useState<StudentGrade[]>([]);
 
     // Fetch teacher's classes on mount
     useEffect(() => {
@@ -66,7 +63,7 @@ export default function GradeWorksheetPage() {
         const fetchStudentsAndWorksheets = async () => {
             if (!selectedClass) {
                 setStudents([]);
-                setStudentGrades({});
+                setStudentGrades([]);
                 return;
             }
 
@@ -74,11 +71,8 @@ export default function GradeWorksheetPage() {
                 const studentsData = await classAPI.getClassStudents(selectedClass);
                 setStudents(studentsData);
 
-                // Initialize empty grades for all students
-                const newGrades: Record<string, StudentGrade> = {};
-
-                // Check for existing worksheets for each student
-                await Promise.all(studentsData.map(async (student) => {
+                // Initialize grades for all students
+                const grades = await Promise.all(studentsData.map(async (student) => {
                     try {
                         const worksheet = await worksheetAPI.getWorksheetByClassStudentDate(
                             selectedClass,
@@ -86,22 +80,30 @@ export default function GradeWorksheetPage() {
                             submittedOn
                         );
 
-                        newGrades[student.id] = {
+                        return {
                             studentId: student.id,
-                            worksheetNumber: worksheet?.worksheetNumber || 0,
+                            name: student.name,
+                            tokenNumber: student.tokenNumber,
+                            id: worksheet?.id || '',
+                            worksheetNumber: worksheet?.template?.worksheetNumber || 0,
                             grade: worksheet?.grade?.toString() || '',
+                            existing: !!worksheet
                         };
                     } catch (error) {
                         console.error(`Error fetching worksheet for student ${student.id}:`, error);
-                        newGrades[student.id] = {
+                        return {
                             studentId: student.id,
+                            name: student.name,
+                            tokenNumber: student.tokenNumber,
+                            id: '',
                             worksheetNumber: 0,
                             grade: '',
+                            existing: false
                         };
                     }
                 }));
 
-                setStudentGrades(newGrades);
+                setStudentGrades(grades);
             } catch (error) {
                 console.error('Error fetching students:', error);
                 toast.error('Failed to load students');
@@ -115,7 +117,7 @@ export default function GradeWorksheetPage() {
         setIsSaving(true);
         try {
             // Filter out students with no worksheet number or grade
-            const gradesToSubmit = Object.values(studentGrades).filter(
+            const gradesToSubmit = studentGrades.filter(
                 grade => grade.worksheetNumber > 0 && grade.grade
             );
 
@@ -129,31 +131,20 @@ export default function GradeWorksheetPage() {
                     submittedOn: new Date(submittedOn).toISOString()
                 };
 
-                if (grade.worksheetNumber > 0) {
-                    await worksheetAPI.updateGradedWorksheet(grade.worksheetNumber, data);
+                if (grade.existing) {
+                    await worksheetAPI.updateGradedWorksheet(grade.id, data);
                 } else {
                     await worksheetAPI.createGradedWorksheet(data);
                 }
             }));
 
             toast.success('Grades saved successfully');
-            router.push('/dashboard/teacher/worksheets');
         } catch (error) {
             console.error('Error saving grades:', error);
             toast.error('Failed to save some grades');
         } finally {
             setIsSaving(false);
         }
-    };
-
-    const updateStudentGrade = (studentId: string, field: keyof StudentGrade, value: string | number) => {
-        setStudentGrades(prev => ({
-            ...prev,
-            [studentId]: {
-                ...prev[studentId],
-                [field]: value
-            }
-        }));
     };
 
     if (isLoading) {
@@ -211,80 +202,22 @@ export default function GradeWorksheetPage() {
                     </div>
 
                     {selectedClass && students.length > 0 && (
-                        <div className="mt-6 -mx-6 sm:mx-0">
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Student
-                                            </th>
-                                            <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Worksheet #
-                                            </th>
-                                            <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Grade
-                                            </th>
-                                            <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                Status
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {students.map((student) => {
-                                            const grade = studentGrades[student.id];
-                                            return (
-                                                <tr key={student.id}>
-                                                    <td className="px-4 py-2 whitespace-nowrap text-sm">
-                                                        {student.username}
-                                                    </td>
-                                                    <td className="px-4 py-2 whitespace-nowrap">
-                                                        <Input
-                                                            type="number"
-                                                            min="1"
-                                                            step="1"
-                                                            value={grade?.worksheetNumber || ''}
-                                                            onChange={(e) => updateStudentGrade(student.id, 'worksheetNumber', parseInt(e.target.value) || 0)}
-                                                            className="w-20 h-8 px-2 text-sm"
-                                                        />
-                                                    </td>
-                                                    <td className="px-4 py-2 whitespace-nowrap">
-                                                        <Input
-                                                            type="number"
-                                                            min="0"
-                                                            max="10"
-                                                            step="0.1"
-                                                            value={grade?.grade || ''}
-                                                            onChange={(e) => updateStudentGrade(student.id, 'grade', e.target.value)}
-                                                            className="w-16 h-8 px-2 text-sm"
-                                                        />
-                                                    </td>
-                                                    <td className="px-4 py-2 whitespace-nowrap text-xs">
-                                                        {grade?.worksheetNumber > 0 || grade?.grade ? (
-                                                            <span className="text-blue-600">Create</span>
-                                                        ) : (
-                                                            <span className="text-gray-500">-</span>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
+                        <>
+                            <DataTable
+                                columns={columns}
+                                data={studentGrades}
+                                onDataChange={setStudentGrades}
+                            />
+                            <div className="flex justify-end mt-6">
+                                <Button
+                                    onClick={handleSave}
+                                    disabled={isSaving || studentGrades.every(g => !g.worksheetNumber && !g.grade)}
+                                    className="w-full sm:w-auto"
+                                >
+                                    {isSaving ? 'Saving...' : 'Save All Changes'}
+                                </Button>
                             </div>
-                        </div>
-                    )}
-
-                    {selectedClass && students.length > 0 && (
-                        <div className="flex justify-end mt-6">
-                            <Button
-                                onClick={handleSave}
-                                disabled={isSaving || Object.values(studentGrades).every(g => !g.worksheetNumber && !g.grade)}
-                                className="w-full sm:w-auto"
-                            >
-                                {isSaving ? 'Saving...' : 'Save All Changes'}
-                            </Button>
-                        </div>
+                        </>
                     )}
                 </CardContent>
             </Card>

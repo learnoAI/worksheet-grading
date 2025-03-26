@@ -21,15 +21,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Check if user is already logged in
     useEffect(() => {
         const checkAuth = async () => {
-            const token = localStorage.getItem('token');
-            if (token) {
-                try {
-                    const userData = await authAPI.getCurrentUser();
-                    setUser(userData);
-                } catch (err) {
-                    console.error('Authentication error:', err);
-                    localStorage.removeItem('token');
-                }
+            try {
+                const userData = await authAPI.getCurrentUser();
+                setUser(userData);
+            } catch (err) {
+                console.error('Authentication error:', err);
+                document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
             }
             setIsLoading(false);
         };
@@ -43,7 +40,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setError(null);
         try {
             const response = await authAPI.login(username, password);
-            localStorage.setItem('token', response.token);
+            // Set cookie with token
+            document.cookie = `token=${response.token}; path=/`;
             setUser(response.user);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Login failed');
@@ -55,7 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Logout function
     const logout = () => {
-        localStorage.removeItem('token');
+        document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
         setUser(null);
     };
 

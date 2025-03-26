@@ -187,6 +187,12 @@ export const getWorksheetsByStudent = async (req: Request, res: Response) => {
                         name: true
                     }
                 },
+                template: {
+                    select: {
+                        id: true,
+                        worksheetNumber: true
+                    }
+                },
                 images: true
             },
             orderBy: {
@@ -249,14 +255,18 @@ export const getTeacherClasses = async (req: Request, res: Response) => {
             teacherId: teacherId
         },
         include: {
-            class: true
+            class: {
+                include: {
+                    school: true
+                }
+            }
         }
     });
 
     // Transform the data to match the frontend's needs
     const transformedClasses = classes.map(tc => ({
         id: tc.class.id,
-        name: tc.class.name
+        name: `${tc.class.school.name} - ${tc.class.name}`,
     }));
 
     res.json(transformedClasses);
@@ -274,7 +284,9 @@ export const getClassStudents = async (req: Request, res: Response) => {
             student: {
                 select: {
                     id: true,
-                    username: true
+                    username: true,
+                    name: true,
+                    tokenNumber: true
                 }
             }
         }
@@ -283,7 +295,9 @@ export const getClassStudents = async (req: Request, res: Response) => {
     // Transform the data to match the frontend's needs
     const transformedStudents = students.map(sc => ({
         id: sc.student.id,
-        username: sc.student.username
+        username: sc.student.username,
+        name: sc.student.name,
+        tokenNumber: sc.student.tokenNumber
     }));
 
     res.json(transformedStudents);
@@ -330,7 +344,7 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
                 notes,
                 submittedById: submittedById!,
                 status: ProcessingStatus.COMPLETED,
-                outOf: 10,
+                outOf: 40,
                 submittedOn: submittedOn ? new Date(submittedOn) : undefined
             }
         });
@@ -387,50 +401,57 @@ export const findWorksheetByClassStudentDate = async (req: Request, res: Respons
 
 // Update a graded worksheet
 export const updateGradedWorksheet = async (req: Request, res: Response) => {
-    const { worksheetNumber: urlWorksheetNumber } = req.params;
+    const { id } = req.params;
     const { classId, studentId, worksheetNumber, grade, notes, submittedOn } = req.body;
+    console.log(req.body);
     const submittedById = req.user?.userId;
 
     try {
         // Find the template by worksheet number
         const template = await prisma.worksheetTemplate.findFirst({
             where: {
-                worksheetNumber: parseInt(urlWorksheetNumber)
+                worksheetNumber: worksheetNumber
             }
         });
 
         if (!template) {
-            return res.status(404).json({ message: `No template found for worksheet number ${urlWorksheetNumber}` });
+            return res.status(404).json({ message: `No template found for worksheet number ${worksheetNumber}` });
         }
 
         // Find the existing worksheet
-        const existingWorksheet = await prisma.worksheet.findFirst({
-            where: {
-                classId,
-                studentId,
-                templateId: template.id,
-                submittedOn: {
-                    gte: new Date(submittedOn),
-                    lt: new Date(new Date(submittedOn).setDate(new Date(submittedOn).getDate() + 1))
-                }
-            }
+        const existingWorksheet = await prisma.worksheet.findUnique({
+            where: { id }
         });
 
         if (!existingWorksheet) {
             return res.status(404).json({ message: 'No worksheet found to update' });
         }
 
+        console.log("existingWorksheet", existingWorksheet);
+
+        console.log("template", template);
+
+        const data = {
+            grade,
+            notes,
+            submittedById: submittedById!,
+            status: ProcessingStatus.COMPLETED,
+            outOf: 40,
+            templateId: template.id,
+            submittedOn: submittedOn ? new Date(submittedOn) : undefined
+        }
+
+        console.log("data", data);
+
         const worksheet = await prisma.worksheet.update({
-            where: { id: existingWorksheet.id },
-            data: {
-                grade,
-                notes,
-                submittedById: submittedById!,
-                status: ProcessingStatus.COMPLETED,
-                outOf: 10,
-                submittedOn: submittedOn ? new Date(submittedOn) : undefined
-            }
+            where: { id },
+            data
+        }).catch(error => {
+            console.error('Update graded worksheet error:', error);
+            return res.status(500).json({ message: 'Server error while updating worksheet' });
         });
+
+        console.log("worksheet", worksheet);
 
         res.status(200).json(worksheet);
     } catch (error) {

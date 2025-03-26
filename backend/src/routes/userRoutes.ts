@@ -18,6 +18,7 @@ router.post(
     [
         auth,
         authorizeRoles([UserRole.ADMIN, UserRole.SUPERADMIN]),
+        body('name').notEmpty().withMessage('Name is required'),
         body('username').notEmpty().withMessage('Username is required'),
         body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
         body('role').isIn(Object.values(UserRole)).withMessage('Invalid role')
@@ -31,6 +32,7 @@ router.put(
     [
         auth,
         authorizeRoles([UserRole.ADMIN, UserRole.SUPERADMIN]),
+        body('name').optional(),
         body('username').optional(),
         body('password').optional().isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
         body('role').optional().isIn(Object.values(UserRole)).withMessage('Invalid role')

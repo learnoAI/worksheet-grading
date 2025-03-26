@@ -21,9 +21,11 @@ export enum NotificationStatus {
 
 export interface User {
     id: string;
+    name: string;
     username: string;
     role: UserRole;
     createdAt: string;
+    tokenNumber: string;
     updatedAt: string;
     adminSchools?: AdminSchool[];
     notifications?: Notification[];

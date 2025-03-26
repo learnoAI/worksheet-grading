@@ -120,13 +120,13 @@ router.post(
 
 // Update a graded worksheet
 router.put(
-    '/grade/:worksheetNumber',
+    '/grade/:id',
     [
         auth,
         authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
         body('classId').notEmpty().withMessage('Class ID is required'),
         body('studentId').notEmpty().withMessage('Student ID is required'),
-        body('worksheetNumber').isInt({ min: 1 }).withMessage('Worksheet number must be a positive integer'),
+        body('worksheetNumber').optional().isInt({ min: 1 }).withMessage('Worksheet number must be a positive integer'),
         body('grade').isFloat({ min: 0, max: 10 }).withMessage('Grade must be between 0 and 10'),
         body('notes').optional(),
         body('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date')

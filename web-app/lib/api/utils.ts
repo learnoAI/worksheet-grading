@@ -7,7 +7,11 @@ export async function fetchAPI<T>(
     endpoint: string,
     options: RequestInit = {}
 ): Promise<T> {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    // Get token from cookie
+    const token = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('token='))
+        ?.split('=')[1];
 
     const headers = {
         'Content-Type': 'application/json',
