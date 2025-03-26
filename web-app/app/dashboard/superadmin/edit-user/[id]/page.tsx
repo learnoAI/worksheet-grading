@@ -12,13 +12,9 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import Link from 'next/link';
 
-interface EditUserPageProps {
-    params: {
-        id: string;
-    };
-}
 
-export default function EditUserPage({ params }: EditUserPageProps) {
+
+export default function EditUserPage({ params }: { params: { id: string } }) {
     const { id } = params;
     const router = useRouter();
     const { user, isLoading } = useAuth();

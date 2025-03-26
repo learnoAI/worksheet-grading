@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { notificationAPI } from '@/lib/api';
+import { notificationAPI, NotificationStatus } from '@/lib/api';
 import { Notification } from '@/lib/api';
 import { toast } from 'sonner';
 
@@ -39,7 +39,7 @@ export default function NotificationsPage() {
             await notificationAPI.markAsRead(id);
             setNotifications(notifications.map(notification =>
                 notification.id === id
-                    ? { ...notification, status: 'READ' }
+                    ? { ...notification, status: NotificationStatus.READ }
                     : notification
             ));
             toast.success('Notification marked as read');
@@ -55,7 +55,7 @@ export default function NotificationsPage() {
             await notificationAPI.markAllAsRead();
             setNotifications(notifications.map(notification => ({
                 ...notification,
-                status: 'READ'
+                status: NotificationStatus.READ
             })));
             toast.success('All notifications marked as read');
         } catch (error) {
@@ -68,7 +68,7 @@ export default function NotificationsPage() {
         return <div>Loading notifications...</div>;
     }
 
-    const unreadCount = notifications.filter(n => n.status === 'UNREAD').length;
+    const unreadCount = notifications.filter(n => n.status === NotificationStatus.UNREAD).length;
 
     return (
         <div className="space-y-6">
@@ -97,8 +97,8 @@ export default function NotificationsPage() {
                                 <div
                                     key={notification.id}
                                     className={`p-4 rounded-lg border ${notification.status === 'UNREAD'
-                                            ? 'bg-blue-50 border-blue-200'
-                                            : 'bg-gray-50 border-gray-200'
+                                        ? 'bg-blue-50 border-blue-200'
+                                        : 'bg-gray-50 border-gray-200'
                                         }`}
                                 >
                                     <div className="flex justify-between items-start">
