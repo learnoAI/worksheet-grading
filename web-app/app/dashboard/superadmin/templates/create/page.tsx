@@ -81,7 +81,7 @@ export default function CreateTemplatePage() {
                                 placeholder="Enter worksheet number"
                             />
                             <p className="text-sm text-gray-500">
-                                You can leave this blank if you don't want to assign a number yet.
+                                You can leave this blank if you dont want to assign a number yet.
                             </p>
                         </div>
                     </CardContent>
