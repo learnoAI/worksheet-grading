@@ -35,11 +35,13 @@ export default function WorksheetsPage() {
     }, [user]);
 
     const handleUploadClick = () => {
-        router.push('/dashboard/worksheets/upload');
+        const basePath = user?.role === 'TEACHER' ? '/dashboard/teacher' : '/dashboard/superadmin';
+        router.push(`${basePath}/worksheets/upload`);
     };
 
     const handleViewWorksheet = (id: string) => {
-        router.push(`/dashboard/worksheets/${id}`);
+        const basePath = user?.role === 'TEACHER' ? '/dashboard/teacher' : '/dashboard/superadmin';
+        router.push(`${basePath}/worksheets/${id}`);
     };
 
     if (isLoading) {
@@ -50,7 +52,7 @@ export default function WorksheetsPage() {
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h1 className="text-2xl font-bold">Worksheets</h1>
-                <Button onClick={handleUploadClick}>Upload New Worksheet</Button>
+                <Button onClick={handleUploadClick}>Upload Worksheet</Button>
             </div>
 
             {/* Filters */}
@@ -59,20 +61,7 @@ export default function WorksheetsPage() {
                     <CardTitle>Filters</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="flex flex-wrap gap-4">
-                        <div className="w-full md:w-auto">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                            <select
-                                className="w-full rounded-md border border-gray-300 p-2 text-sm"
-                                onChange={(e) => console.log('Filter by status:', e.target.value)}
-                            >
-                                <option value="">All Statuses</option>
-                                <option value="PENDING">Pending</option>
-                                <option value="PROCESSING">Processing</option>
-                                <option value="COMPLETED">Completed</option>
-                                <option value="FAILED">Failed</option>
-                            </select>
-                        </div>
+                    <div className="flex flex-col md:flex-row gap-4">
                         <div className="w-full md:w-auto">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
                             <select
@@ -165,14 +154,14 @@ export default function WorksheetsPage() {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm text-gray-500">
+                                            <div className="text-sm text-gray-900">
                                                 {new Date(worksheet.createdAt).toLocaleDateString()}
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        <td className="px-6 py-4 whitespace-nowrap">
                                             <Button
-                                                variant="outline"
                                                 size="sm"
+                                                variant="outline"
                                                 onClick={() => handleViewWorksheet(worksheet.id)}
                                             >
                                                 View
@@ -182,7 +171,7 @@ export default function WorksheetsPage() {
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">
+                                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
                                         No worksheets found
                                     </td>
                                 </tr>

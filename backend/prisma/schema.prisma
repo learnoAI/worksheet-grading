@@ -8,28 +8,35 @@ datasource db {
 }
 
 model User {
-  id             String         @id @default(uuid())
-  username       String         @unique
-  password       String
-  role           UserRole
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  adminSchools   AdminSchool[]
-  notifications  Notification[]
-  studentClasses StudentClass[]
-  teacherClasses TeacherClass[]
-  worksheets     Worksheet[]    @relation("SubmittedBy")
+  id                String          @id @default(uuid())
+  username          String          @unique
+  password          String
+  name              String
+  tokenNumber       String?         @unique
+  role              UserRole
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  adminSchools      AdminSchool[]
+  notifications     Notification[]
+  studentClasses    StudentClass[]
+  teacherClasses    TeacherClass[]
+  studentSchools    StudentSchool[]
+  worksheets        Worksheet[]     @relation("SubmittedBy")
+  studentWorksheets Worksheet[]     @relation("StudentWorksheets")
+  teacherSchools    TeacherSchool[]
 }
 
 model School {
-  id           String        @id @default(uuid())
-  name         String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  clusterId    String?
-  adminSchools AdminSchool[]
-  classes      Class[]
-  cluster      Cluster?      @relation(fields: [clusterId], references: [id])
+  id             String          @id @default(uuid())
+  name           String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  clusterId      String?
+  adminSchools   AdminSchool[]
+  classes        Class[]
+  cluster        Cluster?        @relation(fields: [clusterId], references: [id])
+  teacherSchools TeacherSchool[]
+  studentSchools StudentSchool[]
 }
 
 model Cluster {
@@ -72,6 +79,16 @@ model StudentClass {
   @@id([studentId, classId])
 }
 
+model TeacherSchool {
+  teacherId String
+  schoolId  String
+  createdAt DateTime @default(now())
+  teacher   User     @relation(fields: [teacherId], references: [id])
+  school    School   @relation(fields: [schoolId], references: [id])
+
+  @@id([teacherId, schoolId])
+}
+
 model AdminSchool {
   adminId   String
   schoolId  String
@@ -82,19 +99,82 @@ model AdminSchool {
   @@id([adminId, schoolId])
 }
 
+model StudentSchool {
+  studentId String
+  schoolId  String
+  createdAt DateTime @default(now())
+  student   User     @relation(fields: [studentId], references: [id])
+  school    School   @relation(fields: [schoolId], references: [id])
+
+  @@id([studentId, schoolId])
+}
+
+model MathSkill {
+  id          String                      @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
+  worksheets  WorksheetTemplateQuestion[]
+}
+
+model WorksheetTemplate {
+  id              String                      @id @default(uuid())
+  worksheetNumber Int?                        @unique
+  worksheetImages WorksheetTemplateImage[]
+  questions       WorksheetTemplateQuestion[]
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+  worksheets      Worksheet[]
+}
+
+model WorksheetTemplateImage {
+  id                  String            @id @default(uuid())
+  imageUrl            String
+  pageNumber          Int
+  worksheetTemplateId String
+  worksheetTemplate   WorksheetTemplate @relation(fields: [worksheetTemplateId], references: [id])
+}
+
+model WorksheetTemplateQuestion {
+  id                  String              @id @default(uuid())
+  question            String
+  worksheetTemplateId String
+  worksheetTemplates  WorksheetTemplate[]
+  answer              String?
+  skills              MathSkill[]
+  outOf               Float?              @default(1)
+  worksheetQuestions  WorksheetQuestion[]
+}
+
+model WorksheetQuestion {
+  id               String                    @id @default(uuid())
+  question         String
+  worksheetId      String
+  worksheet        Worksheet                 @relation(fields: [worksheetId], references: [id])
+  questionId       String
+  templateQuestion WorksheetTemplateQuestion @relation(fields: [questionId], references: [id])
+}
+
 model Worksheet {
-  id            String           @id @default(uuid())
-  notes         String?
-  status        ProcessingStatus @default(PENDING)
-  grade         Float?
-  submittedById String
-  classId       String
-  studentId     String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  class         Class            @relation(fields: [classId], references: [id])
-  submittedBy   User             @relation("SubmittedBy", fields: [submittedById], references: [id])
-  images        WorksheetImage[]
+  id                 String              @id @default(uuid())
+  notes              String?
+  status             ProcessingStatus    @default(PENDING)
+  grade              Float?
+  outOf              Float?
+  submittedById      String
+  submittedOn        DateTime?
+  classId            String
+  studentId          String?
+  student            User?               @relation("StudentWorksheets", fields: [studentId], references: [id])
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  class              Class               @relation(fields: [classId], references: [id])
+  submittedBy        User                @relation("SubmittedBy", fields: [submittedById], references: [id])
+  images             WorksheetImage[]
+  templateId         String?
+  template           WorksheetTemplate?  @relation(fields: [templateId], references: [id])
+  worksheetQuestions WorksheetQuestion[]
 }
 
 model WorksheetImage {

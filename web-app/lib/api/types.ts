@@ -1,0 +1,182 @@
+// Types for API client
+
+export enum UserRole {
+    TEACHER = 'TEACHER',
+    STUDENT = 'STUDENT',
+    ADMIN = 'ADMIN',
+    SUPERADMIN = 'SUPERADMIN'
+}
+
+export enum ProcessingStatus {
+    PENDING = 'PENDING',
+    PROCESSING = 'PROCESSING',
+    COMPLETED = 'COMPLETED',
+    FAILED = 'FAILED'
+}
+
+export enum NotificationStatus {
+    READ = 'READ',
+    UNREAD = 'UNREAD'
+}
+
+export interface User {
+    id: string;
+    username: string;
+    role: UserRole;
+    createdAt: string;
+    updatedAt: string;
+    adminSchools?: AdminSchool[];
+    notifications?: Notification[];
+    studentClasses?: StudentClass[];
+    teacherClasses?: TeacherClass[];
+    worksheets?: Worksheet[];
+    studentWorksheets?: Worksheet[];
+}
+
+export interface School {
+    id: string;
+    name: string;
+    createdAt: string;
+    updatedAt: string;
+    clusterId?: string;
+    adminSchools?: AdminSchool[];
+    classes?: Class[];
+    cluster?: Cluster;
+}
+
+export interface Cluster {
+    id: string;
+    name: string;
+    createdAt: string;
+    updatedAt: string;
+    schools?: School[];
+}
+
+export interface Class {
+    id: string;
+    name: string;
+    schoolId: string;
+    createdAt: string;
+    updatedAt: string;
+    school?: School;
+    studentClasses?: StudentClass[];
+    teacherClasses?: TeacherClass[];
+    worksheets?: Worksheet[];
+}
+
+export interface TeacherClass {
+    teacherId: string;
+    classId: string;
+    createdAt: string;
+    class?: Class;
+    teacher?: User;
+}
+
+export interface StudentClass {
+    studentId: string;
+    classId: string;
+    createdAt: string;
+    class?: Class;
+    student?: User;
+}
+
+export interface AdminSchool {
+    adminId: string;
+    schoolId: string;
+    createdAt: string;
+    admin?: User;
+    school?: School;
+}
+
+export interface MathSkill {
+    id: string;
+    name: string;
+    description?: string;
+    createdAt: string;
+    updatedAt: string;
+    worksheets?: WorksheetTemplateQuestion[];
+}
+
+export interface WorksheetTemplate {
+    id: string;
+    worksheetNumber?: number;
+    createdAt: string;
+    updatedAt: string;
+    worksheetImages?: WorksheetTemplateImage[];
+    questions?: WorksheetTemplateQuestion[];
+    worksheets?: Worksheet[];
+}
+
+export interface WorksheetTemplateImage {
+    id: string;
+    imageUrl: string;
+    pageNumber: number;
+    worksheetTemplateId: string;
+    worksheetTemplate?: WorksheetTemplate;
+}
+
+export interface WorksheetTemplateQuestion {
+    id: string;
+    question: string;
+    worksheetTemplateId: string;
+    worksheetTemplates?: WorksheetTemplate[];
+    answer?: string;
+    skills?: MathSkill[];
+    outOf?: number;
+    worksheetQuestions?: WorksheetQuestion[];
+}
+
+export interface WorksheetQuestion {
+    id: string;
+    question: string;
+    worksheetId: string;
+    worksheet?: Worksheet;
+    questionId: string;
+    templateQuestion?: WorksheetTemplateQuestion;
+}
+
+export interface Worksheet {
+    id: string;
+    notes?: string;
+    status: ProcessingStatus;
+    grade?: number;
+    outOf?: number;
+    submittedById: string;
+    classId: string;
+    studentId?: string;
+    createdAt: string;
+    updatedAt: string;
+    submittedBy?: User;
+    class?: Class;
+    student?: User;
+    images?: WorksheetImage[];
+    templateId?: string;
+    template?: WorksheetTemplate;
+    worksheetQuestions?: WorksheetQuestion[];
+    submittedOn?: string;
+}
+
+export interface WorksheetImage {
+    id: string;
+    imageUrl: string;
+    pageNumber: number;
+    worksheetId: string;
+    createdAt: string;
+    updatedAt: string;
+    worksheet?: Worksheet;
+}
+
+export interface Notification {
+    id: string;
+    message: string;
+    userId: string;
+    status: NotificationStatus;
+    createdAt: string;
+    updatedAt: string;
+    user?: User;
+}
+
+export interface AuthResponse {
+    user: User;
+    token: string;
+} 
