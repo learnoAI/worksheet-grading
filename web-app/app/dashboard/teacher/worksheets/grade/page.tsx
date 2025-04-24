@@ -39,6 +39,16 @@ export default function GradeWorksheetPage() {
     // Student grades state
     const [studentGrades, setStudentGrades] = useState<StudentGrade[]>([]);
 
+    // Handle state updates from data table
+    const handleDataChange = (updatedData: StudentGrade[]) => {
+        // Create a completely new array to ensure React detects the state change
+        const newGrades = updatedData.map(grade => ({...grade}));
+        setStudentGrades(newGrades);
+        
+        // Debug - log the changed data
+        console.log('State updated with new grades:', newGrades);
+    };
+
     // Fetch teacher's classes on mount
     useEffect(() => {
         const fetchInitialData = async () => {
@@ -87,7 +97,9 @@ export default function GradeWorksheetPage() {
                             id: worksheet?.id || '',
                             worksheetNumber: worksheet?.template?.worksheetNumber || 0,
                             grade: worksheet?.grade?.toString() || '',
-                            existing: !!worksheet
+                            existing: !!worksheet,
+                            isAbsent: worksheet?.isAbsent || false,
+                            isRepeated: worksheet?.isRepeated || false
                         };
                     } catch (error) {
                         console.error(`Error fetching worksheet for student ${student.id}:`, error);
@@ -98,7 +110,9 @@ export default function GradeWorksheetPage() {
                             id: '',
                             worksheetNumber: 0,
                             grade: '',
-                            existing: false
+                            existing: false,
+                            isAbsent: false,
+                            isRepeated: false
                         };
                     }
                 }));
@@ -116,19 +130,28 @@ export default function GradeWorksheetPage() {
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            // Filter out students with no worksheet number or grade
-            const gradesToSubmit = studentGrades.filter(
-                grade => grade.worksheetNumber > 0 && grade.grade
+            // Ensure all students have either a grade or are marked as absent
+            const incompleteEntries = studentGrades.filter(
+                grade => !grade.isAbsent && (!grade.worksheetNumber || grade.worksheetNumber <= 0 || !grade.grade)
             );
+            
+            if (incompleteEntries.length > 0) {
+                toast.error(`Please fill in all student entries or mark them as absent. ${incompleteEntries.length} student(s) are incomplete.`);
+                setIsSaving(false);
+                return;
+            }
 
-            // Process each grade
-            await Promise.all(gradesToSubmit.map(async (grade) => {
+            // Process each grade including absent students
+            await Promise.all(studentGrades.map(async (grade) => {
                 const data = {
                     classId: selectedClass,
                     studentId: grade.studentId,
-                    worksheetNumber: grade.worksheetNumber,
-                    grade: parseFloat(grade.grade),
-                    submittedOn: new Date(submittedOn).toISOString()
+                    worksheetNumber: grade.isAbsent ? 0 : grade.worksheetNumber,
+                    grade: grade.isAbsent ? 0 : parseFloat(grade.grade),
+                    submittedOn: new Date(submittedOn).toISOString(),
+                    isAbsent: grade.isAbsent,
+                    isRepeated: grade.isRepeated || false,
+                    notes: grade.isAbsent ? 'Student absent' : undefined
                 };
 
                 if (grade.existing) {
@@ -139,6 +162,8 @@ export default function GradeWorksheetPage() {
             }));
 
             toast.success('Grades saved successfully');
+            // Refresh data to reflect the latest changes
+            router.refresh();
         } catch (error) {
             console.error('Error saving grades:', error);
             toast.error('Failed to save some grades');
@@ -204,9 +229,10 @@ export default function GradeWorksheetPage() {
                     {selectedClass && students.length > 0 && (
                         <>
                             <DataTable
+                                key={JSON.stringify(studentGrades)}
                                 columns={columns}
                                 data={studentGrades}
-                                onDataChange={setStudentGrades}
+                                onDataChange={handleDataChange}
                             />
                             <div className="flex justify-end mt-6">
                                 <Button
@@ -223,4 +249,4 @@ export default function GradeWorksheetPage() {
             </Card>
         </div>
     );
-} 
+}
