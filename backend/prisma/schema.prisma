@@ -161,7 +161,7 @@ model Worksheet {
   notes              String?
   status             ProcessingStatus    @default(PENDING)
   grade              Float?
-  outOf              Float?
+  outOf              Float?              @default(40)
   submittedById      String
   submittedOn        DateTime?
   classId            String
@@ -175,6 +175,8 @@ model Worksheet {
   templateId         String?
   template           WorksheetTemplate?  @relation(fields: [templateId], references: [id])
   worksheetQuestions WorksheetQuestion[]
+  isAbsent           Boolean             @default(false)
+  isRepeated         Boolean             @default(false)
 }
 
 model WorksheetImage {
