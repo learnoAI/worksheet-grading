@@ -92,6 +92,23 @@ export default function SuperAdminLayout({
                             <Link href="/dashboard/superadmin/classes" className="block p-2 rounded hover:bg-gray-100">
                                 Classes
                             </Link>
+                            
+                            {/* Analytics section */}
+                            <div className="pt-2 pb-1">
+                                <p className="px-2 text-sm font-medium text-gray-500">Analytics</p>
+                            </div>
+                            
+                            <Link href="/dashboard/superadmin/analytics" className="block p-2 rounded hover:bg-gray-100">
+                                Overall Analytics
+                            </Link>
+                            
+                            <Link href="/dashboard/superadmin/analytics/students" className="block p-2 rounded hover:bg-gray-100">
+                                Student Analytics
+                            </Link>
+
+                            <div className="pt-2 pb-1">
+                                <p className="px-2 text-sm font-medium text-gray-500">Management</p>
+                            </div>
 
                             <Link href="/dashboard/superadmin/templates" className="block p-2 rounded hover:bg-gray-100">
                                 Worksheet Templates
@@ -120,4 +137,4 @@ export default function SuperAdminLayout({
             </div>
         </div>
     );
-} 
+}

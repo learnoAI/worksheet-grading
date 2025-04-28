@@ -6,6 +6,7 @@ import userRoutes from './routes/userRoutes';
 import worksheetRoutes from './routes/worksheetRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import worksheetTemplateRoutes from './routes/worksheetTemplateRoutes';
+import analyticsRoutes from './routes/analyticsRoutes';
 import config from './config/env';
 import './services/queueService'; // Initialize queue
 
@@ -25,6 +26,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/worksheets', worksheetRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api', worksheetTemplateRoutes); // Add worksheet template routes
+app.use('/api/analytics', analyticsRoutes); // Add analytics routes
 
 // Health check route
 app.get('/health', (req: Request, res: Response) => {

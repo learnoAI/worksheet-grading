@@ -1,4 +1,9 @@
 ---
+description: 
+globs: 
+alwaysApply: false
+---
+---
 description: the structure of the project - backend and frontend
 globs: 
 alwaysApply: false
