@@ -1,4 +1,4 @@
-import { apiRequest } from '../api';
+import { fetchAPI } from './utils';
 
 // Types for analytics data
 export interface OverallAnalytics {
@@ -43,7 +43,7 @@ export interface Class {
 export const analyticsAPI = {
     // Get overall analytics data for a date range
     getOverallAnalytics: async (startDate: string, endDate: string): Promise<OverallAnalytics> => {
-        return apiRequest(`/analytics/overall?startDate=${startDate}&endDate=${endDate}`, {
+        return fetchAPI(`/analytics/overall?startDate=${startDate}&endDate=${endDate}`, {
             method: 'GET'
         });
     },
@@ -55,41 +55,41 @@ export const analyticsAPI = {
             const params = new URLSearchParams();
             if (filters.schoolId) params.append('schoolId', filters.schoolId);
             if (filters.classId) params.append('classId', filters.classId);
-            
+
             if (params.toString()) {
                 url += `?${params.toString()}`;
             }
         }
-        
-        return apiRequest(url, {
+
+        return fetchAPI(url, {
             method: 'GET'
         });
     },
 
     // Get all schools for filtering
     getAllSchools: async (): Promise<School[]> => {
-        return apiRequest('/analytics/schools', {
+        return fetchAPI('/analytics/schools', {
             method: 'GET'
         });
     },
 
     // Get classes for a school
     getClassesBySchool: async (schoolId: string): Promise<Class[]> => {
-        return apiRequest(`/analytics/schools/${schoolId}/classes`, {
+        return fetchAPI(`/analytics/schools/${schoolId}/classes`, {
             method: 'GET'
         });
     },
 
     // Remove a student from a class
     removeStudentFromClass: async (studentId: string, classId: string): Promise<{ message: string }> => {
-        return apiRequest(`/analytics/students/${studentId}/classes/${classId}`, {
+        return fetchAPI(`/analytics/students/${studentId}/classes/${classId}`, {
             method: 'DELETE'
         });
     },
 
     // Add a student to a class
     addStudentToClass: async (studentId: string, classId: string): Promise<any> => {
-        return apiRequest(`/analytics/students/${studentId}/classes/${classId}`, {
+        return fetchAPI(`/analytics/students/${studentId}/classes/${classId}`, {
             method: 'POST'
         });
     }
