@@ -53,11 +53,13 @@ export function DataTable<TData, TValue>({
         },
         meta: {
             updateData: (rowIndex: number, columnId: string, value: any) => {
+                console.log('updateData called:', rowIndex, columnId, value);
                 const newData = [...data];
                 (newData as any)[rowIndex] = {
                     ...(newData as any)[rowIndex],
                     [columnId]: value,
                 };
+                console.log('Updated newData:', newData);
                 onDataChange?.(newData);
             },
         },
@@ -172,4 +174,4 @@ export function DataTable<TData, TValue>({
             </div>
         </div>
     );
-} 
+}

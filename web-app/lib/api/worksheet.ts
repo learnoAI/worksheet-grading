@@ -11,6 +11,8 @@ interface GradedWorksheetData {
     grade: number;
     notes?: string;
     submittedOn: string;
+    isAbsent?: boolean;
+    isRepeated?: boolean;
 }
 
 interface CreateGradedWorksheetData {
@@ -21,6 +23,8 @@ interface CreateGradedWorksheetData {
     grade: number;
     notes?: string;
     submittedOn: string;
+    isAbsent?: boolean;
+    isRepeated?: boolean;
 }
 export const worksheetAPI = {
     uploadWorksheet: async (formData: FormData): Promise<Worksheet> => {
@@ -76,4 +80,4 @@ export const worksheetAPI = {
             body: JSON.stringify(data)
         });
     }
-}; 
+};

@@ -156,6 +156,8 @@ export interface Worksheet {
     template?: WorksheetTemplate;
     worksheetQuestions?: WorksheetQuestion[];
     submittedOn?: string;
+    isAbsent?: boolean;
+    isRepeated?: boolean;
 }
 
 export interface WorksheetImage {
@@ -181,4 +183,4 @@ export interface Notification {
 export interface AuthResponse {
     user: User;
     token: string;
-} 
+}

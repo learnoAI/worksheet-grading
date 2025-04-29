@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Worksheet" ADD COLUMN     "isAbsent" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "isRepeated" BOOLEAN NOT NULL DEFAULT false,
+ALTER COLUMN "outOf" SET DEFAULT 40;
