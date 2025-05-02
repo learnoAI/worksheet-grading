@@ -93,11 +93,52 @@ export const columns: ColumnDef<StudentGrade>[] = [
                             // This ensures the UI is immediately updated
                             const rowEl = document.querySelector(`[data-row-index="${row.index}"]`);
                             if (rowEl) {
+                                // Find and clear worksheet number input
                                 const worksheetInput = rowEl.querySelector('input[type="number"][min="1"]');
-                                const gradeInput = rowEl.querySelector('input[type="number"][max="10"]');
+                                if (worksheetInput) {
+                                    (worksheetInput as HTMLInputElement).value = '';
+                                    (worksheetInput as HTMLInputElement).placeholder = 'N/A';
+                                    (worksheetInput as HTMLInputElement).disabled = true;
+                                }
                                 
-                                if (worksheetInput) (worksheetInput as HTMLInputElement).value = '';
-                                if (gradeInput) (gradeInput as HTMLInputElement).value = '';
+                                // Find and clear grade input
+                                const gradeInput = rowEl.querySelector('input[type="number"][max="10"]');
+                                if (gradeInput) {
+                                    (gradeInput as HTMLInputElement).value = '';
+                                    (gradeInput as HTMLInputElement).placeholder = 'N/A';
+                                    (gradeInput as HTMLInputElement).disabled = true;
+                                }
+                                
+                                // Find and disable repeated checkbox
+                                const repeatedCheckbox = rowEl.querySelector('input[type="checkbox"]:not(:first-child)');
+                                if (repeatedCheckbox) {
+                                    (repeatedCheckbox as HTMLInputElement).checked = false;
+                                    (repeatedCheckbox as HTMLInputElement).disabled = true;
+                                }
+                            }
+                        } else {
+                            // When unchecking absent, re-enable the inputs
+                            const rowEl = document.querySelector(`[data-row-index="${row.index}"]`);
+                            if (rowEl) {
+                                // Find and enable worksheet number input
+                                const worksheetInput = rowEl.querySelector('input[type="number"][min="1"]');
+                                if (worksheetInput) {
+                                    (worksheetInput as HTMLInputElement).disabled = false;
+                                    (worksheetInput as HTMLInputElement).placeholder = "";
+                                }
+                                
+                                // Find and enable grade input
+                                const gradeInput = rowEl.querySelector('input[type="number"][max="10"]');
+                                if (gradeInput) {
+                                    (gradeInput as HTMLInputElement).disabled = false;
+                                    (gradeInput as HTMLInputElement).placeholder = "";
+                                }
+                                
+                                // Find and enable repeated checkbox
+                                const repeatedCheckbox = rowEl.querySelector('input[type="checkbox"]:not(:first-child)');
+                                if (repeatedCheckbox) {
+                                    (repeatedCheckbox as HTMLInputElement).disabled = false;
+                                }
                             }
                         }
                     }}
@@ -115,20 +156,37 @@ export const columns: ColumnDef<StudentGrade>[] = [
         cell: ({ row, table }) => {
             const updateData = (table as any).options.meta?.updateData;
             const isAbsent = !!row.original.isAbsent;
+            
+            // Using useState to manage local input state to prevent deselecting
+            const [inputValue, setInputValue] = useState(
+                isAbsent ? '' : (row.getValue("worksheetNumber") || '')
+            );
+            
+            // Update local state when row data changes
+            useEffect(() => {
+                setInputValue(isAbsent ? '' : (row.getValue("worksheetNumber") || ''));
+            }, [isAbsent, row]);
+            
             return (
                 <Input
                     type="number"
                     min="1"
                     step="1"
-                    value={isAbsent ? '' : (row.getValue("worksheetNumber") || '')}
+                    value={inputValue}
                     onChange={(e) => {
-                        const value = parseInt(e.target.value) || 0;
-                        updateData(row.index, "worksheetNumber", value);
+                        const newValue = e.target.value;
+                        setInputValue(newValue);
+                        const numValue = parseInt(newValue) || 0;
                         
-                        // If entering a valid worksheet number, automatically unmark as absent
-                        if (value > 0 && isAbsent) {
-                            updateData(row.index, "isAbsent", false);
-                        }
+                        // Only update the data after a small delay to prevent constant re-renders
+                        setTimeout(() => {
+                            updateData(row.index, "worksheetNumber", numValue);
+                            
+                            // If entering a valid worksheet number, automatically unmark as absent
+                            if (numValue > 0 && isAbsent) {
+                                updateData(row.index, "isAbsent", false);
+                            }
+                        }, 100);
                     }}
                     onClick={() => {
                         // If absent is checked, uncheck it when user attempts to enter worksheet number
@@ -173,29 +231,45 @@ export const columns: ColumnDef<StudentGrade>[] = [
         cell: ({ row, table }) => {
             const updateData = (table as any).options.meta?.updateData;
             const isAbsent = !!row.original.isAbsent;
+            
+            // Using useState to manage local input state to prevent deselecting
+            const [inputValue, setInputValue] = useState(
+                isAbsent ? '' : (row.getValue("grade") || '')
+            );
+            
+            // Update local state when row data changes
+            useEffect(() => {
+                setInputValue(isAbsent ? '' : (row.getValue("grade") || ''));
+            }, [isAbsent, row]);
+            
             return (
                 <Input
                     type="number"
                     min="0"
                     max="10"
                     step="0.1"
-                    value={isAbsent ? '' : (row.getValue("grade") || '')}
+                    value={inputValue}
                     onChange={(e) => {
-                        const value = e.target.value;
-                        updateData(row.index, "grade", value);
+                        const newValue = e.target.value;
+                        setInputValue(newValue);
                         
-                        // If entering a valid grade, automatically unmark as absent
-                        if (value && isAbsent) {
-                            updateData(row.index, "isAbsent", false);
-                        }
-                        
-                        // If grade is removed, consider marking as absent
-                        if (value === '') {
-                            const worksheetNumber = row.getValue("worksheetNumber") || 0;
-                            if (worksheetNumber === 0) {
-                                updateData(row.index, "isAbsent", true);
+                        // Only update the data after a small delay to prevent constant re-renders
+                        setTimeout(() => {
+                            updateData(row.index, "grade", newValue);
+                            
+                            // If entering a valid grade, automatically unmark as absent
+                            if (newValue && isAbsent) {
+                                updateData(row.index, "isAbsent", false);
                             }
-                        }
+                            
+                            // If grade is removed, consider marking as absent
+                            if (newValue === '') {
+                                const worksheetNumber = row.getValue("worksheetNumber") || 0;
+                                if (worksheetNumber === 0) {
+                                    updateData(row.index, "isAbsent", true);
+                                }
+                            }
+                        }, 100);
                     }}
                     onClick={() => {
                         // If absent is checked, uncheck it when user attempts to enter grade

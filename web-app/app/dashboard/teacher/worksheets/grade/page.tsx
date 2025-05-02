@@ -93,7 +93,7 @@ export default function GradeWorksheetPage() {
                     );
 
                     // Ensure that absent students have empty values
-                    const isAbsent = worksheet ? !!worksheet.isAbsent : false;
+                    const isAbsent = worksheet ? !!worksheet.isAbsent : true; // Default to absent when no worksheet exists
                     
                     return {
                         studentId: student.id,
@@ -116,7 +116,7 @@ export default function GradeWorksheetPage() {
                         worksheetNumber: 0,
                         grade: '',
                         existing: false,
-                        isAbsent: false,
+                        isAbsent: true, // Default to absent for new entries or errors
                         isRepeated: false
                     };
                 }

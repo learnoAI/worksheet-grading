@@ -82,7 +82,7 @@ export default function UploadWorksheetPage() {
                     name: student.name,
                     tokenNumber: student.tokenNumber,
                     worksheetNumber: 0,
-                    isAbsent: false,
+                    isAbsent: true,  // Default to absent
                     files: null,
                     grade: '',
                     isUploading: false
