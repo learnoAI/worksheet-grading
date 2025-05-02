@@ -30,26 +30,20 @@ export default function GradeWorksheetPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
 
-    // Form state
     const [classes, setClasses] = useState<Class[]>([]);
     const [selectedClass, setSelectedClass] = useState<string>('');
     const [students, setStudents] = useState<Student[]>([]);
     const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
 
-    // Student grades state
     const [studentGrades, setStudentGrades] = useState<StudentGrade[]>([]);
 
-    // Handle state updates from data table
     const handleDataChange = (updatedData: StudentGrade[]) => {
-        // Create a completely new array to ensure React detects the state change
         const newGrades = updatedData.map(grade => ({...grade}));
         setStudentGrades(newGrades);
         
-        // Debug - log the changed data
         console.log('State updated with new grades:', newGrades);
     };
 
-    // Fetch teacher's classes on mount
     useEffect(() => {
         const fetchInitialData = async () => {
             if (!user?.id) return;
@@ -68,70 +62,175 @@ export default function GradeWorksheetPage() {
         fetchInitialData();
     }, [user?.id]);
 
-    // Fetch students and their existing worksheets when class or date changes
     useEffect(() => {
-        const fetchStudentsAndWorksheets = async () => {
+        const loadStudentsData = async () => {
             if (!selectedClass) {
                 setStudents([]);
                 setStudentGrades([]);
                 return;
             }
-
-            try {
-                const studentsData = await classAPI.getClassStudents(selectedClass);
-                setStudents(studentsData);
-
-                // Initialize grades for all students
-                const grades = await Promise.all(studentsData.map(async (student) => {
-                    try {
-                        const worksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                            selectedClass,
-                            student.id,
-                            submittedOn
-                        );
-
-                        return {
-                            studentId: student.id,
-                            name: student.name,
-                            tokenNumber: student.tokenNumber,
-                            id: worksheet?.id || '',
-                            worksheetNumber: worksheet?.template?.worksheetNumber || 0,
-                            grade: worksheet?.grade?.toString() || '',
-                            existing: !!worksheet,
-                            isAbsent: worksheet?.isAbsent || false,
-                            isRepeated: worksheet?.isRepeated || false
-                        };
-                    } catch (error) {
-                        console.error(`Error fetching worksheet for student ${student.id}:`, error);
-                        return {
-                            studentId: student.id,
-                            name: student.name,
-                            tokenNumber: student.tokenNumber,
-                            id: '',
-                            worksheetNumber: 0,
-                            grade: '',
-                            existing: false,
-                            isAbsent: false,
-                            isRepeated: false
-                        };
-                    }
-                }));
-
-                setStudentGrades(grades);
-            } catch (error) {
-                console.error('Error fetching students:', error);
-                toast.error('Failed to load students');
-            }
+            await fetchStudentsAndWorksheets();
         };
-
-        fetchStudentsAndWorksheets();
+        
+        loadStudentsData();
     }, [selectedClass, submittedOn]);
+
+    const fetchStudentsAndWorksheets = async () => {
+        if (!selectedClass) {
+            return;
+        }
+
+        try {
+            const studentsData = await classAPI.getClassStudents(selectedClass);
+            setStudents(studentsData); // Make sure to update the students array
+            
+            const grades = await Promise.all(studentsData.map(async (student) => {
+                try {
+                    const worksheet = await worksheetAPI.getWorksheetByClassStudentDate(
+                        selectedClass,
+                        student.id,
+                        submittedOn
+                    );
+
+                    // Ensure that absent students have empty values
+                    const isAbsent = worksheet ? !!worksheet.isAbsent : true; // Default to absent when no worksheet exists
+                    
+                    return {
+                        studentId: student.id,
+                        name: student.name,
+                        tokenNumber: student.tokenNumber,
+                        id: worksheet?.id || '',
+                        worksheetNumber: isAbsent ? 0 : (worksheet?.template?.worksheetNumber || 0),
+                        grade: isAbsent ? '' : (worksheet?.grade?.toString() || ''),
+                        existing: !!worksheet,
+                        isAbsent: isAbsent,
+                        isRepeated: isAbsent ? false : (worksheet?.isRepeated || false)
+                    };
+                } catch (error) {
+                    console.error(`Error fetching worksheet for student ${student.id}:`, error);
+                    return {
+                        studentId: student.id,
+                        name: student.name,
+                        tokenNumber: student.tokenNumber,
+                        id: '',
+                        worksheetNumber: 0,
+                        grade: '',
+                        existing: false,
+                        isAbsent: true, // Default to absent for new entries or errors
+                        isRepeated: false
+                    };
+                }
+            }));
+
+            setStudentGrades(grades);
+        } catch (error) {
+            console.error('Error refreshing student data:', error);
+            toast.error('Failed to refresh student data');
+        }
+    };
+
+    const handleSaveStudent = async (grade: StudentGrade) => {
+        try {
+            let updatedGrade = { ...grade };
+            if (updatedGrade.isAbsent) {
+                updatedGrade = {
+                    ...updatedGrade,
+                    worksheetNumber: 0,
+                    grade: "",
+                    isRepeated: false
+                };
+            }
+
+            if (!updatedGrade.isAbsent && (!updatedGrade.worksheetNumber || updatedGrade.worksheetNumber <= 0 || !updatedGrade.grade)) {
+                toast.error('Please fill in all fields or mark the student as absent');
+                return;
+            }
+
+            const data = {
+                classId: selectedClass,
+                studentId: updatedGrade.studentId,
+                worksheetNumber: updatedGrade.isAbsent ? 0 : updatedGrade.worksheetNumber,
+                grade: updatedGrade.isAbsent ? 0 : parseFloat(updatedGrade.grade),
+                submittedOn: new Date(submittedOn).toISOString(),
+                isAbsent: updatedGrade.isAbsent,
+                isRepeated: updatedGrade.isAbsent ? false : (updatedGrade.isRepeated || false),
+                notes: updatedGrade.isAbsent ? 'Student absent' : undefined
+            };
+
+            if (updatedGrade.existing) {
+                await worksheetAPI.updateGradedWorksheet(updatedGrade.id, data);
+            } else {
+                await worksheetAPI.createGradedWorksheet(data);
+            }
+
+            toast.success(`Grade for ${updatedGrade.name} saved successfully`);
+            
+            // Update student grade locally first for immediate feedback
+            setStudentGrades(prevGrades => prevGrades.map(g => 
+                g.studentId === updatedGrade.studentId ? updatedGrade : g
+            ));
+            
+            // Then fetch from server to ensure full consistency
+            await fetchStudentData(updatedGrade.studentId);
+            
+        } catch (error) {
+            console.error('Error saving grade:', error);
+            toast.error(`Failed to save grade for ${grade.name}`);
+        }
+    };
+
+    // Fetch data for a single student
+    const fetchStudentData = async (studentId: string) => {
+        try {
+            const worksheet = await worksheetAPI.getWorksheetByClassStudentDate(
+                selectedClass,
+                studentId,
+                submittedOn
+            );
+            
+            // Ensure that absent students have empty values
+            const isAbsent = worksheet ? !!worksheet.isAbsent : false;
+            
+            // Update just this student in the state
+            setStudentGrades(prevGrades => prevGrades.map(g => 
+                g.studentId === studentId 
+                ? {
+                    ...g,
+                    id: worksheet?.id || g.id,
+                    worksheetNumber: isAbsent ? 0 : (worksheet?.template?.worksheetNumber || 0),
+                    grade: isAbsent ? '' : (worksheet?.grade?.toString() || ''),
+                    existing: !!worksheet,
+                    isAbsent: isAbsent,
+                    isRepeated: isAbsent ? false : (worksheet?.isRepeated || false)
+                } 
+                : g
+            ));
+        } catch (error) {
+            console.error(`Error refreshing data for student ${studentId}:`, error);
+        }
+    };
 
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            // Ensure all students have either a grade or are marked as absent
-            const incompleteEntries = studentGrades.filter(
+            // Force clear all data for absent students before saving
+            const consistentGrades = studentGrades.map(grade => {
+                if (grade.isAbsent) {
+                    return {
+                        ...grade,
+                        worksheetNumber: 0, // Force to 0 for absent students
+                        grade: "",          // Force to empty for absent students
+                        isRepeated: false   // Can't be repeated if absent
+                    };
+                }
+                return grade;
+            });
+            
+            // Update the state with consistent data
+            setStudentGrades(consistentGrades);
+
+            // Only validate non-absent students
+            const incompleteEntries = consistentGrades.filter(
                 grade => !grade.isAbsent && (!grade.worksheetNumber || grade.worksheetNumber <= 0 || !grade.grade)
             );
             
@@ -141,8 +240,8 @@ export default function GradeWorksheetPage() {
                 return;
             }
 
-            // Process each grade including absent students
-            await Promise.all(studentGrades.map(async (grade) => {
+            await Promise.all(consistentGrades.map(async (grade) => {
+                // Create a clean data object that enforces absent rules
                 const data = {
                     classId: selectedClass,
                     studentId: grade.studentId,
@@ -150,20 +249,27 @@ export default function GradeWorksheetPage() {
                     grade: grade.isAbsent ? 0 : parseFloat(grade.grade),
                     submittedOn: new Date(submittedOn).toISOString(),
                     isAbsent: grade.isAbsent,
-                    isRepeated: grade.isRepeated || false,
+                    isRepeated: grade.isAbsent ? false : (grade.isRepeated || false),
                     notes: grade.isAbsent ? 'Student absent' : undefined
                 };
 
-                if (grade.existing) {
-                    await worksheetAPI.updateGradedWorksheet(grade.id, data);
-                } else {
-                    await worksheetAPI.createGradedWorksheet(data);
+                try {
+                    // Always update if the record exists, whether absent or not
+                    if (grade.existing) {
+                        await worksheetAPI.updateGradedWorksheet(grade.id, data);
+                    } else {
+                        await worksheetAPI.createGradedWorksheet(data);
+                    }
+                } catch (error) {
+                    console.error(`Error saving grade for ${grade.name}:`, error);
+                    throw error; // Re-throw to catch in outer catch block
                 }
             }));
 
-            toast.success('Grades saved successfully');
-            // Refresh data to reflect the latest changes
-            router.refresh();
+            toast.success('All grades saved successfully');
+            
+            // Completely refresh data after save to ensure consistency with server state
+            await fetchStudentsAndWorksheets();
         } catch (error) {
             console.error('Error saving grades:', error);
             toast.error('Failed to save some grades');
@@ -226,18 +332,19 @@ export default function GradeWorksheetPage() {
                         </div>
                     </div>
 
-                    {selectedClass && students.length > 0 && (
+                    {selectedClass && studentGrades.length > 0 && (
                         <>
                             <DataTable
                                 key={JSON.stringify(studentGrades)}
                                 columns={columns}
                                 data={studentGrades}
                                 onDataChange={handleDataChange}
+                                onSaveStudent={handleSaveStudent}
                             />
                             <div className="flex justify-end mt-6">
                                 <Button
                                     onClick={handleSave}
-                                    disabled={isSaving || studentGrades.every(g => !g.worksheetNumber && !g.grade)}
+                                    disabled={isSaving}
                                     className="w-full sm:w-auto"
                                 >
                                     {isSaving ? 'Saving...' : 'Save All Changes'}
