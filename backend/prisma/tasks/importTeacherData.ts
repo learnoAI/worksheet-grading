@@ -90,7 +90,7 @@ function readExcelFile(filePath: string): TeacherData[] {
             return {
                 SR_Name: row.SR_Name.toString().trim(),
                 School: row.School.toString().trim(),
-                Class: row.Class.toString().trim()
+                Class: `${row.Class.toString().trim()} (25-26)`
             };
         });
 
