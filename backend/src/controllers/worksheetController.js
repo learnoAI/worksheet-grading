@@ -302,10 +302,31 @@ exports.getWorksheetTemplates = getWorksheetTemplates;
 // Create a graded worksheet
 const createGradedWorksheet = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
-    const { classId, studentId, worksheetNumber, grade, notes, submittedOn } = req.body;
+    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated } = req.body;
     const submittedById = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
     try {
-        // Find the template by worksheet number
+        // If student is absent, create a record marking them as absent
+        if (isAbsent) {
+            const worksheet = yield prisma_1.default.worksheet.create({
+                data: {
+                    classId,
+                    studentId,
+                    grade: 0, // Default grade for absent student
+                    notes: notes || 'Student absent',
+                    submittedById: submittedById,
+                    status: client_1.ProcessingStatus.COMPLETED,
+                    outOf: 40,
+                    templateId: null, // Explicitly set to null for absent students
+                    submittedOn: submittedOn ? new Date(submittedOn) : undefined,
+                    isAbsent: true,
+                    isRepeated: false,
+                }
+            });
+
+            return res.status(201).json(worksheet);
+        }
+        
+        // Find the template by worksheet number for non-absent students
         const template = yield prisma_1.default.worksheetTemplate.findFirst({
             where: {
                 worksheetNumber
@@ -324,7 +345,9 @@ const createGradedWorksheet = (req, res) => __awaiter(void 0, void 0, void 0, fu
                 submittedById: submittedById,
                 status: client_1.ProcessingStatus.COMPLETED,
                 outOf: 40,
-                submittedOn: submittedOn ? new Date(submittedOn) : undefined
+                submittedOn: submittedOn ? new Date(submittedOn) : undefined,
+                isAbsent: false,
+                isRepeated: isRepeated || false,
             }
         });
         res.status(201).json(worksheet);
@@ -380,10 +403,42 @@ exports.findWorksheetByClassStudentDate = findWorksheetByClassStudentDate;
 const updateGradedWorksheet = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const { id } = req.params;
-    const { classId, studentId, worksheetNumber, grade, notes, submittedOn } = req.body;
-    console.log(req.body);
+    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated } = req.body;
+    console.log('Update worksheet request:', req.body);
     const submittedById = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
     try {
+        // Find the existing worksheet
+        const existingWorksheet = yield prisma_1.default.worksheet.findUnique({
+            where: { id }
+        });
+        if (!existingWorksheet) {
+            return res.status(404).json({ message: 'No worksheet found to update' });
+        }
+        
+        // If student is marked as absent - handle specially without requiring a template
+        if (isAbsent) {
+            console.log('Marking student as absent - clearing all grade data');
+            const worksheet = yield prisma_1.default.worksheet.update({
+                where: { id },
+                data: {
+                    classId,
+                    studentId,
+                    grade: 0, // Force zero grade for absent student
+                    notes: notes || 'Student absent',
+                    submittedById: submittedById,
+                    status: client_1.ProcessingStatus.COMPLETED,
+                    outOf: 40,
+                    templateId: null, // No template needed for absent students
+                    submittedOn: submittedOn ? new Date(submittedOn) : undefined,
+                    isAbsent: true,
+                    isRepeated: false // Can't be repeated if absent
+                }
+            });
+            
+            return res.status(200).json(worksheet);
+        }
+
+        // Handle non-absent case
         // Find the template by worksheet number
         const template = yield prisma_1.default.worksheetTemplate.findFirst({
             where: {
@@ -393,33 +448,26 @@ const updateGradedWorksheet = (req, res) => __awaiter(void 0, void 0, void 0, fu
         if (!template) {
             return res.status(404).json({ message: `No template found for worksheet number ${worksheetNumber}` });
         }
-        // Find the existing worksheet
-        const existingWorksheet = yield prisma_1.default.worksheet.findUnique({
-            where: { id }
-        });
-        if (!existingWorksheet) {
-            return res.status(404).json({ message: 'No worksheet found to update' });
-        }
-        console.log("existingWorksheet", existingWorksheet);
-        console.log("template", template);
+        
         const data = {
+            classId,
+            studentId,
             grade,
             notes,
             submittedById: submittedById,
             status: client_1.ProcessingStatus.COMPLETED,
             outOf: 40,
             templateId: template.id,
-            submittedOn: submittedOn ? new Date(submittedOn) : undefined
+            submittedOn: submittedOn ? new Date(submittedOn) : undefined,
+            isAbsent: false,
+            isRepeated: isRepeated || false
         };
-        console.log("data", data);
+        
         const worksheet = yield prisma_1.default.worksheet.update({
             where: { id },
             data
-        }).catch(error => {
-            console.error('Update graded worksheet error:', error);
-            return res.status(500).json({ message: 'Server error while updating worksheet' });
         });
-        console.log("worksheet", worksheet);
+        
         res.status(200).json(worksheet);
     }
     catch (error) {

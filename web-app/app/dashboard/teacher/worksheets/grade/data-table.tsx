@@ -28,12 +28,14 @@ interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[];
     data: TData[];
     onDataChange?: (updatedData: TData[]) => void;
+    onSaveStudent?: (student: TData) => void;
 }
 
 export function DataTable<TData, TValue>({
     columns,
     data,
     onDataChange,
+    onSaveStudent,
 }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -68,14 +70,38 @@ export function DataTable<TData, TValue>({
     const handleBulkWorksheetUpdate = () => {
         const worksheetNumber = parseInt(bulkWorksheetNumber);
         if (!isNaN(worksheetNumber) && worksheetNumber > 0) {
-            const newData = data.map(row => ({
-                ...row,
-                worksheetNumber,
-            }));
+            const newData = data.map(row => {
+                // Only update non-absent students or mark all as present with the new worksheet number
+                return {
+                    ...row,
+                    worksheetNumber,
+                    isAbsent: false // Setting worksheet number means student is present
+                };
+            });
             onDataChange?.(newData);
             setBulkWorksheetNumber('');
         }
     };
+
+    const displayColumns = React.useMemo(() => {
+        if (!onSaveStudent) return columns;
+        
+        const saveColumn: ColumnDef<TData, any> = {
+            id: "actions",
+            header: "Actions",
+            cell: ({ row }) => (
+                <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => onSaveStudent(row.original)}
+                >
+                    Save
+                </Button>
+            ),
+        };
+        
+        return [...columns, saveColumn];
+    }, [columns, onSaveStudent]);
 
     return (
         <div className="space-y-4">
@@ -148,6 +174,7 @@ export function DataTable<TData, TValue>({
                                 <TableRow
                                     key={row.id}
                                     data-state={row.getIsSelected() && "selected"}
+                                    data-row-index={row.index}
                                 >
                                     {row.getVisibleCells().map((cell) => (
                                         <TableCell key={cell.id}>
@@ -162,7 +189,7 @@ export function DataTable<TData, TValue>({
                         ) : (
                             <TableRow>
                                 <TableCell
-                                    colSpan={columns.length}
+                                    colSpan={displayColumns.length}
                                     className="h-24 text-center"
                                 >
                                     No results.
@@ -171,6 +198,10 @@ export function DataTable<TData, TValue>({
                         )}
                     </TableBody>
                 </Table>
+            </div>
+            
+            <div className="text-sm text-muted-foreground">
+                Showing {data.length} students
             </div>
         </div>
     );

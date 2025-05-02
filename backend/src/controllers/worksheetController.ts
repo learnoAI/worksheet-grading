@@ -437,29 +437,30 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'No worksheet found to update' });
         }
 
-        // If student is marked as absent
+        // If student is marked as absent, completely clear all grade data
         if (isAbsent) {
+            console.log('Marking student as absent - clearing all grade data');
             const worksheet = await prisma.worksheet.update({
                 where: { id },
                 data: {
                     classId,
                     studentId,
-                    grade: 0,
+                    grade: 0, // Force zero grade for absent student
                     notes: notes || 'Student absent',
                     submittedById: submittedById!,
                     status: ProcessingStatus.COMPLETED,
                     outOf: 40,
-                    templateId: null, // Remove template association for absent students
+                    templateId: null, // Explicitly remove template association
                     submittedOn: submittedOn ? new Date(submittedOn) : undefined,
                     isAbsent: true,
-                    isRepeated: false,
+                    isRepeated: false, // Can't be repeated if absent
                 }
             });
 
             return res.status(200).json(worksheet);
         }
 
-        // Handle non-absent case
+        // For non-absent students, handle normally
         // Find the template by worksheet number
         const template = await prisma.worksheetTemplate.findFirst({
             where: {

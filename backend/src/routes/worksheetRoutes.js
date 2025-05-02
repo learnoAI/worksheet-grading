@@ -72,7 +72,17 @@ router.post('/grade', [
     (0, utils_1.authorizeRoles)([client_1.UserRole.TEACHER, client_1.UserRole.ADMIN, client_1.UserRole.SUPERADMIN]),
     (0, express_validator_1.body)('classId').notEmpty().withMessage('Class ID is required'),
     (0, express_validator_1.body)('studentId').notEmpty().withMessage('Student ID is required'),
-    (0, express_validator_1.body)('worksheetNumber').isInt({ min: 1 }).withMessage('Worksheet number must be a positive integer'),
+    (0, express_validator_1.body)('worksheetNumber').custom((value, { req }) => {
+        // If student is absent, worksheet number is not required
+        if (req.body.isAbsent) {
+            return true;
+        }
+        // Otherwise, it must be a positive integer
+        if (!Number.isInteger(Number(value)) || Number(value) < 1) {
+            throw new Error('Worksheet number must be a positive integer');
+        }
+        return true;
+    }),
     (0, express_validator_1.body)('grade').isFloat({ min: 0, max: 10 }).withMessage('Grade must be between 0 and 10'),
     (0, express_validator_1.body)('notes').optional(),
     (0, express_validator_1.body)('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date')
@@ -83,7 +93,17 @@ router.put('/grade/:id', [
     (0, utils_1.authorizeRoles)([client_1.UserRole.TEACHER, client_1.UserRole.ADMIN, client_1.UserRole.SUPERADMIN]),
     (0, express_validator_1.body)('classId').notEmpty().withMessage('Class ID is required'),
     (0, express_validator_1.body)('studentId').notEmpty().withMessage('Student ID is required'),
-    (0, express_validator_1.body)('worksheetNumber').optional().isInt({ min: 1 }).withMessage('Worksheet number must be a positive integer'),
+    (0, express_validator_1.body)('worksheetNumber').custom((value, { req }) => {
+        // If student is absent, worksheet number is not required
+        if (req.body.isAbsent) {
+            return true;
+        }
+        // Otherwise, it must be a positive integer
+        if (!Number.isInteger(Number(value)) || Number(value) < 1) {
+            throw new Error('Worksheet number must be a positive integer');
+        }
+        return true;
+    }),
     (0, express_validator_1.body)('grade').isFloat({ min: 0, max: 10 }).withMessage('Grade must be between 0 and 10'),
     (0, express_validator_1.body)('notes').optional(),
     (0, express_validator_1.body)('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date')

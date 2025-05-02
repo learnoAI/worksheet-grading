@@ -74,17 +74,31 @@ export const columns: ColumnDef<StudentGrade>[] = [
         cell: ({ row, table }) => {
             const updateData = (table as any).options.meta?.updateData;
             const isAbsent = !!row.original.isAbsent;
-            console.log('Rendering Absent checkbox:', row.index, isAbsent, row.original.name);
             
             return (
                 <ControlledCheckbox
                     checked={isAbsent}
                     onChange={(checked) => {
                         console.log('Checkbox changed for', row.original.name, ':', checked);
+                        // First, update the isAbsent state
                         updateData(row.index, "isAbsent", checked);
+                        
+                        // When marking as absent, ensure worksheet number and grade are cleared immediately
                         if (checked) {
+                            // Force clearing values to empty strings and numbers to zero
                             updateData(row.index, "worksheetNumber", 0);
                             updateData(row.index, "grade", "");
+                            updateData(row.index, "isRepeated", false);
+
+                            // This ensures the UI is immediately updated
+                            const rowEl = document.querySelector(`[data-row-index="${row.index}"]`);
+                            if (rowEl) {
+                                const worksheetInput = rowEl.querySelector('input[type="number"][min="1"]');
+                                const gradeInput = rowEl.querySelector('input[type="number"][max="10"]');
+                                
+                                if (worksheetInput) (worksheetInput as HTMLInputElement).value = '';
+                                if (gradeInput) (gradeInput as HTMLInputElement).value = '';
+                            }
                         }
                     }}
                     label="Absent"
@@ -106,10 +120,25 @@ export const columns: ColumnDef<StudentGrade>[] = [
                     type="number"
                     min="1"
                     step="1"
-                    value={row.getValue("worksheetNumber") || ''}
-                    onChange={(e) => updateData(row.index, "worksheetNumber", parseInt(e.target.value) || 0)}
+                    value={isAbsent ? '' : (row.getValue("worksheetNumber") || '')}
+                    onChange={(e) => {
+                        const value = parseInt(e.target.value) || 0;
+                        updateData(row.index, "worksheetNumber", value);
+                        
+                        // If entering a valid worksheet number, automatically unmark as absent
+                        if (value > 0 && isAbsent) {
+                            updateData(row.index, "isAbsent", false);
+                        }
+                    }}
+                    onClick={() => {
+                        // If absent is checked, uncheck it when user attempts to enter worksheet number
+                        if (isAbsent) {
+                            updateData(row.index, "isAbsent", false);
+                        }
+                    }}
                     className="w-20 h-8 px-2 text-sm"
                     disabled={isAbsent}
+                    placeholder={isAbsent ? "N/A" : ""}
                 />
             );
         },
@@ -150,8 +179,30 @@ export const columns: ColumnDef<StudentGrade>[] = [
                     min="0"
                     max="10"
                     step="0.1"
-                    value={row.getValue("grade") || ''}
-                    onChange={(e) => updateData(row.index, "grade", e.target.value)}
+                    value={isAbsent ? '' : (row.getValue("grade") || '')}
+                    onChange={(e) => {
+                        const value = e.target.value;
+                        updateData(row.index, "grade", value);
+                        
+                        // If entering a valid grade, automatically unmark as absent
+                        if (value && isAbsent) {
+                            updateData(row.index, "isAbsent", false);
+                        }
+                        
+                        // If grade is removed, consider marking as absent
+                        if (value === '') {
+                            const worksheetNumber = row.getValue("worksheetNumber") || 0;
+                            if (worksheetNumber === 0) {
+                                updateData(row.index, "isAbsent", true);
+                            }
+                        }
+                    }}
+                    onClick={() => {
+                        // If absent is checked, uncheck it when user attempts to enter grade
+                        if (isAbsent) {
+                            updateData(row.index, "isAbsent", false);
+                        }
+                    }}
                     className="w-16 h-8 px-2 text-sm"
                     disabled={isAbsent}
                     placeholder={isAbsent ? "N/A" : ""}
