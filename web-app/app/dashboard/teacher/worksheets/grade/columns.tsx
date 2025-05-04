@@ -6,25 +6,25 @@ import { DataTableColumnHeader } from "./data-table-column-header";
 import { useState, useEffect } from "react";
 
 // Custom checkbox component that forces re-render
-function ControlledCheckbox({ 
-    checked, 
-    onChange, 
+function ControlledCheckbox({
+    checked,
+    onChange,
     disabled = false,
     label
-}: { 
-    checked: boolean; 
-    onChange: (checked: boolean) => void; 
+}: {
+    checked: boolean;
+    onChange: (checked: boolean) => void;
     disabled?: boolean;
     label?: string;
 }) {
     // Local state to ensure UI updates
     const [isChecked, setIsChecked] = useState(checked);
-    
+
     // Update local state when prop changes
     useEffect(() => {
         setIsChecked(checked);
     }, [checked]);
-    
+
     return (
         <div className="flex items-center">
             <input
@@ -74,7 +74,7 @@ export const columns: ColumnDef<StudentGrade>[] = [
         cell: ({ row, table }) => {
             const updateData = (table as any).options.meta?.updateData;
             const isAbsent = !!row.original.isAbsent;
-            
+
             return (
                 <ControlledCheckbox
                     checked={isAbsent}
@@ -82,7 +82,7 @@ export const columns: ColumnDef<StudentGrade>[] = [
                         console.log('Checkbox changed for', row.original.name, ':', checked);
                         // First, update the isAbsent state
                         updateData(row.index, "isAbsent", checked);
-                        
+
                         // When marking as absent, ensure worksheet number and grade are cleared immediately
                         if (checked) {
                             // Force clearing values to empty strings and numbers to zero
@@ -100,7 +100,7 @@ export const columns: ColumnDef<StudentGrade>[] = [
                                     (worksheetInput as HTMLInputElement).placeholder = 'N/A';
                                     (worksheetInput as HTMLInputElement).disabled = true;
                                 }
-                                
+
                                 // Find and clear grade input
                                 const gradeInput = rowEl.querySelector('input[type="number"][max="10"]');
                                 if (gradeInput) {
@@ -108,7 +108,7 @@ export const columns: ColumnDef<StudentGrade>[] = [
                                     (gradeInput as HTMLInputElement).placeholder = 'N/A';
                                     (gradeInput as HTMLInputElement).disabled = true;
                                 }
-                                
+
                                 // Find and disable repeated checkbox
                                 const repeatedCheckbox = rowEl.querySelector('input[type="checkbox"]:not(:first-child)');
                                 if (repeatedCheckbox) {
@@ -126,14 +126,14 @@ export const columns: ColumnDef<StudentGrade>[] = [
                                     (worksheetInput as HTMLInputElement).disabled = false;
                                     (worksheetInput as HTMLInputElement).placeholder = "";
                                 }
-                                
+
                                 // Find and enable grade input
                                 const gradeInput = rowEl.querySelector('input[type="number"][max="10"]');
                                 if (gradeInput) {
                                     (gradeInput as HTMLInputElement).disabled = false;
                                     (gradeInput as HTMLInputElement).placeholder = "";
                                 }
-                                
+
                                 // Find and enable repeated checkbox
                                 const repeatedCheckbox = rowEl.querySelector('input[type="checkbox"]:not(:first-child)');
                                 if (repeatedCheckbox) {
@@ -156,17 +156,17 @@ export const columns: ColumnDef<StudentGrade>[] = [
         cell: ({ row, table }) => {
             const updateData = (table as any).options.meta?.updateData;
             const isAbsent = !!row.original.isAbsent;
-            
+
             // Using useState to manage local input state to prevent deselecting
             const [inputValue, setInputValue] = useState(
                 isAbsent ? '' : (row.getValue("worksheetNumber") || '')
             );
-            
+
             // Update local state when row data changes
             useEffect(() => {
                 setInputValue(isAbsent ? '' : (row.getValue("worksheetNumber") || ''));
             }, [isAbsent, row]);
-            
+
             return (
                 <Input
                     type="number"
@@ -177,16 +177,14 @@ export const columns: ColumnDef<StudentGrade>[] = [
                         const newValue = e.target.value;
                         setInputValue(newValue);
                         const numValue = parseInt(newValue) || 0;
-                        
-                        // Only update the data after a small delay to prevent constant re-renders
-                        setTimeout(() => {
-                            updateData(row.index, "worksheetNumber", numValue);
-                            
-                            // If entering a valid worksheet number, automatically unmark as absent
-                            if (numValue > 0 && isAbsent) {
-                                updateData(row.index, "isAbsent", false);
-                            }
-                        }, 100);
+
+                        // Update data immediately
+                        updateData(row.index, "worksheetNumber", numValue);
+
+                        // If entering a valid worksheet number, automatically unmark as absent
+                        if (numValue > 0 && isAbsent) {
+                            updateData(row.index, "isAbsent", false);
+                        }
                     }}
                     onClick={() => {
                         // If absent is checked, uncheck it when user attempts to enter worksheet number
@@ -209,7 +207,7 @@ export const columns: ColumnDef<StudentGrade>[] = [
             const updateData = (table as any).options.meta?.updateData;
             const isAbsent = !!row.original.isAbsent;
             const isRepeated = !!row.original.isRepeated;
-            
+
             return (
                 <ControlledCheckbox
                     checked={isRepeated}
@@ -231,17 +229,17 @@ export const columns: ColumnDef<StudentGrade>[] = [
         cell: ({ row, table }) => {
             const updateData = (table as any).options.meta?.updateData;
             const isAbsent = !!row.original.isAbsent;
-            
+
             // Using useState to manage local input state to prevent deselecting
             const [inputValue, setInputValue] = useState(
                 isAbsent ? '' : (row.getValue("grade") || '')
             );
-            
+
             // Update local state when row data changes
             useEffect(() => {
                 setInputValue(isAbsent ? '' : (row.getValue("grade") || ''));
             }, [isAbsent, row]);
-            
+
             return (
                 <Input
                     type="number"
@@ -252,24 +250,22 @@ export const columns: ColumnDef<StudentGrade>[] = [
                     onChange={(e) => {
                         const newValue = e.target.value;
                         setInputValue(newValue);
-                        
-                        // Only update the data after a small delay to prevent constant re-renders
-                        setTimeout(() => {
-                            updateData(row.index, "grade", newValue);
-                            
-                            // If entering a valid grade, automatically unmark as absent
-                            if (newValue && isAbsent) {
-                                updateData(row.index, "isAbsent", false);
+
+                        // Update data immediately
+                        updateData(row.index, "grade", newValue);
+
+                        // If entering a valid grade, automatically unmark as absent
+                        if (newValue && isAbsent) {
+                            updateData(row.index, "isAbsent", false);
+                        }
+
+                        // If grade is removed, consider marking as absent
+                        if (newValue === '') {
+                            const worksheetNumber = row.getValue("worksheetNumber") || 0;
+                            if (worksheetNumber === 0) {
+                                updateData(row.index, "isAbsent", true);
                             }
-                            
-                            // If grade is removed, consider marking as absent
-                            if (newValue === '') {
-                                const worksheetNumber = row.getValue("worksheetNumber") || 0;
-                                if (worksheetNumber === 0) {
-                                    updateData(row.index, "isAbsent", true);
-                                }
-                            }
-                        }, 100);
+                        }
                     }}
                     onClick={() => {
                         // If absent is checked, uncheck it when user attempts to enter grade

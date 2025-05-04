@@ -496,4 +496,26 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
         console.error('Update graded worksheet error:', error);
         return res.status(500).json({ message: 'Server error while updating worksheet' });
     }
+
+    // Delete a graded worksheet
+
+
+};
+
+export const deleteGradedWorksheet = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    console.log('Deleting worksheet with ID:', id);
+
+    try {
+        await prisma.worksheet.delete({
+            where: { id }
+        });
+
+        console.log('Worksheet deleted successfully', id);
+
+        return res.status(200).json({ message: 'Worksheet deleted successfully' });
+    } catch (error) {
+        console.error('Delete graded worksheet error:', error);
+        return res.status(500).json({ message: 'Server error while deleting worksheet' });
+    }
 };
