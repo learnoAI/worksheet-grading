@@ -263,7 +263,7 @@ export const columns: ColumnDef<StudentGrade>[] = [
                         if (newValue === '') {
                             const worksheetNumber = row.getValue("worksheetNumber") || 0;
                             if (worksheetNumber === 0) {
-                                updateData(row.index, "isAbsent", true);
+                                // updateData(row.index, "isAbsent", true);
                             }
                         }
                     }}
