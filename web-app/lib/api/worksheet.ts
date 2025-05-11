@@ -79,5 +79,11 @@ export const worksheetAPI = {
             method: 'PUT',
             body: JSON.stringify(data)
         });
+    },
+
+    deleteGradedWorksheet: async (id: string): Promise<void> => {
+        return fetchAPI<void>(`/worksheets/${id}`, {
+            method: 'DELETE'
+        });
     }
 };

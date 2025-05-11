@@ -21,7 +21,8 @@ export async function fetchAPI<T>(
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         ...options,
-        headers
+        headers,
+        cache: 'no-store'
     });
 
     if (!response.ok) {

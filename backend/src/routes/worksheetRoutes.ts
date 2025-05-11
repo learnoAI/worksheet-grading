@@ -11,7 +11,8 @@ import {
     getWorksheetTemplates,
     createGradedWorksheet,
     findWorksheetByClassStudentDate,
-    updateGradedWorksheet
+    updateGradedWorksheet,
+    deleteGradedWorksheet
 } from '../controllers/worksheetController';
 import { UserRole } from '@prisma/client';
 import { auth, authorizeRoles, asHandler } from '../middleware/utils';
@@ -134,4 +135,10 @@ router.put(
     asHandler(updateGradedWorksheet)
 );
 
+// Delete a graded worksheet
+router.delete(
+    '/:id',
+    [auth, authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN])],
+    asHandler(deleteGradedWorksheet)
+);
 export default router; 
