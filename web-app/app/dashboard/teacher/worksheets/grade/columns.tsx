@@ -4,6 +4,8 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Input } from "@/components/ui/input";
 import { DataTableColumnHeader } from "./data-table-column-header";
 import { useState, useEffect } from "react";
+import React from "react";
+import { useDebounceFunction } from "@/lib/hooks";
 
 // Custom checkbox component that forces re-render
 function ControlledCheckbox({
@@ -79,7 +81,6 @@ export const columns: ColumnDef<StudentGrade>[] = [
                 <ControlledCheckbox
                     checked={isAbsent}
                     onChange={(checked) => {
-                        console.log('Checkbox changed for', row.original.name, ':', checked);
                         // First, update the isAbsent state
                         updateData(row.index, "isAbsent", checked);
 
@@ -167,25 +168,30 @@ export const columns: ColumnDef<StudentGrade>[] = [
                 setInputValue(isAbsent ? '' : (row.getValue("worksheetNumber") || ''));
             }, [isAbsent, row]);
 
+            // Use our custom debounce hook for the update function
+            const debouncedUpdate = useDebounceFunction((value: string) => {
+                const numValue = parseInt(value) || 0;
+                updateData(row.index, "worksheetNumber", numValue);
+                
+                // If entering a valid worksheet number, automatically unmark as absent
+                if (numValue > 0 && isAbsent) {
+                    updateData(row.index, "isAbsent", false);
+                }
+            }, 300);
+            
+            const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+                const newValue = e.target.value;
+                setInputValue(newValue);
+                debouncedUpdate(newValue);
+            };
+            
             return (
                 <Input
                     type="number"
                     min="1"
                     step="1"
                     value={inputValue}
-                    onChange={(e) => {
-                        const newValue = e.target.value;
-                        setInputValue(newValue);
-                        const numValue = parseInt(newValue) || 0;
-
-                        // Update data immediately
-                        updateData(row.index, "worksheetNumber", numValue);
-
-                        // If entering a valid worksheet number, automatically unmark as absent
-                        if (numValue > 0 && isAbsent) {
-                            updateData(row.index, "isAbsent", false);
-                        }
-                    }}
+                    onChange={handleChange}
                     onClick={() => {
                         // If absent is checked, uncheck it when user attempts to enter worksheet number
                         if (isAbsent) {
@@ -239,7 +245,31 @@ export const columns: ColumnDef<StudentGrade>[] = [
             useEffect(() => {
                 setInputValue(isAbsent ? '' : (row.getValue("grade") || ''));
             }, [isAbsent, row]);
-
+            
+            // Use our custom debounce hook for the update function
+            const debouncedUpdate = useDebounceFunction((value: string) => {
+                updateData(row.index, "grade", value);
+                
+                // If entering a valid grade, automatically unmark as absent
+                if (value && isAbsent) {
+                    updateData(row.index, "isAbsent", false);
+                }
+                
+                // If grade is removed, consider marking as absent
+                if (value === '') {
+                    const worksheetNumber = row.getValue("worksheetNumber") || 0;
+                    if (worksheetNumber === 0) {
+                        updateData(row.index, "isAbsent", true);
+                    }
+                }
+            }, 300);
+            
+            const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+                const newValue = e.target.value;
+                setInputValue(newValue);
+                debouncedUpdate(newValue);
+            };
+            
             return (
                 <Input
                     type="number"
@@ -247,26 +277,7 @@ export const columns: ColumnDef<StudentGrade>[] = [
                     max="10"
                     step="0.1"
                     value={inputValue}
-                    onChange={(e) => {
-                        const newValue = e.target.value;
-                        setInputValue(newValue);
-
-                        // Update data immediately
-                        updateData(row.index, "grade", newValue);
-
-                        // If entering a valid grade, automatically unmark as absent
-                        if (newValue && isAbsent) {
-                            updateData(row.index, "isAbsent", false);
-                        }
-
-                        // If grade is removed, consider marking as absent
-                        if (newValue === '') {
-                            const worksheetNumber = row.getValue("worksheetNumber") || 0;
-                            if (worksheetNumber === 0) {
-                                // updateData(row.index, "isAbsent", true);
-                            }
-                        }
-                    }}
+                    onChange={handleChange}
                     onClick={() => {
                         // If absent is checked, uncheck it when user attempts to enter grade
                         if (isAbsent) {
