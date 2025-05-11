@@ -40,8 +40,6 @@ export default function GradeWorksheetPage() {
     const handleDataChange = (updatedData: StudentGrade[]) => {
         const newGrades = updatedData.map(grade => ({...grade}));
         setStudentGrades(newGrades);
-        
-        console.log('State updated with new grades:', newGrades);
     };
 
     useEffect(() => {
@@ -334,8 +332,23 @@ export default function GradeWorksheetPage() {
 
                     {selectedClass && studentGrades.length > 0 && (
                         <>
+                            <div className="p-4 mb-4 bg-blue-50 rounded-md border border-blue-100">
+                                <h3 className="text-sm font-medium text-blue-800 mb-2">Student Selection Instructions:</h3>
+                                <p className="text-sm text-blue-700">
+                                    1. Use the search box to filter students by name or token number
+                                </p>
+                                <p className="text-sm text-blue-700">
+                                    2. Select specific students from the dropdown or by clicking their cards
+                                </p>
+                                <p className="text-sm text-blue-700">
+                                    3. Enter worksheet number and grade to apply to all selected students
+                                </p>
+                                <p className="text-sm text-blue-700">
+                                    4. Click "Apply to Selected" to update all selected students at once
+                                </p>
+                            </div>
                             <DataTable
-                                key={JSON.stringify(studentGrades)}
+                                key={selectedClass + submittedOn}
                                 columns={columns}
                                 data={studentGrades}
                                 onDataChange={handleDataChange}

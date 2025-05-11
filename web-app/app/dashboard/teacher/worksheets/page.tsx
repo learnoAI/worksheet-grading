@@ -13,6 +13,8 @@ export default function WorksheetsPage() {
     const router = useRouter();
     const [worksheets, setWorksheets] = useState<Worksheet[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [selectedClass, setSelectedClass] = useState<string>('');
+    const [selectedDate, setSelectedDate] = useState<string>('');
 
     useEffect(() => {
         const fetchWorksheets = async () => {
@@ -44,6 +46,17 @@ export default function WorksheetsPage() {
         router.push(`${basePath}/worksheets/${id}`);
     };
 
+    // Add filter handlers
+    const handleClassFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        setSelectedClass(e.target.value);
+        // Implement actual filtering logic here
+    };
+
+    const handleDateFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        setSelectedDate(e.target.value);
+        // Implement actual filtering logic here
+    };
+
     if (isLoading) {
         return <div>Loading worksheets...</div>;
     }
@@ -66,7 +79,8 @@ export default function WorksheetsPage() {
                             <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
                             <select
                                 className="w-full rounded-md border border-gray-300 p-2 text-sm"
-                                onChange={(e) => console.log('Filter by class:', e.target.value)}
+                                value={selectedClass}
+                                onChange={handleClassFilterChange}
                             >
                                 <option value="">All Classes</option>
                                 <option value="1025d255-a661-4a56-9876-7eac665c6ee1">Math 101</option>
@@ -77,7 +91,8 @@ export default function WorksheetsPage() {
                             <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                             <select
                                 className="w-full rounded-md border border-gray-300 p-2 text-sm"
-                                onChange={(e) => console.log('Filter by date:', e.target.value)}
+                                value={selectedDate}
+                                onChange={handleDateFilterChange}
                             >
                                 <option value="">All Dates</option>
                                 <option value="today">Today</option>
