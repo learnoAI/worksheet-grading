@@ -323,9 +323,13 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
     const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated } = req.body;
     const submittedById = req.user?.userId;
 
+    // Add logging to track the incoming requests
+    console.log('Create worksheet request:', { classId, studentId, worksheetNumber, grade, isAbsent, isRepeated, submittedOn });
+
     try {
         // If student is absent, create a record marking them as absent
         if (isAbsent) {
+            console.log('Creating absent record for student');
             const worksheet = await prisma.worksheet.create({
                 data: {
                     classId,
@@ -344,15 +348,28 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
             return res.status(201).json(worksheet);
         }
 
+        // For non-absent students, handle normally
+        // Make sure worksheetNumber is a valid number
+        const worksheetNum = Number(worksheetNumber);
+        if (isNaN(worksheetNum) || worksheetNum <= 0) {
+            return res.status(400).json({ message: 'Valid worksheet number is required for non-absent students' });
+        }
+
+        // Make sure grade is a valid number
+        const gradeValue = Number(grade);
+        if (isNaN(gradeValue) || gradeValue < 0 || gradeValue > 40) {
+            return res.status(400).json({ message: 'Valid grade between 0 and 40 is required for non-absent students' });
+        }
+
         // Find the template by worksheet number for non-absent students
         const template = await prisma.worksheetTemplate.findFirst({
             where: {
-                worksheetNumber
+                worksheetNumber: worksheetNum
             }
         });
 
         if (!template) {
-            return res.status(404).json({ message: `No template found for worksheet number ${worksheetNumber}` });
+            return res.status(404).json({ message: `No template found for worksheet number ${worksheetNum}` });
         }
 
         const worksheet = await prisma.worksheet.create({
@@ -360,7 +377,7 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
                 classId,
                 studentId,
                 templateId: template.id,
-                grade,
+                grade: gradeValue,
                 notes,
                 submittedById: submittedById!,
                 status: ProcessingStatus.COMPLETED,
@@ -371,6 +388,7 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
             }
         });
 
+        console.log(`Successfully created worksheet for student ${studentId}, worksheet number ${worksheetNum}`);
         res.status(201).json(worksheet);
     } catch (error) {
         console.error('Create graded worksheet error:', error);
@@ -427,6 +445,9 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
     const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated } = req.body;
     const submittedById = req.user?.userId;
 
+    // Add logging to track the incoming requests
+    console.log('Update worksheet request:', { id, classId, studentId, worksheetNumber, grade, isAbsent, isRepeated, submittedOn });
+
     try {
         // Find the existing worksheet
         const existingWorksheet = await prisma.worksheet.findUnique({
@@ -461,10 +482,22 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
         }
 
         // For non-absent students, handle normally
+        // Make sure worksheetNumber is a valid number
+        const worksheetNum = Number(worksheetNumber);
+        if (isNaN(worksheetNum) || worksheetNum <= 0) {
+            return res.status(400).json({ message: 'Valid worksheet number is required for non-absent students' });
+        }
+
+        // Make sure grade is a valid number
+        const gradeValue = Number(grade);
+        if (isNaN(gradeValue) || gradeValue < 0 || gradeValue > 40) {
+            return res.status(400).json({ message: 'Valid grade between 0 and 40 is required for non-absent students' });
+        }
+
         // Find the template by worksheet number
         const template = await prisma.worksheetTemplate.findFirst({
             where: {
-                worksheetNumber: worksheetNumber
+                worksheetNumber: worksheetNum
             }
         });
 
@@ -475,7 +508,7 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
         const data = {
             classId,
             studentId,
-            grade,
+            grade: gradeValue,
             notes,
             submittedById: submittedById!,
             status: ProcessingStatus.COMPLETED,
@@ -491,15 +524,12 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
             data
         });
 
+        console.log(`Successfully updated worksheet ${id}`);
         res.status(200).json(worksheet);
     } catch (error) {
         console.error('Update graded worksheet error:', error);
         return res.status(500).json({ message: 'Server error while updating worksheet' });
     }
-
-    // Delete a graded worksheet
-
-
 };
 
 export const deleteGradedWorksheet = async (req: Request, res: Response) => {
@@ -517,5 +547,50 @@ export const deleteGradedWorksheet = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Delete graded worksheet error:', error);
         return res.status(500).json({ message: 'Server error while deleting worksheet' });
+    }
+};
+
+// Get previous worksheets for a student up to a specific date
+export const getPreviousWorksheets = async (req: Request, res: Response) => {
+    const { classId, studentId, endDate } = req.query;
+
+    if (!classId || !studentId || !endDate) {
+        return res.status(400).json({ message: 'Missing required query parameters' });
+    }
+
+    try {
+        // Create date object from endDate
+        const endDateObj = new Date(endDate as string);
+        const currentDate = new Date();
+        
+        // Create query to find worksheets
+        // If the endDate is in the future compared to today, we should include all worksheets
+        // up to today, otherwise use the provided endDate
+        const isFutureDate = endDateObj > currentDate;
+        
+        const worksheets = await prisma.worksheet.findMany({
+            where: {
+                classId: classId as string,
+                studentId: studentId as string,
+                ...(isFutureDate ? {} : {
+                    submittedOn: {
+                        lt: endDateObj
+                    }
+                }),
+                // Only include completed worksheets 
+                status: ProcessingStatus.COMPLETED
+            },
+            include: {
+                template: true
+            },
+            orderBy: {
+                submittedOn: 'desc'
+            }
+        });
+
+        return res.status(200).json(worksheets);
+    } catch (error) {
+        console.error('Get previous worksheets error:', error);
+        return res.status(500).json({ message: 'Server error while retrieving previous worksheets' });
     }
 };

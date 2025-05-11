@@ -13,6 +13,13 @@ import {
     SelectValue
 } from "@/components/ui/select";
 import { StudentGrade } from "./columns";
+import { TrendingUp } from "lucide-react";
+import { 
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface StudentCardProps {
     student: StudentGrade;
@@ -53,68 +60,161 @@ export function StudentCard({
 
     // Update local state when student data changes
     useEffect(() => {
-        setIsAbsent(!!student.isAbsent);
+        console.log(`[StudentCard] Student data updated: ${student.name}`, {
+            isAbsent: student.isAbsent,
+            worksheetNumber: student.worksheetNumber,
+            grade: student.grade
+        });
+        
+        // Check for inconsistent state - if student has worksheet number and grade but is marked as absent
+        const hasWorksheetNumber = student.worksheetNumber && student.worksheetNumber > 0;
+        const hasGrade = student.grade && student.grade.toString().trim() !== '';
+        
+        if (student.isAbsent && hasWorksheetNumber && hasGrade) {
+            // This is an inconsistent state - student can't be absent if they have worksheet and grade
+            console.warn(`[StudentCard] Inconsistent state detected for ${student.name}: marked as absent but has worksheet=${student.worksheetNumber} and grade=${student.grade}`);
+            
+            // Fix it by updating the parent state
+            updateData(student.studentId, "isAbsent", false);
+            
+            // Set local state to non-absent
+            setIsAbsent(false);
+        } else {
+            // Normal state update
+            setIsAbsent(!!student.isAbsent);
+        }
+        
         setIsRepeated(!!student.isRepeated);
-        setWorksheetNumber(student.isAbsent ? '' : (student.worksheetNumber ? student.worksheetNumber.toString() : ''));
+        
+        // Always update worksheet number to match the student data
+        // This ensures consistency with server state after saving
+        setWorksheetNumber(student.worksheetNumber ? student.worksheetNumber.toString() : '');
+        
+        // Always update grade to match the student data
+        // This ensures consistency with server state after saving
         setGrade(student.grade || '');
     }, [student]);
 
-    // Handler for absent checkbox
+    // Improved handler for absent checkbox to ensure consistent state
     const handleAbsentChange = (checked: boolean) => {
+        console.log(`${student.name}: Changing absent status to ${checked}`);
+        
+        // Update local state first
         setIsAbsent(checked);
         
-        // Update parent component's data
-        updateData(student.id, "isAbsent", checked);
-        
-        // When marking as absent, clear other fields
         if (checked) {
+            // When marking as absent, clear other fields in local state
             setWorksheetNumber('');
             setGrade('');
             setIsRepeated(false);
-            updateData(student.id, "worksheetNumber", 0);
-            updateData(student.id, "grade", "");
-            updateData(student.id, "isRepeated", false);
+            
+            // Update all fields at once in the parent component - this ensures atomic updates
+            // and prevents race conditions with the new implementation
+            updateData(student.studentId, "isAbsent", true);
+        } else {
+            // When unmarking as absent, restore the appropriate worksheet number
+            const worksheetNum = student.worksheetNumber > 0 ? student.worksheetNumber : 1;
+            setWorksheetNumber(worksheetNum.toString());
+            
+            // Update the absent status in the parent component
+            updateData(student.studentId, "isAbsent", false);
+            
+            // If there wasn't a valid worksheet number, set it to 1
+            if (student.worksheetNumber <= 0) {
+                // Use a small timeout to ensure the isAbsent update is processed first
+                setTimeout(() => {
+                    updateData(student.studentId, "worksheetNumber", 1);
+                }, 50);
+            }
         }
     };
 
     // Handler for repeated checkbox
     const handleRepeatedChange = (checked: boolean) => {
+        console.log(`${student.name}: Setting repeated to ${checked}`);
+        // Update local state first
         setIsRepeated(checked);
-        updateData(student.id, "isRepeated", checked);
+        // Then update parent component state
+        updateData(student.studentId, "isRepeated", checked);
     };
 
     // Handler for worksheet number changes
     const handleWorksheetNumberChange = (value: string) => {
+        console.log(`${student.name}: Setting worksheet number to ${value}`);
+        // Update local state
         setWorksheetNumber(value);
         
+        // Safely parse the worksheet number
         const numValue = parseInt(value) || 0;
-        updateData(student.id, "worksheetNumber", numValue);
         
-        // If entering a valid worksheet number, automatically unmark as absent
-        if (numValue > 0 && isAbsent) {
+        // If student is marked as absent, unmark them first
+        if (isAbsent) {
+            // Update local state
             setIsAbsent(false);
-            updateData(student.id, "isAbsent", false);
+            
+            // First update absent status in parent component
+            updateData(student.studentId, "isAbsent", false);
+            
+            // Wait a moment to ensure the absent status change is processed
+            setTimeout(() => {
+                // Then update the worksheet number
+                updateData(student.studentId, "worksheetNumber", numValue);
+            }, 50);
+        } else {
+            // Just update the worksheet number directly
+            updateData(student.studentId, "worksheetNumber", numValue);
         }
     };
 
     // Handler for grade changes
     const handleGradeChange = (value: string) => {
+        console.log(`${student.name}: Setting grade to ${value}`);
+        // Update local state
         setGrade(value);
-        updateData(student.id, "grade", value);
         
-        // If entering a grade, automatically unmark as absent
-        if (value && isAbsent) {
+        // If student is marked as absent, unmark them first
+        if (isAbsent) {
+            // Update local state
             setIsAbsent(false);
-            updateData(student.id, "isAbsent", false);
+            
+            // First update absent status in parent component
+            updateData(student.studentId, "isAbsent", false);
+            
+            // Wait a moment to ensure the absent status change is processed
+            setTimeout(() => {
+                // Then update the grade
+                updateData(student.studentId, "grade", value);
+            }, 50);
+        } else {
+            // Just update the grade directly
+            updateData(student.studentId, "grade", value);
         }
     };
 
     // Generate grade options (1-40)
     const gradeOptions = Array.from({ length: 40 }, (_, i) => (i + 1).toString());
 
+    // Check if this is a progression 
+    const determineIfProgressed = () => {
+        // If worksheet number is 1, it can't be a progression
+        if (student.worksheetNumber <= 1) return false;
+        
+        // If it's not existing (new entry) and has a worksheet number > 1, 
+        // it's likely a progression from previous performance
+        return !student.existing && student.worksheetNumber > 1;
+    };
+    
+    const hasProgressed = determineIfProgressed();
+    const isNewStudent = student.isNew === true;
+    
+    // For visual accent to match the progress indicator
+    const worksheetStyle = hasProgressed 
+        ? 'border-green-500 focus-visible:ring-green-500 bg-green-50' 
+        : '';
+
     return (
         <Card 
-            className={`overflow-hidden transition-colors relative ${isAbsent ? 'bg-gray-50 border-gray-200' : 'bg-white'}`}
+            className={`overflow-hidden transition-colors relative ${isAbsent ? 'bg-gray-50 border-gray-200' : hasProgressed ? 'bg-green-50 border-green-200' : 'bg-white'}`}
             data-student-id={student.id}
         >
             <CardContent className="p-6">
@@ -134,7 +234,24 @@ export function StudentCard({
 
                 <div className="grid grid-cols-2 gap-4 mb-4">
                     <div className="space-y-1.5">
-                        <Label htmlFor={`worksheet-${student.id}`} className="text-sm font-medium">Worksheet no</Label>
+                        <div className="flex items-center">
+                            <Label htmlFor={`worksheet-${student.id}`} className="text-sm font-medium">Worksheet no</Label>
+                            {hasProgressed && (
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <div className="ml-2 flex items-center text-green-600 text-xs font-semibold cursor-help">
+                                                <TrendingUp size={16} className="mr-1" />
+                                            </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="p-3">
+                                            <p className="text-sm">This student scored 80%+ on their previous worksheet</p>
+                                            <p className="text-sm mt-1">Automatically advanced to the next level</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            )}
+                        </div>
                         <Input
                             id={`worksheet-${student.id}`}
                             type="number"
@@ -144,7 +261,7 @@ export function StudentCard({
                             onChange={(e) => handleWorksheetNumberChange(e.target.value)}
                             disabled={isAbsent}
                             placeholder={isAbsent ? "N/A" : ""}
-                            className="h-10"
+                            className={`h-10 ${hasProgressed ? 'border-green-500 focus-visible:ring-green-500 bg-green-50' : ''}`}
                         />
                     </div>
 
@@ -157,7 +274,7 @@ export function StudentCard({
                         >
                             <SelectTrigger 
                                 id={`marks-${student.id}`} 
-                                className="w-full h-10"
+                                className="w-full h-10 bg-white"
                             >
                                 <SelectValue placeholder="Select Marks" />
                             </SelectTrigger>
@@ -205,19 +322,12 @@ export function StudentCard({
                                 className="bg-blue-600 hover:bg-blue-700 text-white"
                                 size="sm"
                             >
-                                Next Sheet
+                                Save
                             </Button>
                         )}
                     </div>
                 </div>
                 
-                {student.existing && (
-                    <div className="absolute top-4 right-4">
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            Update
-                        </span>
-                    </div>
-                )}
             </CardContent>
         </Card>
     );

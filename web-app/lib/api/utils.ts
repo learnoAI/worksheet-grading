@@ -15,14 +15,23 @@ export async function fetchAPI<T>(
 
     const headers = {
         'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers
     };
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    // Add a timestamp to the URL to bypass caching
+    const timeStamp = new Date().getTime();
+    const separator = endpoint.includes('?') ? '&' : '?';
+    const url = `${API_BASE_URL}${endpoint}${separator}_t=${timeStamp}`;
+
+    const response = await fetch(url, {
         ...options,
         headers,
-        cache: 'no-store'
+        cache: 'no-store',
+        next: { revalidate: 0 } // Tell Next.js to always revalidate this request
     });
 
     if (!response.ok) {

@@ -72,11 +72,74 @@ export function DataTable<TData, TValue>({
         },
         meta: {
             updateData: (rowIndex: number, columnId: string, value: any) => {
-                const newData = [...data];
-                (newData as any)[rowIndex] = {
-                    ...(newData as any)[rowIndex],
-                    [columnId]: value,
-                };
+                // Make a deep copy of the data
+                const newData = JSON.parse(JSON.stringify(data));
+                
+                // Get the current row data
+                const currentRow = (newData as any)[rowIndex];
+                
+                console.log(`[Table] Updating row ${rowIndex}, field: ${columnId}, value:`, value, 
+                    `Current state: isAbsent=${currentRow.isAbsent}, worksheetNumber=${currentRow.worksheetNumber}, grade=${currentRow.grade}`);
+                
+                // Handle specific field updates with their side effects
+                if (columnId === 'isAbsent') {
+                    const newAbsentState = !!value;
+                    
+                    // When marking a student as absent, clear other fields
+                    if (newAbsentState) {
+                        console.log(`[Table] Row ${rowIndex} marked as absent, clearing other fields`);
+                        (newData as any)[rowIndex] = {
+                            ...currentRow,
+                            isAbsent: true,
+                            worksheetNumber: 0,
+                            grade: "",
+                            isRepeated: false
+                        };
+                    } else {
+                        // When unmarking as absent, only update the isAbsent status
+                        // The StudentCard component will handle setting proper values
+                        console.log(`[Table] Row ${rowIndex} marked as not absent`);
+                        (newData as any)[rowIndex] = {
+                            ...currentRow,
+                            isAbsent: false
+                        };
+                    }
+                } else if (columnId === 'worksheetNumber') {
+                    // If setting valid worksheet number, ensure not absent
+                    const worksheetNumber = value;
+                    const shouldBeAbsent = worksheetNumber <= 0 && !currentRow.grade;
+                    
+                    console.log(`[Table] Setting worksheet number for row ${rowIndex} to ${worksheetNumber}, shouldBeAbsent=${shouldBeAbsent}`);
+                    
+                    (newData as any)[rowIndex] = {
+                        ...currentRow,
+                        worksheetNumber: worksheetNumber,
+                        isAbsent: shouldBeAbsent // Only mark as absent if both worksheet and grade are empty
+                    };
+                } else if (columnId === 'grade') {
+                    // If setting grade, ensure not absent
+                    const grade = value;
+                    const shouldBeAbsent = !grade && (!currentRow.worksheetNumber || currentRow.worksheetNumber <= 0);
+                    
+                    console.log(`[Table] Setting grade for row ${rowIndex} to "${grade}", shouldBeAbsent=${shouldBeAbsent}`);
+                    
+                    (newData as any)[rowIndex] = {
+                        ...currentRow,
+                        grade: grade,
+                        isAbsent: shouldBeAbsent // Only mark as absent if both worksheet and grade are empty
+                    };
+                } else {
+                    // For regular field updates
+                    (newData as any)[rowIndex] = {
+                        ...currentRow,
+                        [columnId]: value,
+                    };
+                }
+                
+                // Log the final state after update
+                console.log(`[Table] Row ${rowIndex} final state:`, (newData as any)[rowIndex]);
+                
+                // Notify the parent component of the data change
                 onDataChange?.(newData);
             },
         },
@@ -84,10 +147,70 @@ export function DataTable<TData, TValue>({
 
     // Helper function to update data by student ID
     const updateStudentData = (studentId: string, field: string, value: any) => {
-        const rowIndex = (data as any[]).findIndex(item => item.studentId === studentId);
-        if (rowIndex !== -1) {
-            (table.options.meta as any)?.updateData(rowIndex, field, value);
-        }
+        // Instead of trying to find the student in possibly filtered data,
+        // we'll make a direct update to the full data array
+        const updatedData = [...data].map((student: any) => {
+            // Only update the student with matching ID
+            if (student.studentId === studentId) {
+                console.log(`[DataTable] Directly updating student ${studentId}, field: ${field}, value:`, value);
+                
+                // Create a copy of the student object to modify
+                const updatedStudent = { ...student };
+                
+                // Special handling for absent status
+                if (field === 'isAbsent') {
+                    updatedStudent.isAbsent = !!value;
+                    
+                    // When marking as absent, clear other fields
+                    if (updatedStudent.isAbsent) {
+                        updatedStudent.worksheetNumber = 0;
+                        updatedStudent.grade = "";
+                        updatedStudent.isRepeated = false;
+                    }
+                } 
+                // Special handling for worksheet number
+                else if (field === 'worksheetNumber') {
+                    updatedStudent.worksheetNumber = value;
+                    
+                    // If setting valid worksheet number, ensure not absent
+                    if (value > 0) {
+                        updatedStudent.isAbsent = false;
+                    } else if (!updatedStudent.grade) {
+                        // Mark as absent only if both worksheet and grade are empty
+                        updatedStudent.isAbsent = true;
+                    }
+                }
+                // Special handling for grade
+                else if (field === 'grade') {
+                    updatedStudent.grade = value;
+                    
+                    // If setting a grade, ensure not absent
+                    if (value) {
+                        updatedStudent.isAbsent = false;
+                    } else if (!updatedStudent.worksheetNumber || updatedStudent.worksheetNumber <= 0) {
+                        // Mark as absent only if both worksheet and grade are empty
+                        updatedStudent.isAbsent = true;
+                    }
+                }
+                // For all other fields, just set the value directly
+                else {
+                    updatedStudent[field] = value;
+                }
+                
+                console.log(`[DataTable] After direct update, student ${studentId} state:`, {
+                    isAbsent: updatedStudent.isAbsent,
+                    worksheetNumber: updatedStudent.worksheetNumber,
+                    grade: updatedStudent.grade,
+                    isRepeated: updatedStudent.isRepeated
+                });
+                
+                return updatedStudent;
+            }
+            return student;
+        });
+        
+        // Directly call onDataChange with the updated data
+        onDataChange?.(updatedData);
     };
 
     // Apply bulk settings to selected students
