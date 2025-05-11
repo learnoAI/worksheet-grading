@@ -12,7 +12,8 @@ import {
     createGradedWorksheet,
     findWorksheetByClassStudentDate,
     updateGradedWorksheet,
-    deleteGradedWorksheet
+    deleteGradedWorksheet,
+    getPreviousWorksheets
 } from '../controllers/worksheetController';
 import { UserRole } from '@prisma/client';
 import { auth, authorizeRoles, asHandler } from '../middleware/utils';
@@ -70,6 +71,19 @@ router.get('/class/:classId', auth, asHandler(getWorksheetsByClass));
 // Get worksheets by student
 router.get('/student/:studentId', auth, asHandler(getWorksheetsByStudent));
 
+// Get previous worksheets for a student up to a specific date
+router.get(
+    '/history',
+    [
+        auth,
+        authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+        query('classId').notEmpty().withMessage('Class ID is required'),
+        query('studentId').notEmpty().withMessage('Student ID is required'),
+        query('endDate').isISO8601().withMessage('End date must be a valid ISO date')
+    ],
+    asHandler(getPreviousWorksheets)
+);
+
 // Get worksheet by ID
 router.get('/:id', auth, asHandler(getWorksheetById));
 
@@ -112,7 +126,7 @@ router.post(
         body('classId').notEmpty().withMessage('Class ID is required'),
         body('studentId').notEmpty().withMessage('Student ID is required'),
         body('worksheetNumber').isInt({ min: 1 }).withMessage('Worksheet number must be a positive integer'),
-        body('grade').isFloat({ min: 0, max: 10 }).withMessage('Grade must be between 0 and 10'),
+        body('grade').isFloat({ min: 0, max: 40 }).withMessage('Grade must be between 0 and 40'),
         body('notes').optional(),
         body('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date')
     ],
@@ -128,7 +142,7 @@ router.put(
         body('classId').notEmpty().withMessage('Class ID is required'),
         body('studentId').notEmpty().withMessage('Student ID is required'),
         body('worksheetNumber').optional().isInt({ min: 1 }).withMessage('Worksheet number must be a positive integer'),
-        body('grade').isFloat({ min: 0, max: 10 }).withMessage('Grade must be between 0 and 10'),
+        body('grade').isFloat({ min: 0, max: 40 }).withMessage('Grade must be between 0 and 40'),
         body('notes').optional(),
         body('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date')
     ],
@@ -141,4 +155,5 @@ router.delete(
     [auth, authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN])],
     asHandler(deleteGradedWorksheet)
 );
+
 export default router; 

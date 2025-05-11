@@ -54,6 +54,7 @@ export type StudentGrade = {
     existing: boolean;
     isAbsent: boolean;
     isRepeated: boolean;
+    isNew?: boolean;
 };
 
 export const columns: ColumnDef<StudentGrade>[] = [
@@ -90,57 +91,6 @@ export const columns: ColumnDef<StudentGrade>[] = [
                             updateData(row.index, "worksheetNumber", 0);
                             updateData(row.index, "grade", "");
                             updateData(row.index, "isRepeated", false);
-
-                            // This ensures the UI is immediately updated
-                            const rowEl = document.querySelector(`[data-row-index="${row.index}"]`);
-                            if (rowEl) {
-                                // Find and clear worksheet number input
-                                const worksheetInput = rowEl.querySelector('input[type="number"][min="1"]');
-                                if (worksheetInput) {
-                                    (worksheetInput as HTMLInputElement).value = '';
-                                    (worksheetInput as HTMLInputElement).placeholder = 'N/A';
-                                    (worksheetInput as HTMLInputElement).disabled = true;
-                                }
-
-                                // Find and clear grade input
-                                const gradeInput = rowEl.querySelector('input[type="number"][max="10"]');
-                                if (gradeInput) {
-                                    (gradeInput as HTMLInputElement).value = '';
-                                    (gradeInput as HTMLInputElement).placeholder = 'N/A';
-                                    (gradeInput as HTMLInputElement).disabled = true;
-                                }
-
-                                // Find and disable repeated checkbox
-                                const repeatedCheckbox = rowEl.querySelector('input[type="checkbox"]:not(:first-child)');
-                                if (repeatedCheckbox) {
-                                    (repeatedCheckbox as HTMLInputElement).checked = false;
-                                    (repeatedCheckbox as HTMLInputElement).disabled = true;
-                                }
-                            }
-                        } else {
-                            // When unchecking absent, re-enable the inputs
-                            const rowEl = document.querySelector(`[data-row-index="${row.index}"]`);
-                            if (rowEl) {
-                                // Find and enable worksheet number input
-                                const worksheetInput = rowEl.querySelector('input[type="number"][min="1"]');
-                                if (worksheetInput) {
-                                    (worksheetInput as HTMLInputElement).disabled = false;
-                                    (worksheetInput as HTMLInputElement).placeholder = "";
-                                }
-
-                                // Find and enable grade input
-                                const gradeInput = rowEl.querySelector('input[type="number"][max="10"]');
-                                if (gradeInput) {
-                                    (gradeInput as HTMLInputElement).disabled = false;
-                                    (gradeInput as HTMLInputElement).placeholder = "";
-                                }
-
-                                // Find and enable repeated checkbox
-                                const repeatedCheckbox = rowEl.querySelector('input[type="checkbox"]:not(:first-child)');
-                                if (repeatedCheckbox) {
-                                    (repeatedCheckbox as HTMLInputElement).disabled = false;
-                                }
-                            }
                         }
                     }}
                     label="Absent"

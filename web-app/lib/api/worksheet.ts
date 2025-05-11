@@ -59,31 +59,148 @@ export const worksheetAPI = {
     },
 
     createGradedWorksheet: async (data: CreateGradedWorksheetData): Promise<Worksheet> => {
-        return fetchAPI<Worksheet>('/worksheets/grade', {
-            method: 'POST',
-            body: JSON.stringify(data)
-        });
+        try {
+            // Deep clone the data to avoid modifying the original object
+            const requestData = JSON.parse(JSON.stringify(data));
+            
+            // Ensure proper data formatting for absent students
+            if (requestData.isAbsent) {
+                // For absent students, ensure worksheetNumber is 0 and grade is 0
+                requestData.worksheetNumber = 0;
+                requestData.grade = 0;
+                requestData.isRepeated = false;
+            } else {
+                // For present students, ensure values are proper numbers
+                requestData.grade = parseFloat(requestData.grade.toString());
+                requestData.worksheetNumber = parseInt(requestData.worksheetNumber.toString());
+            }
+            
+            // Add logging to help diagnose issues
+            console.log(`Creating new worksheet with data:`, requestData);
+            
+            // Add timestamp to ensure fresh request
+            const timestamp = new Date().getTime();
+            
+            const result = await fetchAPI<Worksheet>(`/worksheets/grade?_t=${timestamp}`, {
+                method: 'POST',
+                body: JSON.stringify(requestData)
+            });
+            
+            // Log the response
+            console.log(`Creation response for new worksheet:`, result);
+            
+            return result;
+        } catch (error) {
+            console.error(`Error creating worksheet:`, error);
+            throw error;
+        }
     },
 
     getWorksheetByClassStudentDate: async (classId: string, studentId: string, submittedOn: string): Promise<GradedWorksheetData | null> => {
-        // Create date objects for start and end of the selected date in UTC
-        const date = new Date(submittedOn);
-        const startDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-        const endDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() + 1));
+        try {
+            // Create date objects for start and end of the selected date in UTC
+            const date = new Date(submittedOn);
+            const startDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+            const endDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() + 1));
+            
+            // Add a unique timestamp to force a fresh request
+            const timestamp = new Date().getTime();
 
-        return fetchAPI<GradedWorksheetData | null>(`/worksheets/find?classId=${classId}&studentId=${studentId}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`);
+            const response = await fetchAPI<GradedWorksheetData | null>(
+                `/worksheets/find?classId=${encodeURIComponent(classId)}&studentId=${encodeURIComponent(studentId)}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}&_t=${timestamp}`
+            );
+            
+            // Explicitly handle the isAbsent property to ensure it's the correct boolean type
+            if (response) {
+                return {
+                    ...response,
+                    isAbsent: response.isAbsent === true
+                };
+            }
+            
+            return response;
+        } catch (error) {
+            console.error('Error fetching worksheet by date:', error);
+            return null;
+        }
     },
 
     updateGradedWorksheet: async (id: string, data: CreateGradedWorksheetData): Promise<GradedWorksheetData> => {
-        return fetchAPI<GradedWorksheetData>(`/worksheets/grade/${id}`, {
-            method: 'PUT',
-            body: JSON.stringify(data)
-        });
+        try {
+            // Deep clone the data to avoid modifying the original object
+            const requestData = JSON.parse(JSON.stringify(data));
+            
+            // Ensure proper data formatting for absent students
+            if (requestData.isAbsent) {
+                // For absent students, ensure worksheetNumber is 0 and grade is 0
+                requestData.worksheetNumber = 0;
+                requestData.grade = 0;
+                requestData.isRepeated = false;
+            } else {
+                // For present students, ensure values are proper numbers
+                requestData.grade = parseFloat(requestData.grade.toString());
+                requestData.worksheetNumber = parseInt(requestData.worksheetNumber.toString());
+            }
+            
+            // Add logging to help diagnose issues
+            console.log(`Updating worksheet ${id} with data:`, requestData);
+            
+            // Add timestamp to ensure fresh request
+            const timestamp = new Date().getTime();
+            
+            const result = await fetchAPI<GradedWorksheetData>(`/worksheets/grade/${id}?_t=${timestamp}`, {
+                method: 'PUT',
+                body: JSON.stringify(requestData)
+            });
+            
+            // Log the response
+            console.log(`Update response for worksheet ${id}:`, result);
+            
+            return result;
+        } catch (error) {
+            console.error(`Error updating worksheet ${id}:`, error);
+            throw error;
+        }
     },
 
     deleteGradedWorksheet: async (id: string): Promise<void> => {
         return fetchAPI<void>(`/worksheets/${id}`, {
             method: 'DELETE'
         });
+    },
+
+    getPreviousWorksheets: async (classId: string, studentId: string, currentDate: string): Promise<Worksheet[]> => {
+        try {
+            // Create a date object for the current date
+            const date = new Date(currentDate);
+            date.setHours(0, 0, 0, 0); // Reset time for accurate comparison
+            
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            // If the date is in the future, we should use today's date as the end date
+            // This ensures we get all worksheets up to today
+            const endDate = date > today ? today : date;
+            
+            // Format the endDate as UTC to maintain consistency
+            const formattedEndDate = new Date(Date.UTC(
+                endDate.getFullYear(), 
+                endDate.getMonth(), 
+                endDate.getDate()
+            ));
+            
+            // Add timestamp to force fresh request
+            const timestamp = new Date().getTime();
+            
+            // We don't set a specific start date to get all previous worksheets
+            const url = `/worksheets/history?classId=${classId}&studentId=${studentId}&endDate=${formattedEndDate.toISOString()}&_t=${timestamp}`;
+            
+            const worksheets = await fetchAPI<Worksheet[]>(url);
+            return worksheets;
+        } catch (error) {
+            console.error('Error fetching previous worksheets:', error);
+            // Return empty array instead of throwing to prevent UI breakage
+            return [];
+        }
     }
 };
