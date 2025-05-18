@@ -143,7 +143,8 @@ export default function GradeWorksheetPage() {
                     
                     const hasNonAbsentRecords = previousWorksheets && previousWorksheets.some(ws => !ws.isAbsent);
                     
-                    let shouldBeAbsent = !hasHistory || !hasNonAbsentRecords;
+                    // Changed default behavior: students should NOT be marked absent by default
+                    let shouldBeAbsent = false;
                     
                     if (recommendedWorksheetNumber > 0) {
                         shouldBeAbsent = false;
@@ -157,7 +158,7 @@ export default function GradeWorksheetPage() {
                         worksheetNumber: recommendedWorksheetNumber,
                         grade: '',
                         existing: false,
-                        isAbsent: shouldBeAbsent,
+                        isAbsent: false,
                         isRepeated: false,
                         isNew: !hasHistory
                     };
@@ -170,7 +171,7 @@ export default function GradeWorksheetPage() {
                         worksheetNumber: 0,
                         grade: '',
                         existing: false,
-                        isAbsent: true,
+                        isAbsent: false,
                         isRepeated: false,
                         isNew: !studentsWithHistory.get(student.id)
                     };
@@ -562,63 +563,6 @@ export default function GradeWorksheetPage() {
 
                     {selectedClass && !isFetchingTableData && studentGrades.length > 0 && (
                         <>
-                            <div className="p-4 mb-4 bg-blue-50 rounded-md border border-blue-100">
-                                <h3 className="text-sm font-medium text-blue-800 mb-2">Student Selection Instructions:</h3>
-                                <p className="text-sm text-blue-700">
-                                    1. Use the search box to filter students by name or token number
-                                </p>
-                                <p className="text-sm text-blue-700">
-                                    2. Select specific students from the dropdown or by clicking their cards
-                                </p>
-                                <p className="text-sm text-blue-700">
-                                    3. Enter worksheet number and grade to apply to all selected students
-                                </p>
-                                <p className="text-sm text-blue-700">
-                                    4. Click "Apply to Selected" to update all selected students at once
-                                </p>
-                                <p className="text-sm text-blue-700 mt-2">
-                                    <strong>Note:</strong> New students are marked as absent by default. Uncheck the absent box to assign worksheets.
-                                </p>
-                            </div>
-                            
-                            <div className="p-4 mb-4 bg-green-50 rounded-md border border-green-100">
-                                <div className="flex items-center">
-                                    <h3 className="text-sm font-medium text-green-800 mb-2">Worksheet Progression:</h3>
-                                    <TooltipProvider>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <button className="ml-1 text-green-700 hover:text-green-900">
-                                                    <InfoIcon size={16} />
-                                                </button>
-                                            </TooltipTrigger>
-                                            <TooltipContent className="max-w-xs">
-                                                <p className="text-xs">
-                                                    This feature automatically checks the student's latest worksheet before 
-                                                    the current date and makes progression decisions based on their score.
-                                                </p>
-                                                <p className="text-xs mt-2">
-                                                    If a student scored ≥80% (32/40) on their latest worksheet, they progress 
-                                                    to the next worksheet number. If they scored below 80%, they stay on the same worksheet.
-                                                </p>
-                                                <p className="text-xs mt-2">
-                                                    If a student has no previous worksheets, they are marked as absent by default.
-                                                </p>
-                                            </TooltipContent>
-                                        </Tooltip>
-                                    </TooltipProvider>
-                                </div>
-                                <p className="text-sm text-green-700">
-                                    Students who scored 80% or higher (32/40) on their latest worksheet before the selected date 
-                                    will automatically progress to the next worksheet number.
-                                </p>
-                                <p className="text-sm text-green-700 mt-1">
-                                    Students who scored below 80% will remain on the same worksheet number to practice more.
-                                </p>
-                                <p className="text-sm text-green-700 mt-1">
-                                    Students with no previous worksheets will be marked as absent by default.
-                                </p>
-                            </div>
-                            
                             <DataTable
                                 key={`${selectedClass}-${submittedOn}`}
                                 columns={columns}

@@ -53,7 +53,7 @@ export type StudentGrade = {
     grade: string;
     existing: boolean;
     isAbsent: boolean;
-    isRepeated: boolean;
+    isRepeated: boolean; // Keeping this in the type for backward compatibility
     isNew?: boolean;
 };
 
@@ -90,7 +90,6 @@ export const columns: ColumnDef<StudentGrade>[] = [
                             // Force clearing values to empty strings and numbers to zero
                             updateData(row.index, "worksheetNumber", 0);
                             updateData(row.index, "grade", "");
-                            updateData(row.index, "isRepeated", false);
                         }
                     }}
                     label="Absent"
@@ -156,27 +155,6 @@ export const columns: ColumnDef<StudentGrade>[] = [
         },
     },
     {
-        id: "isRepeated",
-        accessorKey: "isRepeated",
-        header: "Repeated",
-        cell: ({ row, table }) => {
-            const updateData = (table as any).options.meta?.updateData;
-            const isAbsent = !!row.original.isAbsent;
-            const isRepeated = !!row.original.isRepeated;
-
-            return (
-                <ControlledCheckbox
-                    checked={isRepeated}
-                    onChange={(checked) => {
-                        updateData(row.index, "isRepeated", checked);
-                    }}
-                    disabled={isAbsent}
-                    label="Repeated"
-                />
-            );
-        },
-    },
-    {
         id: "grade",
         accessorKey: "grade",
         header: ({ column }) => (
@@ -203,14 +181,6 @@ export const columns: ColumnDef<StudentGrade>[] = [
                 // If entering a valid grade, automatically unmark as absent
                 if (value && isAbsent) {
                     updateData(row.index, "isAbsent", false);
-                }
-                
-                // If grade is removed, consider marking as absent
-                if (value === '') {
-                    const worksheetNumber = row.getValue("worksheetNumber") || 0;
-                    if (worksheetNumber === 0) {
-                        updateData(row.index, "isAbsent", true);
-                    }
                 }
             }, 300);
             
