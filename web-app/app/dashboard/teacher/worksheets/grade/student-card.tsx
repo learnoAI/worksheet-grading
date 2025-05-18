@@ -34,7 +34,6 @@ export function StudentCard({
 }: StudentCardProps) {
     // Local state to manage inputs
     const [isAbsent, setIsAbsent] = useState(!!student.isAbsent);
-    const [isRepeated, setIsRepeated] = useState(!!student.isRepeated);
     const [worksheetNumber, setWorksheetNumber] = useState<string>(
         isAbsent ? '' : (student.worksheetNumber ? student.worksheetNumber.toString() : '')
     );
@@ -84,8 +83,6 @@ export function StudentCard({
             setIsAbsent(!!student.isAbsent);
         }
         
-        setIsRepeated(!!student.isRepeated);
-        
         // Always update worksheet number to match the student data
         // This ensures consistency with server state after saving
         setWorksheetNumber(student.worksheetNumber ? student.worksheetNumber.toString() : '');
@@ -106,7 +103,6 @@ export function StudentCard({
             // When marking as absent, clear other fields in local state
             setWorksheetNumber('');
             setGrade('');
-            setIsRepeated(false);
             
             // Update all fields at once in the parent component - this ensures atomic updates
             // and prevents race conditions with the new implementation
@@ -127,15 +123,6 @@ export function StudentCard({
                 }, 50);
             }
         }
-    };
-
-    // Handler for repeated checkbox
-    const handleRepeatedChange = (checked: boolean) => {
-        console.log(`${student.name}: Setting repeated to ${checked}`);
-        // Update local state first
-        setIsRepeated(checked);
-        // Then update parent component state
-        updateData(student.studentId, "isRepeated", checked);
     };
 
     // Handler for worksheet number changes
@@ -300,18 +287,6 @@ export function StudentCard({
                                 className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                             />
                             <Label htmlFor={`absent-${student.id}`} className="text-sm">Absent</Label>
-                        </div>
-
-                        <div className="flex items-center space-x-2">
-                            <input
-                                type="checkbox"
-                                id={`repeated-${student.id}`}
-                                checked={isRepeated}
-                                onChange={(e) => handleRepeatedChange(e.target.checked)}
-                                disabled={isAbsent}
-                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <Label htmlFor={`repeated-${student.id}`} className="text-sm">Repeated</Label>
                         </div>
                     </div>
 
