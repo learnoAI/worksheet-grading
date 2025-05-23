@@ -179,25 +179,14 @@ export function StudentCard({
     };
 
     // Generate grade options (1-40)
-    const gradeOptions = Array.from({ length: 40 }, (_, i) => (i + 1).toString());
+    const gradeOptions = Array.from({ length: 40 }, (_, i) => (40 - i).toString());
 
-    // Check if this is a progression 
     const determineIfProgressed = () => {
-        // If worksheet number is 1, it can't be a progression
         if (student.worksheetNumber <= 1) return false;
-        
-        // If it's not existing (new entry) and has a worksheet number > 1, 
-        // it's likely a progression from previous performance
         return !student.existing && student.worksheetNumber > 1;
     };
     
     const hasProgressed = determineIfProgressed();
-    const isNewStudent = student.isNew === true;
-    
-    // For visual accent to match the progress indicator
-    const worksheetStyle = hasProgressed 
-        ? 'border-green-500 focus-visible:ring-green-500 bg-green-50' 
-        : '';
 
     return (
         <Card 

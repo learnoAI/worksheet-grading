@@ -142,13 +142,7 @@ export default function GradeWorksheetPage() {
                     );
                     
                     const hasNonAbsentRecords = previousWorksheets && previousWorksheets.some(ws => !ws.isAbsent);
-                    
-                    // Changed default behavior: students should NOT be marked absent by default
-                    let shouldBeAbsent = false;
-                    
-                    if (recommendedWorksheetNumber > 0) {
-                        shouldBeAbsent = false;
-                    }
+                      // Students are never automatically marked absent
                     
                     return {
                         studentId: student.id,
@@ -337,27 +331,23 @@ export default function GradeWorksheetPage() {
         try {
             const updatedGrades = [...studentGrades];
             
-            studentGrades.forEach((grade, index) => {
-                const worksheetNumber = grade.worksheetNumber;
+            studentGrades.forEach((grade, index) => {                const worksheetNumber = grade.worksheetNumber;
                 const gradeValue = typeof grade.grade === 'string' ? grade.grade.trim() : '';
                 
                 const isValidWorksheetNumber = worksheetNumber && worksheetNumber > 0;
                 const isValidGrade = gradeValue !== '' && !isNaN(parseFloat(gradeValue));
                 
-                let shouldBeAbsent = grade.isAbsent;
+                // Only use explicitly set absent status, never auto-mark as absent
+                const isAbsent = grade.isAbsent;
                 
-                if (isValidWorksheetNumber && isValidGrade) {
-                    if (shouldBeAbsent) {
-                        shouldBeAbsent = false;
-                        
-                        updatedGrades[index] = {
-                            ...updatedGrades[index],
-                            isAbsent: false
-                        };
-                    }
+                // If both worksheet and grade are valid but student is marked as absent, unmark as absent
+                if (isValidWorksheetNumber && isValidGrade && isAbsent) {
+                    updatedGrades[index] = {
+                        ...updatedGrades[index],
+                        isAbsent: false
+                    };
                 }
-                
-                if (shouldBeAbsent) {
+                  if (grade.isAbsent) {
                     const data = {
                         classId: selectedClass,
                         studentId: grade.studentId,
