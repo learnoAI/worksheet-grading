@@ -90,9 +90,7 @@ export function StudentCard({
         // Always update grade to match the student data
         // This ensures consistency with server state after saving
         setGrade(student.grade || '');
-    }, [student]);
-
-    // Improved handler for absent checkbox to ensure consistent state
+    }, [student]);    // Improved handler for absent checkbox to ensure consistent state
     const handleAbsentChange = (checked: boolean) => {
         console.log(`${student.name}: Changing absent status to ${checked}`);
         
@@ -108,20 +106,13 @@ export function StudentCard({
             // and prevents race conditions with the new implementation
             updateData(student.studentId, "isAbsent", true);
         } else {
-            // When unmarking as absent, restore the appropriate worksheet number
-            const worksheetNum = student.worksheetNumber > 0 ? student.worksheetNumber : 1;
-            setWorksheetNumber(worksheetNum.toString());
+            // When unmarking as absent, keep worksheet number empty
+            setWorksheetNumber('');
             
             // Update the absent status in the parent component
             updateData(student.studentId, "isAbsent", false);
             
-            // If there wasn't a valid worksheet number, set it to 1
-            if (student.worksheetNumber <= 0) {
-                // Use a small timeout to ensure the isAbsent update is processed first
-                setTimeout(() => {
-                    updateData(student.studentId, "worksheetNumber", 1);
-                }, 50);
-            }
+            // No longer setting worksheet number to 1 automatically when unmarking absent
         }
     };
 
