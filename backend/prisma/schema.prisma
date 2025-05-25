@@ -177,6 +177,7 @@ model Worksheet {
   worksheetQuestions WorksheetQuestion[]
   isAbsent           Boolean             @default(false)
   isRepeated         Boolean             @default(false)
+  mongoDbId          String?             @unique
 }
 
 model WorksheetImage {

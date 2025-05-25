@@ -103,30 +103,26 @@ export function DataTable<TData, TValue>({
                             ...currentRow,
                             isAbsent: false
                         };
-                    }
-                } else if (columnId === 'worksheetNumber') {
-                    // If setting valid worksheet number, ensure not absent
+                    }                } else if (columnId === 'worksheetNumber') {
+                    // Set worksheet number without auto-marking as absent
                     const worksheetNumber = value;
-                    const shouldBeAbsent = worksheetNumber <= 0 && !currentRow.grade;
                     
-                    console.log(`[Table] Setting worksheet number for row ${rowIndex} to ${worksheetNumber}, shouldBeAbsent=${shouldBeAbsent}`);
+                    console.log(`[Table] Setting worksheet number for row ${rowIndex} to ${worksheetNumber}`);
                     
                     (newData as any)[rowIndex] = {
                         ...currentRow,
-                        worksheetNumber: worksheetNumber,
-                        isAbsent: shouldBeAbsent // Only mark as absent if both worksheet and grade are empty
-                    };
-                } else if (columnId === 'grade') {
-                    // If setting grade, ensure not absent
+                        worksheetNumber: worksheetNumber
+                        // No longer auto-mark as absent
+                    };                } else if (columnId === 'grade') {
+                    // Set grade without auto-marking as absent
                     const grade = value;
-                    const shouldBeAbsent = !grade && (!currentRow.worksheetNumber || currentRow.worksheetNumber <= 0);
                     
-                    console.log(`[Table] Setting grade for row ${rowIndex} to "${grade}", shouldBeAbsent=${shouldBeAbsent}`);
+                    console.log(`[Table] Setting grade for row ${rowIndex} to "${grade}"`);
                     
                     (newData as any)[rowIndex] = {
                         ...currentRow,
-                        grade: grade,
-                        isAbsent: shouldBeAbsent // Only mark as absent if both worksheet and grade are empty
+                        grade: grade
+                        // No longer auto-mark as absent
                     };
                 } else {
                     // For regular field updates
@@ -167,18 +163,15 @@ export function DataTable<TData, TValue>({
                         updatedStudent.grade = "";
                         updatedStudent.isRepeated = false;
                     }
-                } 
-                // Special handling for worksheet number
+                }                // Special handling for worksheet number
                 else if (field === 'worksheetNumber') {
                     updatedStudent.worksheetNumber = value;
                     
                     // If setting valid worksheet number, ensure not absent
                     if (value > 0) {
                         updatedStudent.isAbsent = false;
-                    } else if (!updatedStudent.grade) {
-                        // Mark as absent only if both worksheet and grade are empty
-                        updatedStudent.isAbsent = true;
                     }
+                    // No longer auto-mark as absent if value is 0
                 }
                 // Special handling for grade
                 else if (field === 'grade') {
@@ -187,10 +180,8 @@ export function DataTable<TData, TValue>({
                     // If setting a grade, ensure not absent
                     if (value) {
                         updatedStudent.isAbsent = false;
-                    } else if (!updatedStudent.worksheetNumber || updatedStudent.worksheetNumber <= 0) {
-                        // Mark as absent only if both worksheet and grade are empty
-                        updatedStudent.isAbsent = true;
                     }
+                    // No longer auto-mark as absent if grade is empty
                 }
                 // For all other fields, just set the value directly
                 else {
@@ -245,28 +236,7 @@ export function DataTable<TData, TValue>({
         // Clear bulk inputs after applying
         setBulkWorksheetNumber('');
         setBulkGrade('');
-    };
-
-    // Mark all students without grades as absent
-    const markAbsentWithoutGrades = () => {
-        const updatedData = [...data] as any[];
-        
-        updatedData.forEach((student, index) => {
-            // If the student has no grade and no worksheet number, mark them as absent
-            if ((!student.grade || student.grade === "") && 
-                (!student.worksheetNumber || student.worksheetNumber <= 0)) {
-                updatedData[index] = {
-                    ...student,
-                    isAbsent: true,
-                    worksheetNumber: 0,
-                    grade: "",
-                    isRepeated: false
-                };
-            }
-        });
-
-        onDataChange?.(updatedData);
-    };
+    };    // Feature removed: No longer auto-mark students as absent
 
     // Clear all selections
     const clearSelections = () => {
@@ -320,8 +290,8 @@ export function DataTable<TData, TValue>({
         setBulkGrade('');
     };
 
-    // Generate grade options (1-40)
-    const gradeOptions = Array.from({ length: 40 }, (_, i) => (i + 1).toString());
+    const gradeOptions = Array.from({ length: 40 }, (_, i) => (40 - i).toString());
+
 
     return (
         <div className="space-y-4">
@@ -510,17 +480,7 @@ export function DataTable<TData, TValue>({
                         </div>
                     </div>
                 )}
-            </div>
-
-            <div className="flex justify-between">
-                <Button
-                    onClick={markAbsentWithoutGrades}
-                    variant="outline"
-                    className="text-yellow-600 border-yellow-600 hover:bg-yellow-50"
-                >
-                    Mark All Without Grades as Absent
-                </Button>
-            </div>
+            </div>            {/* Button removed: No longer auto-mark students as absent */}
 
             {/* Scrollable Card Grid Layout */}
             <div className="border rounded-lg shadow-sm bg-white overflow-hidden">
