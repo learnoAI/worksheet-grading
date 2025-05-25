@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { classAPI, worksheetAPI } from '@/lib/api';
 import { UploadIcon } from 'lucide-react';
+import { StudentWorksheetCard } from './student-worksheet-card';
 
 interface Class {
     id: string;
@@ -144,11 +145,17 @@ export default function UploadWorksheetPage() {
         // Update status to uploading
         setStudentWorksheets(prev => prev.map(sw => 
             sw.studentId === worksheet.studentId ? { ...sw, isUploading: true } : sw
-        ));
-
-        try {
-            // Prepare form data for API call to Python endpoint
+        ));        try {
+            // Prepare form data for API call to our backend proxy
             const formData = new FormData();
+            
+            // Add metadata fields needed for our backend database
+            formData.append('classId', selectedClass);
+            formData.append('studentId', worksheet.studentId);
+            formData.append('worksheetNumber', worksheet.worksheetNumber.toString());
+            formData.append('submittedOn', submittedOn);
+            
+            // Add token_no and worksheet_name for Python API
             formData.append('token_no', worksheet.tokenNumber);
             formData.append('worksheet_name', worksheet.worksheetNumber.toString());
             
@@ -157,41 +164,45 @@ export default function UploadWorksheetPage() {
                 formData.append('files', worksheet.files[i]);
             }
 
-            // Call the Python API endpoint
-            const response = await fetch('http://your-python-api-endpoint/process-worksheets', {
+            // Call our backend API endpoint which proxies to the Python API
+            const API_URL = process.env.NEXT_PUBLIC_API_URL;
+            const response = await fetch(`${API_URL}/worksheet-processing/process`, {
                 method: 'POST',
                 body: formData,
+                headers: {
+                    // No content-type header needed, it's set automatically with FormData
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
             });
 
             if (!response.ok) {
-                throw new Error('Failed to process worksheet');
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to process worksheet');
             }
 
             const result = await response.json();
             
+            if (!result.success) {
+                throw new Error(result.error || 'Error processing worksheet');
+            }
+            
             // Update the grade from the API response
+            const grade = result.grade || result.totalScore || 0;
             setStudentWorksheets(prev => prev.map(sw => 
                 sw.studentId === worksheet.studentId 
-                    ? { ...sw, grade: result.score.toString(), isUploading: false } 
+                    ? { ...sw, grade: grade.toString(), isUploading: false } 
                     : sw
             ));
-
-            // Save the graded worksheet to the database
-            await worksheetAPI.createGradedWorksheet({
-                classId: selectedClass,
-                studentId: worksheet.studentId,
-                worksheetNumber: worksheet.worksheetNumber,
-                grade: result.score,
-                submittedOn: submittedOn,
-                isAbsent: false
-            });
-
-            toast.success(`Worksheet for ${worksheet.name} uploaded and graded successfully`);
+            
+            toast.success(`Worksheet for ${worksheet.name} processed successfully! Grade: ${grade}/10`);
             
             // Clear file input
             if (fileInputRefs.current[worksheet.studentId]) {
                 fileInputRefs.current[worksheet.studentId]!.value = '';
             }
+            
+            // Return success for batch processing
+            return { success: true };
         } catch (error) {
             console.error('Error uploading worksheet:', error);
             toast.error('Failed to upload or grade worksheet');
@@ -200,6 +211,68 @@ export default function UploadWorksheetPage() {
             setStudentWorksheets(prev => prev.map(sw => 
                 sw.studentId === worksheet.studentId ? { ...sw, isUploading: false } : sw
             ));
+            // Return failure for batch processing
+            return { success: false };
+        }
+    };
+
+    // Process all non-absent students' worksheets in parallel
+    const handleBatchProcess = async () => {
+        const studentsWithFiles = studentWorksheets.filter(sw => 
+            !sw.isAbsent && sw.files && sw.files.length > 0 && sw.worksheetNumber
+        );
+        
+        if (studentsWithFiles.length === 0) {
+            toast.error('No worksheets to process. Please upload files and assign worksheet numbers.');
+            return;
+        }
+        
+        // Set all selected students to uploading state
+        setStudentWorksheets(prev => prev.map(sw => 
+            studentsWithFiles.some(s => s.studentId === sw.studentId) 
+                ? { ...sw, isUploading: true } 
+                : sw
+        ));
+        
+        try {
+            // Process all worksheets in parallel with a concurrency limit
+            const batchSize = 3; // Process 3 worksheets at a time to avoid overwhelming the server
+            let successful = 0;
+            let failed = 0;
+            
+            // Process worksheets in batches to control concurrency
+            for (let i = 0; i < studentsWithFiles.length; i += batchSize) {
+                const currentBatch = studentsWithFiles.slice(i, i + batchSize);
+                
+                const batchResults = await Promise.allSettled(
+                    currentBatch.map(worksheet => handleUpload(worksheet))
+                );
+                
+                // Count successes and failures for this batch
+                successful += batchResults.filter(r => 
+                    r.status === 'fulfilled' && r.value && r.value.success
+                ).length;
+                
+                failed += batchResults.filter(r => 
+                    r.status === 'rejected' || (r.status === 'fulfilled' && (!r.value || !r.value.success))
+                ).length;
+                
+                // Small delay between batches to prevent rate limiting
+                if (i + batchSize < studentsWithFiles.length) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            }
+            
+            if (successful > 0) {
+                toast.success(`Successfully processed ${successful} worksheet${successful !== 1 ? 's' : ''}`);
+            }
+            
+            if (failed > 0) {
+                toast.error(`Failed to process ${failed} worksheet${failed !== 1 ? 's' : ''}`);
+            }
+        } catch (error) {
+            console.error('Error in batch processing:', error);
+            toast.error('Failed to process worksheets');
         }
     };
 
@@ -222,30 +295,34 @@ export default function UploadWorksheetPage() {
             // Save all changes - both absent students and those with uploaded grades
             await Promise.all(studentWorksheets.map(async (worksheet) => {
                 if (worksheet.isAbsent) {
-                    // Skip if student is already marked absent in the database (has grade)
-                    // if (worksheet.grade !== '') return;
-                    
                     // Always update the absent status, even if the student already had a grade
                     const data = {
                         classId: selectedClass,
                         studentId: worksheet.studentId,
                         worksheetNumber: 0,
-                        grade: 0,
+                        grade: 0, // Grade is 0 for absent students
                         submittedOn: new Date(submittedOn).toISOString(),
                         isAbsent: true,
                         notes: 'Student absent'
                     };
                     
-                    if (worksheet.grade) {
-                        // Update existing record
-                        await worksheetAPI.updateGradedWorksheet(worksheet.studentId, data);
+                    // Check if a record already exists to decide between create and update
+                    // This logic might need refinement based on how existing records are identified
+                    // For simplicity, assuming grade presence indicates an existing record for now.
+                    // A more robust check would involve fetching existing worksheet by studentId and date.
+                    const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(selectedClass, worksheet.studentId, submittedOn);
+
+                    if (existingWorksheet && existingWorksheet.id) {
+                        await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
                     } else {
-                        // Create new record
                         await worksheetAPI.createGradedWorksheet(data);
                     }
+
                 }
-                // For students with grades but no files (manually entered grades)
-                else if (worksheet.grade && !worksheet.files) {
+                // For students with grades but no files (manually entered grades or previously uploaded)
+                // This part handles saving changes for students who are NOT absent
+                // and might have had their grade manually entered or worksheet previously uploaded and graded.
+                else if (worksheet.grade && !worksheet.files) { // Or some other condition to identify these cases
                     const data = {
                         classId: selectedClass,
                         studentId: worksheet.studentId,
@@ -254,19 +331,26 @@ export default function UploadWorksheetPage() {
                         submittedOn: new Date(submittedOn).toISOString(),
                         isAbsent: false
                     };
-                    
-                    if (worksheet.grade) {
-                        // Update existing record
-                        await worksheetAPI.updateGradedWorksheet(worksheet.studentId, data);
+                     const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(selectedClass, worksheet.studentId, submittedOn);
+                    if (existingWorksheet && existingWorksheet.id) {
+                        await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
                     } else {
-                        // Create new record
+                        // This case (grade exists, no files, but no existing DB record) might be an edge case
+                        // or indicate a new manual grade entry.
                         await worksheetAPI.createGradedWorksheet(data);
                     }
                 }
+                // Implicitly, worksheets that were uploaded and graded via handleUpload 
+                // are already saved to DB in that function.
+                // handleSaveAllChanges primarily handles absent students and potentially manual grade adjustments
+                // for already processed worksheets if that's a feature.
+                // If a student is not absent, has a worksheet number, but no grade yet (and no files for new upload),
+                // this function currently doesn't explicitly save them unless they fall into the above categories.
+                // This might be okay if the expectation is that grading happens via the 'Grade' button per student.
             }));
             
             toast.success('Changes saved successfully');
-            router.refresh();
+            router.refresh(); // Refresh to show updated data if necessary
             
         } catch (error) {
             console.error('Error saving changes:', error);
@@ -276,120 +360,6 @@ export default function UploadWorksheetPage() {
         }
     };
 
-    // Define columns for the data table
-    const columns = [
-        {
-            accessorKey: "name",
-            header: "Student Name",
-            cell: ({ row }: { row: any }) => <div>{row.getValue("name")}</div>
-        },
-        {
-            accessorKey: "tokenNumber",
-            header: "Token Number",
-            cell: ({ row }: { row: any }) => <div>{row.getValue("tokenNumber")}</div>
-        },
-        {
-            accessorKey: "isAbsent",
-            header: "Absent",
-            cell: ({ row }: { row: any }) => {
-                const isChecked = Boolean(row.getValue("isAbsent"));
-                return (
-                    <div className="flex items-center">
-                        <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) => {
-                                const index = row.index;
-                                handleUpdateWorksheet(index, "isAbsent", e.target.checked);
-                            }}
-                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                        />
-                        <span className="ml-2 text-xs">Absent</span>
-                    </div>
-                );
-            }
-        },
-        {
-            accessorKey: "worksheetNumber",
-            header: "Worksheet #",
-            cell: ({ row }: { row: any }) => {
-                const isAbsent = Boolean(row.getValue("isAbsent"));
-                return (
-                    <Input
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={row.getValue("worksheetNumber") || ''}
-                        onChange={(e) => {
-                            const index = row.index;
-                            handleUpdateWorksheet(index, "worksheetNumber", parseInt(e.target.value) || 0);
-                        }}
-                        className="w-20 h-8 px-2 text-sm"
-                        disabled={isAbsent}
-                    />
-                );
-            }
-        },
-        {
-            accessorKey: "grade",
-            header: "Grade",
-            cell: ({ row }: { row: any }) => {
-                const grade = row.getValue("grade");
-                return (
-                    <div className="w-16 h-8 px-2 text-sm flex items-center">
-                        {grade ? `${grade}/10` : "-"}
-                    </div>
-                );
-            }
-        },
-        {
-            accessorKey: "upload",
-            header: "Upload Image",
-            cell: ({ row }: { row: any }) => {
-                const index = row.index;
-                const studentId = studentWorksheets[index]?.studentId;
-                const isAbsent = Boolean(row.getValue("isAbsent"));
-                const isUploading = studentWorksheets[index]?.isUploading;
-                
-                return (
-                    <div className="flex flex-col space-y-2">
-                        <div className="relative flex items-center">
-                            <label htmlFor={`file-input-${studentId}`} className="cursor-pointer flex items-center">
-                                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 mr-2">
-                                    <UploadIcon size={16} />
-                                </div>
-                                <span className="text-xs text-blue-600">
-                                    {studentWorksheets[index]?.files ? 
-                                        `${studentWorksheets[index]?.files.length} file(s)` : 
-                                        "Upload Images"}
-                                </span>
-                            </label>
-                            <input 
-                                id={`file-input-${studentId}`}
-                                type="file"
-                                accept="image/*"
-                                multiple
-                                onChange={(e) => handleFileChange(studentId, e.target.files)}
-                                disabled={isAbsent || isUploading}
-                                className="hidden"
-                                ref={(el) => {
-                                    fileInputRefs.current[studentId] = el;
-                                }}
-                            />
-                        </div>
-                        <Button 
-                            size="sm"
-                            onClick={() => handleUpload(studentWorksheets[index])}
-                            disabled={isAbsent || isUploading || !studentWorksheets[index]?.files}
-                            className="w-full"
-                        >
-                            {isUploading ? "Uploading..." : "Grade"}
-                        </Button>
-                    </div>
-                );
-            }
-        }
-    ];
 
     if (isLoading) {
         return <div className="flex items-center justify-center min-h-[60vh]">Loading...</div>;
@@ -413,10 +383,10 @@ export default function UploadWorksheetPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>Upload Worksheet Images</CardTitle>
-                    <CardDescription>Upload and grade student worksheet images</CardDescription>
+                    <CardDescription>Select class and date, then upload and grade worksheets for each student.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                         <div className="space-y-2">
                             <Label htmlFor="class">Class</Label>
                             <select
@@ -446,51 +416,46 @@ export default function UploadWorksheetPage() {
                                 required
                             />
                         </div>
-                    </div>
-
-                    {selectedClass && studentWorksheets.length > 0 && (
+                    </div>                    {selectedClass && studentWorksheets.length > 0 && (
                         <>
-                            <div className="rounded-md border mt-6">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            {columns.map((column, i) => (
-                                                <th 
-                                                    key={i} 
-                                                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                                                >
-                                                    {column.header}
-                                                </th>
-                                            ))}
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {studentWorksheets.map((worksheet, i) => (
-                                            <tr key={worksheet.studentId}>
-                                                {columns.map((column, j) => (
-                                                    <td key={j} className="px-6 py-4 whitespace-nowrap">
-                                                        {column.cell({ 
-                                                            row: { 
-                                                                getValue: (key: string) => (worksheet as any)[key],
-                                                                index: i 
-                                                            }
-                                                        })}
-                                                    </td>
-                                                ))}
-                                            </tr>
+                            {/* Scrollable Card Grid Layout */}
+                            <div className="border rounded-lg shadow-sm bg-white overflow-hidden">
+                                <div className="max-h-[70vh] overflow-y-auto p-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {studentWorksheets.map((worksheet, index) => (
+                                            <StudentWorksheetCard 
+                                                key={worksheet.studentId}
+                                                worksheet={worksheet}
+                                                index={index}
+                                                onUpdate={handleUpdateWorksheet}
+                                                onFileChange={handleFileChange}
+                                                onUpload={handleUpload}
+                                                fileInputRefs={fileInputRefs}
+                                            />
                                         ))}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div className="flex justify-end mt-6">
+                                    </div>
+                                </div>
+                            </div>                            <div className="flex justify-end mt-6 space-x-3">
+                                <Button
+                                    onClick={handleBatchProcess}
+                                    disabled={isSaving || studentWorksheets.some(ws => ws.isUploading) || 
+                                             !studentWorksheets.some(ws => !ws.isAbsent && ws.files && ws.files.length > 0 && ws.worksheetNumber)}
+                                    className="w-full sm:w-auto"
+                                    variant="secondary"
+                                >
+                                    AI Grade All
+                                </Button>
                                 <Button
                                     onClick={handleSaveAllChanges}
-                                    disabled={isSaving}
+                                    disabled={isSaving || studentWorksheets.some(ws => ws.isUploading)}
                                     className="w-full sm:w-auto"
                                 >
-                                    {isSaving ? 'Saving...' : 'Save All Changes'}
+                                    {isSaving ? 'Saving All...' : 'Save All Changes'}
                                 </Button>
+                            </div>
+                            
+                            <div className="text-sm text-muted-foreground">
+                                Showing {studentWorksheets.length} students
                             </div>
                         </>
                     )}

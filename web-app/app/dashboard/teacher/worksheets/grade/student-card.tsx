@@ -32,14 +32,12 @@ export function StudentCard({
     updateData, 
     onSave
 }: StudentCardProps) {
-    // Local state to manage inputs
     const [isAbsent, setIsAbsent] = useState(!!student.isAbsent);
     const [worksheetNumber, setWorksheetNumber] = useState<string>(
         isAbsent ? '' : (student.worksheetNumber ? student.worksheetNumber.toString() : '')
     );
     const [grade, setGrade] = useState<string>(student.grade || '');
     
-    // Initialize avatar letters from name
     const avatarLetters = student.name
         .split(' ')
         .slice(0, 2)
@@ -47,7 +45,6 @@ export function StudentCard({
         .join('')
         .toUpperCase();
         
-    // Generate background color based on name (for consistent color per student)
     const getInitialsBgColor = (name: string) => {
         const colors = [
             'bg-blue-500', 'bg-green-500', 'bg-purple-500', 
@@ -57,7 +54,6 @@ export function StudentCard({
         return colors[hash % colors.length];
     };
 
-    // Update local state when student data changes
     useEffect(() => {
         console.log(`[StudentCard] Student data updated: ${student.name}`, {
             isAbsent: student.isAbsent,
@@ -65,92 +61,58 @@ export function StudentCard({
             grade: student.grade
         });
         
-        // Check for inconsistent state - if student has worksheet number and grade but is marked as absent
         const hasWorksheetNumber = student.worksheetNumber && student.worksheetNumber > 0;
         const hasGrade = student.grade && student.grade.toString().trim() !== '';
         
         if (student.isAbsent && hasWorksheetNumber && hasGrade) {
-            // This is an inconsistent state - student can't be absent if they have worksheet and grade
             console.warn(`[StudentCard] Inconsistent state detected for ${student.name}: marked as absent but has worksheet=${student.worksheetNumber} and grade=${student.grade}`);
-            
-            // Fix it by updating the parent state
             updateData(student.studentId, "isAbsent", false);
-            
-            // Set local state to non-absent
             setIsAbsent(false);
         } else {
-            // Normal state update
             setIsAbsent(!!student.isAbsent);
         }
         
-        // Always update worksheet number to match the student data
-        // This ensures consistency with server state after saving
         setWorksheetNumber(student.worksheetNumber ? student.worksheetNumber.toString() : '');
         
-        // Always update grade to match the student data
-        // This ensures consistency with server state after saving
         setGrade(student.grade || '');
-    }, [student]);    // Improved handler for absent checkbox to ensure consistent state
+    }, [student]);
     const handleAbsentChange = (checked: boolean) => {
         console.log(`${student.name}: Changing absent status to ${checked}`);
         
-        // Update local state first
         setIsAbsent(checked);
         
         if (checked) {
-            // When marking as absent, clear other fields in local state
             setWorksheetNumber('');
             setGrade('');
-            
-            // Update all fields at once in the parent component - this ensures atomic updates
-            // and prevents race conditions with the new implementation
             updateData(student.studentId, "isAbsent", true);
         } else {
-            // When unmarking as absent, keep worksheet number empty
             setWorksheetNumber('');
-            
-            // Update the absent status in the parent component
             updateData(student.studentId, "isAbsent", false);
-            
-            // No longer setting worksheet number to 1 automatically when unmarking absent
         }
     };
 
-    // Handler for worksheet number changes
     const handleWorksheetNumberChange = (value: string) => {
         console.log(`${student.name}: Setting worksheet number to ${value}`);
-        // Update local state
         setWorksheetNumber(value);
-        
-        // Safely parse the worksheet number
         const numValue = parseInt(value) || 0;
         
-        // If student is marked as absent, unmark them first
         if (isAbsent) {
-            // Update local state
             setIsAbsent(false);
             
-            // First update absent status in parent component
             updateData(student.studentId, "isAbsent", false);
             
-            // Wait a moment to ensure the absent status change is processed
             setTimeout(() => {
-                // Then update the worksheet number
                 updateData(student.studentId, "worksheetNumber", numValue);
             }, 50);
         } else {
-            // Just update the worksheet number directly
             updateData(student.studentId, "worksheetNumber", numValue);
         }
     };
 
-    // Handler for grade changes
     const handleGradeChange = (value: string) => {
         console.log(`${student.name}: Setting grade to ${value}`);
-        // Update local state
         setGrade(value);
         
-        // If student is marked as absent, unmark them first
         if (isAbsent) {
             // Update local state
             setIsAbsent(false);

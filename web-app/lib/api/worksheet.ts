@@ -25,6 +25,7 @@ interface CreateGradedWorksheetData {
     submittedOn: string;
     isAbsent?: boolean;
     isRepeated?: boolean;
+    mongoDbId?: string; // Add MongoDB ID field
 }
 export const worksheetAPI = {
     uploadWorksheet: async (formData: FormData): Promise<Worksheet> => {
@@ -56,9 +57,7 @@ export const worksheetAPI = {
 
     getWorksheetById: async (id: string): Promise<Worksheet> => {
         return fetchAPI<Worksheet>(`/worksheets/${id}`);
-    },
-
-    createGradedWorksheet: async (data: CreateGradedWorksheetData): Promise<Worksheet> => {
+    },    createGradedWorksheet: async (data: CreateGradedWorksheetData): Promise<Worksheet> => {
         try {
             // Deep clone the data to avoid modifying the original object
             const requestData = JSON.parse(JSON.stringify(data));
@@ -69,10 +68,12 @@ export const worksheetAPI = {
                 requestData.worksheetNumber = 0;
                 requestData.grade = 0;
                 requestData.isRepeated = false;
+                requestData.mongoDbId = null; // No MongoDB ID for absent students
             } else {
                 // For present students, ensure values are proper numbers
                 requestData.grade = parseFloat(requestData.grade.toString());
                 requestData.worksheetNumber = parseInt(requestData.worksheetNumber.toString());
+                // Keep the mongoDbId if it exists
             }
             
             // Add logging to help diagnose issues
@@ -81,7 +82,12 @@ export const worksheetAPI = {
             // Add timestamp to ensure fresh request
             const timestamp = new Date().getTime();
             
-            const result = await fetchAPI<Worksheet>(`/worksheets/grade?_t=${timestamp}`, {
+            // Use the new endpoint that handles MongoDB ID if it's provided, otherwise use the standard endpoint
+            const endpoint = requestData.mongoDbId 
+                ? `/worksheet-processing/grade-with-mongo-id?_t=${timestamp}`
+                : `/worksheets/grade?_t=${timestamp}`;
+                
+            const result = await fetchAPI<Worksheet>(endpoint, {
                 method: 'POST',
                 body: JSON.stringify(requestData)
             });
