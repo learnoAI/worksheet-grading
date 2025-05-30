@@ -5,8 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { analyticsAPI, OverallAnalytics } from '@/lib/api/analytics';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { analyticsAPI, OverallAnalytics, School, Class } from '@/lib/api/analytics';
 import { toast } from 'sonner';
+import { Download } from 'lucide-react';
 
 export default function AnalyticsDashboardPage() {
     // Date range state
@@ -17,14 +19,56 @@ export default function AnalyticsDashboardPage() {
         new Date().toISOString().split('T')[0]
     );
     
+    // Filter state for download
+    const [schools, setSchools] = useState<School[]>([]);
+    const [classes, setClasses] = useState<Class[]>([]);
+    const [selectedSchoolId, setSelectedSchoolId] = useState<string>('all');
+    const [selectedClassId, setSelectedClassId] = useState<string>('all');
+    const [isDownloading, setIsDownloading] = useState<boolean>(false);
+    
     // Analytics data state
     const [analytics, setAnalytics] = useState<OverallAnalytics | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    
-    // Fetch analytics data on initial load and when date range changes
+      // Fetch analytics data on initial load and when date range changes
     useEffect(() => {
         fetchAnalytics();
     }, []);
+
+    // Load schools on initial render
+    useEffect(() => {
+        const loadSchools = async () => {
+            try {
+                const schoolsData = await analyticsAPI.getAllSchools();
+                setSchools(schoolsData);
+            } catch (error) {
+                console.error('Error loading schools:', error);
+                toast.error('Failed to load schools');
+            }
+        };
+        
+        loadSchools();
+    }, []);
+    
+    // Load classes when a school is selected
+    useEffect(() => {
+        if (selectedSchoolId && selectedSchoolId !== 'all') {
+            const loadClasses = async () => {
+                try {
+                    const classesData = await analyticsAPI.getClassesBySchool(selectedSchoolId);
+                    setClasses(classesData);
+                    setSelectedClassId('all'); // Reset class selection
+                } catch (error) {
+                    console.error('Error loading classes:', error);
+                    toast.error('Failed to load classes');
+                }
+            };
+            
+            loadClasses();
+        } else {
+            setClasses([]);
+            setSelectedClassId('all');
+        }
+    }, [selectedSchoolId]);
     
     const fetchAnalytics = async () => {
         setIsLoading(true);
@@ -36,6 +80,23 @@ export default function AnalyticsDashboardPage() {
             toast.error('Failed to fetch analytics data');
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    // Handle download
+    const handleDownload = async () => {
+        setIsDownloading(true);
+        try {
+            await analyticsAPI.downloadStudentAnalytics({
+                schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
+                classId: selectedClassId !== 'all' ? selectedClassId : undefined
+            });
+            toast.success('Analytics data downloaded successfully');
+        } catch (error) {
+            console.error('Error downloading analytics:', error);
+            toast.error('Failed to download analytics data');
+        } finally {
+            setIsDownloading(false);
         }
     };
     
@@ -83,8 +144,7 @@ export default function AnalyticsDashboardPage() {
                                 {isLoading ? 'Loading...' : 'Apply Filter'}
                             </Button>
                         </div>
-                    </form>
-                </CardContent>
+                    </form>                </CardContent>
             </Card>
             
             {/* Analytics Cards */}
@@ -179,12 +239,67 @@ export default function AnalyticsDashboardPage() {
                             </div>
                         </CardContent>
                     </Card>
+
                 </div>
             ) : (
                 <div className="flex items-center justify-center h-64">
                     <p>No analytics data available for the selected date range</p>
                 </div>
             )}
+            <Card>
+                <CardHeader>
+                    <CardTitle>Download Student Analytics</CardTitle>
+                    <CardDescription>Filter and download detailed student analytics data</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="flex flex-col md:flex-row gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="school">School</Label>
+                            <Select value={selectedSchoolId} onValueChange={setSelectedSchoolId}>
+                                <SelectTrigger className="max-w-[250px]">
+                                    <SelectValue placeholder="Select school" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Schools</SelectItem>
+                                    {schools.map((school) => (
+                                        <SelectItem key={school.id} value={school.id}>
+                                            {school.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        
+                        <div className="space-y-2">
+                            <Label htmlFor="class">Class</Label>
+                            <Select 
+                                value={selectedClassId} 
+                                onValueChange={setSelectedClassId}
+                                disabled={selectedSchoolId === 'all'}
+                            >
+                                <SelectTrigger className="max-w-[250px]">
+                                    <SelectValue placeholder="Select class" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Classes</SelectItem>
+                                    {classes.map((cls) => (
+                                        <SelectItem key={cls.id} value={cls.id}>
+                                            {cls.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        
+                        <div className="flex items-end">
+                            <Button onClick={handleDownload} disabled={isDownloading}>
+                                <Download className="mr-2 h-4 w-4" />
+                                {isDownloading ? 'Downloading...' : 'Download CSV'}
+                            </Button>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     );
 }

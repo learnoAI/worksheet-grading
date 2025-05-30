@@ -60,6 +60,7 @@ export interface Class {
     schoolId: string;
     createdAt: string;
     updatedAt: string;
+    isArchived?: boolean;
     school?: School;
     studentClasses?: StudentClass[];
     teacherClasses?: TeacherClass[];

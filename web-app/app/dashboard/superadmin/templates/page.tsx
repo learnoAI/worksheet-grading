@@ -107,7 +107,7 @@ export default function TemplatesPage() {
                                                     </Button>
                                                     <Button
                                                         size="sm"
-                                                        variant="destructive"
+                                                        variant="default"
                                                         onClick={() => handleDeleteTemplate(template.id)}
                                                     >
                                                         Delete

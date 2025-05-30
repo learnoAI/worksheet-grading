@@ -2,6 +2,7 @@ import express from 'express';
 import {
     getOverallAnalytics,
     getStudentAnalytics,
+    downloadStudentAnalytics,
     getAllSchools,
     getClassesBySchool,
     removeStudentFromClass,
@@ -21,6 +22,7 @@ router.get('/overall', asHandler(getOverallAnalytics));
 
 // Student analytics
 router.get('/students', asHandler(getStudentAnalytics));
+router.get('/students/download', asHandler(downloadStudentAnalytics));
 
 // School and class data for filtering
 router.get('/schools', asHandler(getAllSchools));

@@ -248,11 +248,12 @@ export const getWorksheetById = async (req: Request, res: Response) => {
 
 // Get classes for a teacher
 export const getTeacherClasses = async (req: Request, res: Response) => {
-    const { teacherId } = req.params;
-
-    const classes = await prisma.teacherClass.findMany({
+    const { teacherId } = req.params;    const classes = await prisma.teacherClass.findMany({
         where: {
-            teacherId: teacherId
+            teacherId: teacherId,
+            class: {
+                isArchived: false  // Filter out archived classes
+            }
         },
         include: {
             class: {

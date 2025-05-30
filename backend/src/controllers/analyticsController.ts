@@ -511,3 +511,157 @@ export const addStudentToClass = async (req: Request, res: Response) => {
         return res.status(500).json({ message: 'Server error while adding student to class' });
     }
 };
+
+/**
+ * Download student analytics as CSV
+ * @route GET /api/analytics/students/download
+ */
+export const downloadStudentAnalytics = async (req: Request, res: Response) => {
+    const { schoolId, classId, format = 'csv' } = req.query;
+    
+    try {
+        // Base filters for student query (same as getStudentAnalytics)
+        const filter: any = {
+            role: 'STUDENT',
+        };
+        
+        // Apply class filter if provided
+        if (classId) {
+            filter.studentClasses = {
+                some: {
+                    classId: classId as string
+                }
+            };
+        } 
+        // Otherwise apply school filter if provided
+        else if (schoolId) {
+            filter.studentSchools = {
+                some: {
+                    schoolId: schoolId as string
+                }
+            };
+        }
+        
+        // Get all students with their class information
+        const students = await prisma.user.findMany({
+            where: filter,
+            select: {
+                id: true,
+                username: true,
+                name: true,
+                tokenNumber: true,
+                studentClasses: {
+                    include: {
+                        class: {
+                            include: {
+                                school: true
+                            }
+                        }
+                    }
+                },
+                studentWorksheets: {
+                    select: {
+                        id: true,
+                        submittedOn: true,
+                        isAbsent: true,
+                        isRepeated: true,
+                        grade: true
+                    },
+                    orderBy: {
+                        submittedOn: 'asc'
+                    }
+                }
+            }
+        });
+        
+        // Calculate analytics for each student
+        const studentsWithAnalytics = students.map(student => {
+            const worksheets = student.studentWorksheets;
+            const totalWorksheets = worksheets.length;
+            const absences = worksheets.filter(w => w.isAbsent).length;
+            const repetitions = worksheets.filter(w => w.isRepeated).length;
+            
+            // Get first and last worksheet dates
+            const worksheetsWithDates = worksheets.filter(w => w.submittedOn !== null);
+            const firstWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[0] : null;
+            const lastWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[worksheetsWithDates.length - 1] : null;
+            
+            // Class and school info
+            const primaryClass = student.studentClasses[0]?.class;
+            
+            // Calculate average grade (excluding absent worksheets)
+            const gradedWorksheets = worksheets.filter(w => !w.isAbsent && w.grade !== null);
+            const averageGrade = gradedWorksheets.length > 0 
+                ? gradedWorksheets.reduce((sum, w) => sum + (w.grade || 0), 0) / gradedWorksheets.length 
+                : 0;
+            
+            return {
+                id: student.id,
+                name: student.name,
+                username: student.username,
+                tokenNumber: student.tokenNumber || '',
+                class: primaryClass ? primaryClass.name : 'No Class',
+                school: primaryClass ? primaryClass.school.name : 'No School',
+                totalWorksheets,
+                absences,
+                absentPercentage: totalWorksheets > 0 ? Number((absences / totalWorksheets * 100).toFixed(2)) : 0,
+                repetitions,
+                repetitionRate: (totalWorksheets - absences) > 0 ? Number((repetitions / (totalWorksheets - absences) * 100).toFixed(2)) : 0,
+                averageGrade: Number(averageGrade.toFixed(2)),
+                firstWorksheetDate: firstWorksheet?.submittedOn ? firstWorksheet.submittedOn.toISOString().split('T')[0] : '',
+                lastWorksheetDate: lastWorksheet?.submittedOn ? lastWorksheet.submittedOn.toISOString().split('T')[0] : '',
+            };
+        });
+        
+        if (format === 'csv') {
+            // Generate CSV
+            const csvHeaders = [
+                'Name',
+                'Username', 
+                'Token Number',
+                'School',
+                'Class',
+                'Total Worksheets',
+                'Absences',
+                'Absent Percentage (%)',
+                'Repetitions',
+                'Repetition Rate (%)',
+                'Average Grade',
+                'First Worksheet Date',
+                'Last Worksheet Date'
+            ];
+            
+            const csvRows = studentsWithAnalytics.map(student => [
+                `"${student.name}"`,
+                `"${student.username}"`,
+                `"${student.tokenNumber}"`,
+                `"${student.school}"`,
+                `"${student.class}"`,
+                student.totalWorksheets,
+                student.absences,
+                student.absentPercentage,
+                student.repetitions,
+                student.repetitionRate,
+                student.averageGrade,
+                `"${student.firstWorksheetDate}"`,
+                `"${student.lastWorksheetDate}"`
+            ]);
+            
+            const csvContent = [csvHeaders.join(','), ...csvRows.map(row => row.join(','))].join('\n');
+            
+            // Set response headers for CSV download
+            const timestamp = new Date().toISOString().split('T')[0];
+            const filename = `student_analytics_${timestamp}.csv`;
+            
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.status(200).send(csvContent);
+        } else {
+            // Return JSON if format is not CSV
+            res.status(200).json(studentsWithAnalytics);
+        }
+    } catch (error) {
+        console.error('Error downloading student analytics:', error);
+        res.status(500).json({ message: 'Server error while downloading student analytics data' });
+    }
+};

@@ -5,16 +5,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { analyticsAPI, School, Class, StudentAnalytics } from '@/lib/api/analytics';
+import { analyticsAPI, School, Class, StudentAnalytics } from '@/lib/api/analyticsAPI';
 import { toast } from 'sonner';
+import { Download, Filter, X } from 'lucide-react';
 
 export default function StudentAnalyticsPage() {
     // Filter state
     const [schools, setSchools] = useState<School[]>([]);
-    const [classes, setClasses] = useState<Class[]>([]);
-    const [selectedSchoolId, setSelectedSchoolId] = useState<string>('all');
+    const [classes, setClasses] = useState<Class[]>([]);    const [selectedSchoolId, setSelectedSchoolId] = useState<string>('all');
     const [selectedClassId, setSelectedClassId] = useState<string>('all');
     const [searchName, setSearchName] = useState<string>('');
+    
+    // Additional filter states
+    const [minWorksheets, setMinWorksheets] = useState<string>('');
+    const [maxAbsentRate, setMaxAbsentRate] = useState<string>('');
+    const [minRepetitionRate, setMinRepetitionRate] = useState<string>('');
+    const [isDownloading, setIsDownloading] = useState<boolean>(false);
     
     // Data state
     const [students, setStudents] = useState<StudentAnalytics[]>([]);
@@ -57,16 +63,15 @@ export default function StudentAnalyticsPage() {
             setSelectedClassId('all');
         }
     }, [selectedSchoolId]);
-    
-    // Load students based on filters
+      // Load students based on filters
     useEffect(() => {
         const loadStudentAnalytics = async () => {
             setIsLoading(true);
             try {
-                const data = await analyticsAPI.getStudentAnalytics(
-                    selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
-                    selectedClassId !== 'all' ? selectedClassId : undefined
-                );
+                const data = await analyticsAPI.getStudentAnalytics({
+                    schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
+                    classId: selectedClassId !== 'all' ? selectedClassId : undefined
+                });
                 setStudents(data);
             } catch (error) {
                 console.error('Error loading student analytics:', error);
@@ -78,23 +83,74 @@ export default function StudentAnalyticsPage() {
         
         loadStudentAnalytics();
     }, [selectedSchoolId, selectedClassId]);
-    
-    // Filter students by name when search changes
+      // Filter students by name and additional criteria when any filter changes
     useEffect(() => {
-        if (searchName.trim() === '') {
-            setFilteredStudents(students);
-        } else {
+        let filtered = [...students];
+        
+        // Name/token search
+        if (searchName.trim() !== '') {
             const searchLower = searchName.toLowerCase();
-            setFilteredStudents(
-                students.filter(student => 
-                    student.name.toLowerCase().includes(searchLower) ||
-                    student.username.toLowerCase().includes(searchLower) ||
-                    (student.tokenNumber && student.tokenNumber.toLowerCase().includes(searchLower))
-                )
+            filtered = filtered.filter(student => 
+                student.name.toLowerCase().includes(searchLower) ||
+                student.username.toLowerCase().includes(searchLower) ||
+                (student.tokenNumber && student.tokenNumber.toLowerCase().includes(searchLower))
             );
         }
-    }, [searchName, students]);
+        
+        // Minimum worksheets filter
+        if (minWorksheets) {
+            const minWorksheetsNum = parseInt(minWorksheets);
+            if (!isNaN(minWorksheetsNum)) {
+                filtered = filtered.filter(student => student.totalWorksheets >= minWorksheetsNum);
+            }
+        }
+        
+        // Maximum absent rate filter
+        if (maxAbsentRate) {
+            const maxAbsentRateNum = parseFloat(maxAbsentRate);
+            if (!isNaN(maxAbsentRateNum)) {
+                filtered = filtered.filter(student => student.absentPercentage <= maxAbsentRateNum);
+            }
+        }
+        
+        // Minimum repetition rate filter
+        if (minRepetitionRate) {
+            const minRepetitionRateNum = parseFloat(minRepetitionRate);
+            if (!isNaN(minRepetitionRateNum)) {
+                filtered = filtered.filter(student => student.repetitionRate >= minRepetitionRateNum);
+            }
+        }
+        
+        setFilteredStudents(filtered);
+    }, [searchName, students, minWorksheets, maxAbsentRate, minRepetitionRate]);
     
+    // Handle download
+    const handleDownload = async () => {
+        setIsDownloading(true);
+        try {
+            await analyticsAPI.downloadStudentAnalytics({
+                schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
+                classId: selectedClassId !== 'all' ? selectedClassId : undefined
+            });
+            toast.success('Analytics data downloaded successfully');
+        } catch (error) {
+            console.error('Error downloading analytics:', error);
+            toast.error('Failed to download analytics data');
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
+    // Clear all filters
+    const clearAllFilters = () => {
+        setSelectedSchoolId('all');
+        setSelectedClassId('all');
+        setSearchName('');
+        setMinWorksheets('');
+        setMaxAbsentRate('');
+        setMinRepetitionRate('');
+    };
+
     // Handle student class removal
     const handleRemoveFromClass = async (studentId: string, classId: string) => {
         if (!classId || classId === 'all') return;
@@ -102,12 +158,11 @@ export default function StudentAnalyticsPage() {
         try {
             await analyticsAPI.removeStudentFromClass(studentId, classId);
             toast.success('Student removed from class successfully');
-            
-            // Refresh student data
-            const updatedData = await analyticsAPI.getStudentAnalytics(
-                selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
-                selectedClassId !== 'all' ? selectedClassId : undefined
-            );
+              // Refresh student data
+            const updatedData = await analyticsAPI.getStudentAnalytics({
+                schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
+                classId: selectedClassId !== 'all' ? selectedClassId : undefined
+            });
             setStudents(updatedData);
         } catch (error) {
             console.error('Error removing student from class:', error);
@@ -123,15 +178,36 @@ export default function StudentAnalyticsPage() {
     return (
         <div className="space-y-6">
             <h1 className="text-2xl font-bold">Student Analytics</h1>
-            
-            {/* Filters */}
+              {/* Filters */}
             <Card>
                 <CardHeader>
-                    <CardTitle>Filters</CardTitle>
-                    <CardDescription>Filter student data by school, class, and name</CardDescription>
+                    <CardTitle className="flex items-center justify-between">
+                        <span>Filters</span>
+                        <div className="flex gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={clearAllFilters}
+                                className="flex items-center gap-2"
+                            >
+                                <X className="h-4 w-4" />
+                                Clear Filters
+                            </Button>
+                            <Button
+                                onClick={handleDownload}
+                                disabled={isDownloading}
+                                className="flex items-center gap-2"
+                                size="sm"
+                            >
+                                <Download className="h-4 w-4" />
+                                {isDownloading ? 'Downloading...' : 'Download CSV'}
+                            </Button>
+                        </div>
+                    </CardTitle>
+                    <CardDescription>Filter student data by school, class, and performance metrics</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                         <div>
                             <label className="block text-sm font-medium mb-1">School</label>
                             <Select
@@ -179,16 +255,67 @@ export default function StudentAnalyticsPage() {
                                 placeholder="Search students..."
                                 value={searchName}
                                 onChange={(e) => setSearchName(e.target.value)}
+                                className="flex items-center"
                             />
+                        </div>
+                    </div>
+                    
+                    {/* Enhanced Filters */}
+                    <div className="border-t pt-4">
+                        <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
+                            <Filter className="h-4 w-4" />
+                            Advanced Filters
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Min. Worksheets</label>
+                                <Input
+                                    type="number"
+                                    placeholder="e.g., 5"
+                                    value={minWorksheets}
+                                    onChange={(e) => setMinWorksheets(e.target.value)}
+                                    min="0"
+                                />
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Max. Absent Rate (%)</label>
+                                <Input
+                                    type="number"
+                                    placeholder="e.g., 20"
+                                    value={maxAbsentRate}
+                                    onChange={(e) => setMaxAbsentRate(e.target.value)}
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                />
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Min. Repetition Rate (%)</label>
+                                <Input
+                                    type="number"
+                                    placeholder="e.g., 10"
+                                    value={minRepetitionRate}
+                                    onChange={(e) => setMinRepetitionRate(e.target.value)}
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                />
+                            </div>
                         </div>
                     </div>
                 </CardContent>
             </Card>
-            
-            {/* Student Analytics Table */}
+              {/* Student Analytics Table */}
             <Card>
                 <CardHeader>
-                    <CardTitle>Student Performance Analytics</CardTitle>
+                    <CardTitle className="flex items-center justify-between">
+                        <span>Student Performance Analytics</span>
+                        <span className="text-sm font-normal text-muted-foreground">
+                            Showing {filteredStudents.length} of {students.length} students
+                        </span>
+                    </CardTitle>
                     <CardDescription>Detailed analytics for each student</CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -202,8 +329,7 @@ export default function StudentAnalyticsPage() {
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full border-collapse">
-                                <thead>
+                            <table className="w-full border-collapse">                                <thead>
                                     <tr className="border-b">
                                         <th className="text-left py-3 px-4 font-medium">Name</th>
                                         <th className="text-left py-3 px-4 font-medium">Token #</th>
@@ -241,7 +367,7 @@ export default function StudentAnalyticsPage() {
                                                 {selectedClassId && selectedClassId !== 'all' && (
                                                     <Button
                                                         size="sm"
-                                                        variant="destructive"
+                                                        variant="default"
                                                         onClick={() => handleRemoveFromClass(student.id, selectedClassId)}
                                                     >
                                                         Remove from Class
