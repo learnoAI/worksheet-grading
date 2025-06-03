@@ -1,13 +1,13 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, authAPI } from './api';
+import { User, authAPI, AuthResponse } from './api';
 
 interface AuthContextType {
     user: User | null;
     isLoading: boolean;
     error: string | null;
-    login: (username: string, password: string) => Promise<void>;
+    login: (username: string, password: string) => Promise<AuthResponse>;
     logout: () => void;
 }
 
@@ -32,17 +32,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
 
         checkAuth();
-    }, []);
-
-    // Login function
+    }, []);    // Login function
     const login = async (username: string, password: string) => {
         setIsLoading(true);
         setError(null);
         try {
             const response = await authAPI.login(username, password);
             // Set cookie with token
-            document.cookie = `token=${response.token}; path=/`;
+            document.cookie = `token=${response.token}; path=/; max-age=86400; secure; samesite=strict`;
             setUser(response.user);
+            return response;
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Login failed');
             throw err;

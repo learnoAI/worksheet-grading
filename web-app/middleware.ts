@@ -22,6 +22,20 @@ export function middleware(request: NextRequest) {
     if (publicPaths.includes(pathname)) {
         // If user has token and tries to access public paths, redirect to dashboard
         if (token) {
+            try {
+                // Get user role from token and redirect to appropriate dashboard
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                const userRole = payload.role as UserRole;
+                const rolePath = rolePathMap[userRole];
+                if (rolePath) {
+                    return NextResponse.redirect(new URL(rolePath, request.url));
+                }
+            } catch (error) {
+                // If token is invalid, clear it and allow access to public paths
+                const response = NextResponse.next();
+                response.cookies.delete('token');
+                return response;
+            }
             return NextResponse.redirect(new URL('/dashboard', request.url));
         }
         return NextResponse.next();
@@ -48,16 +62,23 @@ export function middleware(request: NextRequest) {
             }
 
             // Check if user is trying to access a role-specific path they shouldn't
-            const roleSpecificPaths = Object.values(rolePathMap);
-            for (const path of roleSpecificPaths) {
-                if (pathname.startsWith(path) && !pathname.startsWith(rolePathMap[userRole])) {
-                    // Redirect to their proper dashboard if they try to access another role's path
-                    return NextResponse.redirect(new URL(rolePathMap[userRole], request.url));
+            const userRolePath = rolePathMap[userRole];
+            if (userRolePath && !pathname.startsWith(userRolePath)) {
+                // Check if they're trying to access another role's path
+                const isAccessingOtherRole = Object.values(rolePathMap).some(path => 
+                    path !== userRolePath && pathname.startsWith(path)
+                );
+                
+                if (isAccessingOtherRole) {
+                    // Redirect to their proper dashboard
+                    return NextResponse.redirect(new URL(userRolePath, request.url));
                 }
             }
         } catch (error) {
-            // If there's any error parsing the token or getting the role, redirect to login
-            return NextResponse.redirect(new URL('/login', request.url));
+            // If there's any error parsing the token, redirect to login and clear cookie
+            const response = NextResponse.redirect(new URL('/login', request.url));
+            response.cookies.delete('token');
+            return response;
         }
     }
 

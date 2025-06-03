@@ -14,16 +14,17 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { login } = useAuth();
-    const router = useRouter();
-
-    const handleSubmit = async (e: React.FormEvent) => {
+    const router = useRouter();    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
 
         try {
-            await login(username, password);
+            const response = await login(username, password);
             toast.success('Login successful');
-            router.push('/dashboard');
+            
+            // Let middleware handle the role-based redirect instead of doing it here
+            // This prevents double redirects
+            window.location.href = '/dashboard';
         } catch (error) {
             toast.error('Login failed. Please check your credentials.');
             console.error('Login error:', error);
