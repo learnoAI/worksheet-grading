@@ -42,8 +42,17 @@ export interface Class {
 // Analytics API methods
 export const analyticsAPI = {
     // Get overall analytics data for a date range
-    getOverallAnalytics: async (startDate: string, endDate: string): Promise<OverallAnalytics> => {
-        return fetchAPI(`/analytics/overall?startDate=${startDate}&endDate=${endDate}`, {
+    getOverallAnalytics: async (startDate: string, endDate: string, schoolIds?: string[]): Promise<OverallAnalytics> => {
+        let url = `/analytics/overall?startDate=${startDate}&endDate=${endDate}`;
+        
+        if (schoolIds && schoolIds.length > 0) {
+            // Add school filters to URL
+            schoolIds.forEach(schoolId => {
+                url += `&schoolIds=${encodeURIComponent(schoolId)}`;
+            });
+        }
+        
+        return fetchAPI(url, {
             method: 'GET'
         });
     },

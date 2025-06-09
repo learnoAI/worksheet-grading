@@ -7,7 +7,7 @@ import prisma from '../utils/prisma';
  */
 export const getOverallAnalytics = async (req: Request, res: Response) => {
     try {
-        const { startDate, endDate } = req.query;
+        const { startDate, endDate, schoolIds } = req.query;
         
         if (!startDate || !endDate) {
             return res.status(400).json({ message: 'Start date and end date are required' });
@@ -17,14 +17,27 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         const start = new Date(startDate as string);
         const end = new Date(endDate as string);
         
-        // Get all worksheets in the date range
-        const worksheets = await prisma.worksheet.findMany({
-            where: {
-                createdAt: {
-                    gte: start,
-                    lte: end
-                }
+        // Build filter object
+        const filter: any = {
+            createdAt: {
+                gte: start,
+                lte: end
             }
+        };
+
+        // Add school filter if provided
+        if (schoolIds) {
+            const schoolIdArray = Array.isArray(schoolIds) ? schoolIds : [schoolIds];
+            filter.class = {
+                schoolId: {
+                    in: schoolIdArray as string[]
+                }
+            };
+        }
+        
+        // Get all worksheets in the date range with school filter
+        const worksheets = await prisma.worksheet.findMany({
+            where: filter
         });
         
         // Calculate analytics metrics
@@ -176,8 +189,7 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                 }
             };
         }
-        
-        // Get all students with their class information
+          // Get all students with their class information
         const students = await prisma.user.findMany({
             where: filter,
             select: {
@@ -205,6 +217,9 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                         submittedOn: 'asc'
                     }
                 }
+            },
+            orderBy: {
+                tokenNumber: 'asc'
             }
         });
         

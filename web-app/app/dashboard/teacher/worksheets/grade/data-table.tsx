@@ -50,7 +50,9 @@ export function DataTable<TData, TValue>({
     onDataChange,
     onSaveStudent,
 }: DataTableProps<TData, TValue>) {
-    const [sorting, setSorting] = React.useState<SortingState>([]);
+    const [sorting, setSorting] = React.useState<SortingState>([
+        { id: "tokenNumber", desc: false }
+    ]);
     const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
     const [bulkWorksheetNumber, setBulkWorksheetNumber] = React.useState<string>('');
     const [bulkGrade, setBulkGrade] = React.useState<string>('');
@@ -243,10 +245,8 @@ export function DataTable<TData, TValue>({
         setSelectedStudentIds([]);
         setBulkWorksheetNumber('');
         setBulkGrade('');
-    };
-
-    // Get filtered rows based on table state and search
-    const filteredRows = table.getFilteredRowModel().rows;
+    };    // Get filtered and sorted rows based on table state and search
+    const filteredRows = table.getRowModel().rows;
     
     // Get all students for the dropdown
     const allStudents = data.map(student => ({

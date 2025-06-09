@@ -6,9 +6,17 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { 
+    DropdownMenu, 
+    DropdownMenuContent, 
+    DropdownMenuTrigger, 
+    DropdownMenuCheckboxItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator 
+} from '@/components/ui/dropdown-menu';
 import { analyticsAPI, OverallAnalytics, School, Class } from '@/lib/api/analytics';
 import { toast } from 'sonner';
-import { Download } from 'lucide-react';
+import { Download, ChevronDown } from 'lucide-react';
 
 export default function AnalyticsDashboardPage() {
     // Date range state
@@ -19,8 +27,11 @@ export default function AnalyticsDashboardPage() {
         new Date().toISOString().split('T')[0]
     );
     
-    // Filter state for download
+    // Filter state for overall analytics
     const [schools, setSchools] = useState<School[]>([]);
+    const [selectedSchoolIds, setSelectedSchoolIds] = useState<string[]>([]);
+    
+    // Filter state for download
     const [classes, setClasses] = useState<Class[]>([]);
     const [selectedSchoolId, setSelectedSchoolId] = useState<string>('all');
     const [selectedClassId, setSelectedClassId] = useState<string>('all');
@@ -29,10 +40,11 @@ export default function AnalyticsDashboardPage() {
     // Analytics data state
     const [analytics, setAnalytics] = useState<OverallAnalytics | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-      // Fetch analytics data on initial load and when date range changes
+
+    // Fetch analytics data on initial load and when filters change
     useEffect(() => {
         fetchAnalytics();
-    }, []);
+    }, [selectedSchoolIds]);
 
     // Load schools on initial render
     useEffect(() => {
@@ -49,7 +61,7 @@ export default function AnalyticsDashboardPage() {
         loadSchools();
     }, []);
     
-    // Load classes when a school is selected
+    // Load classes when a school is selected for download
     useEffect(() => {
         if (selectedSchoolId && selectedSchoolId !== 'all') {
             const loadClasses = async () => {
@@ -73,7 +85,11 @@ export default function AnalyticsDashboardPage() {
     const fetchAnalytics = async () => {
         setIsLoading(true);
         try {
-            const data = await analyticsAPI.getOverallAnalytics(startDate, endDate);
+            const data = await analyticsAPI.getOverallAnalytics(
+                startDate, 
+                endDate, 
+                selectedSchoolIds.length > 0 ? selectedSchoolIds : undefined
+            );
             setAnalytics(data);
         } catch (error) {
             console.error('Error fetching analytics:', error);
@@ -81,6 +97,17 @@ export default function AnalyticsDashboardPage() {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    // Handle school selection for overall analytics filter
+    const handleSchoolToggle = (schoolId: string) => {
+        setSelectedSchoolIds(prev => {
+            if (prev.includes(schoolId)) {
+                return prev.filter(id => id !== schoolId);
+            } else {
+                return [...prev, schoolId];
+            }
+        });
     };
 
     // Handle download
@@ -104,47 +131,107 @@ export default function AnalyticsDashboardPage() {
         e.preventDefault();
         fetchAnalytics();
     };
+
+    // Get selected school names for display
+    const getSelectedSchoolsDisplay = () => {
+        if (selectedSchoolIds.length === 0) {
+            return 'All Schools';
+        }
+        if (selectedSchoolIds.length === 1) {
+            const school = schools.find(s => s.id === selectedSchoolIds[0]);
+            return school?.name || 'Unknown School';
+        }
+        if (selectedSchoolIds.length === schools.length) {
+            return 'All Schools';
+        }
+        return `${selectedSchoolIds.length} Schools Selected`;
+    };
     
     return (
         <div className="space-y-6">
             <h1 className="text-2xl font-bold">Overall Analytics</h1>
             
-            {/* Date Range Filter */}
+            {/* Filters */}
             <Card>
                 <CardHeader>
-                    <CardTitle>Date Range</CardTitle>
-                    <CardDescription>Select a date range for analytics</CardDescription>
+                    <CardTitle>Filters</CardTitle>
+                    <CardDescription>Filter analytics by date range and schools</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="startDate">Start Date</Label>
-                            <Input
-                                id="startDate"
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                className="max-w-[200px]"
-                                required
-                            />
+                    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                        {/* Date Range */}
+                        <div className="flex flex-col md:flex-row gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="startDate">Start Date</Label>
+                                <Input
+                                    id="startDate"
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="max-w-[200px]"
+                                    required
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="endDate">End Date</Label>
+                                <Input
+                                    id="endDate"
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="max-w-[200px]"
+                                    required
+                                />
+                            </div>
                         </div>
+                        
+                        {/* School Filter */}
                         <div className="space-y-2">
-                            <Label htmlFor="endDate">End Date</Label>
-                            <Input
-                                id="endDate"
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                                className="max-w-[200px]"
-                                required
-                            />
+                            <Label>Schools</Label>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        className="w-full max-w-[300px] justify-between"
+                                    >
+                                        {getSelectedSchoolsDisplay()}
+                                        <ChevronDown className="h-4 w-4 opacity-50" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent className="w-80 max-h-64 overflow-y-auto">
+                                    <DropdownMenuLabel>Select Schools</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuCheckboxItem
+                                        checked={selectedSchoolIds.length === 0}
+                                        onCheckedChange={(checked) => {
+                                            if (checked) {
+                                                setSelectedSchoolIds([]);
+                                            }
+                                        }}
+                                    >
+                                        All Schools
+                                    </DropdownMenuCheckboxItem>
+                                    <DropdownMenuSeparator />
+                                    {schools.map((school) => (
+                                        <DropdownMenuCheckboxItem
+                                            key={school.id}
+                                            checked={selectedSchoolIds.includes(school.id)}
+                                            onCheckedChange={() => handleSchoolToggle(school.id)}
+                                        >
+                                            {school.name}
+                                        </DropdownMenuCheckboxItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         </div>
+                        
                         <div className="flex items-end">
                             <Button type="submit" disabled={isLoading}>
-                                {isLoading ? 'Loading...' : 'Apply Filter'}
+                                {isLoading ? 'Loading...' : 'Apply Filters'}
                             </Button>
                         </div>
-                    </form>                </CardContent>
+                    </form>
+                </CardContent>
             </Card>
             
             {/* Analytics Cards */}
@@ -239,13 +326,13 @@ export default function AnalyticsDashboardPage() {
                             </div>
                         </CardContent>
                     </Card>
-
                 </div>
             ) : (
                 <div className="flex items-center justify-center h-64">
-                    <p>No analytics data available for the selected date range</p>
+                    <p>No analytics data available for the selected filters</p>
                 </div>
             )}
+            
             <Card>
                 <CardHeader>
                     <CardTitle>Download Student Analytics</CardTitle>

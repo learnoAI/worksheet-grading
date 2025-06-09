@@ -63,12 +63,61 @@ export const columns: ColumnDef<StudentGrade>[] = [
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Student Name" />
         ),
-    },
-    {
+    },    {
         accessorKey: "tokenNumber",
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Token Number" />
         ),
+        sortingFn: (rowA, rowB, columnId) => {
+            const a = rowA.getValue(columnId) as string;
+            const b = rowB.getValue(columnId) as string;
+            
+            // Parse token numbers to handle different formats properly
+            const parseToken = (token: string) => {
+                // Check if it matches YearSNumber format (e.g., 24S138)
+                const yearSMatch = token.match(/^(\d+)S(\d+)$/);
+                if (yearSMatch) {
+                    const year = parseInt(yearSMatch[1]);
+                    const number = parseInt(yearSMatch[2]);
+                    return { type: 'yearS' as const, year, number, original: token };
+                }
+                
+                // Check if it's a pure number
+                const pureNumber = parseInt(token);
+                if (!isNaN(pureNumber) && token === pureNumber.toString()) {
+                    return { type: 'number' as const, number: pureNumber, original: token };
+                }
+                
+                // Fallback to string sorting for other formats
+                return { type: 'string' as const, original: token };
+            };
+            
+            const aParsed = parseToken(a);
+            const bParsed = parseToken(b);
+            
+            // Sort by type first: numbers, then yearS format, then strings
+            const typeOrder = { number: 0, yearS: 1, string: 2 };
+            const aTypeOrder = typeOrder[aParsed.type] || 2;
+            const bTypeOrder = typeOrder[bParsed.type] || 2;
+            
+            if (aTypeOrder !== bTypeOrder) {
+                return aTypeOrder - bTypeOrder;
+            }
+            
+            // Within same type, sort appropriately
+            if (aParsed.type === 'number' && bParsed.type === 'number') {
+                return aParsed.number - bParsed.number;
+            } else if (aParsed.type === 'yearS' && bParsed.type === 'yearS') {
+                // Sort by year first, then by number
+                if (aParsed.year !== bParsed.year) {
+                    return aParsed.year - bParsed.year;
+                }
+                return aParsed.number - bParsed.number;
+            } else {
+                // String comparison for other formats
+                return aParsed.original.localeCompare(bParsed.original);
+            }
+        },
     },
     {
         id: "isAbsent",

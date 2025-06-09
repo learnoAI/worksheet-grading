@@ -42,8 +42,17 @@ export interface Class {
 }
 
 export const analyticsAPI = {
-    getOverallAnalytics: async (startDate: string, endDate: string): Promise<OverallAnalytics> => {
-        return fetchAPI<OverallAnalytics>(`/analytics/overall?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`);
+    getOverallAnalytics: async (startDate: string, endDate: string, schoolIds?: string[]): Promise<OverallAnalytics> => {
+        let url = `/analytics/overall?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+        
+        if (schoolIds && schoolIds.length > 0) {
+            // Add school filters to URL
+            schoolIds.forEach(schoolId => {
+                url += `&schoolIds=${encodeURIComponent(schoolId)}`;
+            });
+        }
+        
+        return fetchAPI<OverallAnalytics>(url);
     },
     
     getStudentAnalytics: async (schoolId?: string, classId?: string): Promise<StudentAnalytics[]> => {
