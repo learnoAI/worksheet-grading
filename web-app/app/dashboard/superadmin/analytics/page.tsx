@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { analyticsAPI, OverallAnalytics, School, Class } from '@/lib/api/analytics';
 import { toast } from 'sonner';
-import { Download, ChevronDown } from 'lucide-react';
+import { Download, ChevronDown, ExternalLink } from 'lucide-react';
 
 export default function AnalyticsDashboardPage() {
     // Date range state
@@ -327,11 +327,42 @@ export default function AnalyticsDashboardPage() {
                         </CardContent>
                     </Card>
                 </div>
-            ) : (
-                <div className="flex items-center justify-center h-64">
+            ) : (                <div className="flex items-center justify-center h-64">
                     <p>No analytics data available for the selected filters</p>
                 </div>
             )}
+            
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                        <span>Student Analytics Table</span>
+                        <Button 
+                            variant="outline" 
+                            onClick={() => window.open('/dashboard/superadmin/analytics/students', '_blank')}
+                            className="flex items-center gap-2"
+                        >
+                            <ExternalLink className="h-4 w-4" />
+                            View Detailed Table
+                        </Button>
+                    </CardTitle>
+                    <CardDescription>
+                        View detailed student performance data with sortable columns, advanced filtering, and efficient performance
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                        Access the complete student analytics table with optimized sorting by token number (default), 
+                        name, school, class, performance metrics, and more. Features include:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-muted-foreground mt-2 space-y-1">
+                        <li>Fast token-based sorting (optimized for performance)</li>
+                        <li>Advanced filtering by school, class, and performance metrics</li>
+                        <li>Debounced search for smooth user experience</li>
+                        <li>Export filtered data to CSV</li>
+                        <li>Student management actions</li>
+                    </ul>
+                </CardContent>
+            </Card>
             
             <Card>
                 <CardHeader>

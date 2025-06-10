@@ -10,6 +10,7 @@ import {
     getFilteredRowModel,
     getSortedRowModel,
 } from "@tanstack/react-table";
+import { useMemo, useCallback } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,38 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StudentCard } from "./student-card";
 
+// Custom debounce hook for better performance
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = React.useState<T>(value);
+
+    React.useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [value, delay]);
+
+    return debouncedValue;
+}
+
+// Optimized deep copy function
+function deepCopy<T>(obj: T): T {
+    if (obj === null || typeof obj !== "object") return obj;
+    if (obj instanceof Date) return new Date(obj.getTime()) as unknown as T;
+    if (Array.isArray(obj)) return obj.map(item => deepCopy(item)) as unknown as T;
+    
+    const cloned = {} as T;
+    for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            cloned[key] = deepCopy(obj[key]);
+        }
+    }
+    return cloned;
+}
+
 interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[];
     data: TData[];
@@ -60,7 +93,11 @@ export function DataTable<TData, TValue>({
     const [dropdownOpen, setDropdownOpen] = React.useState(false);
     const [selectedStudentIds, setSelectedStudentIds] = React.useState<string[]>([]);
 
-    const table = useReactTable({
+    // Debounce search term for better performance
+    const debouncedSearchTerm = useDebounce(searchTerm, 300);
+
+    // Memoize table configuration to prevent unnecessary re-renders
+    const tableConfig = useMemo(() => ({
         data,
         columns,
         getCoreRowModel: getCoreRowModel(),
@@ -74,8 +111,8 @@ export function DataTable<TData, TValue>({
         },
         meta: {
             updateData: (rowIndex: number, columnId: string, value: any) => {
-                // Make a deep copy of the data
-                const newData = JSON.parse(JSON.stringify(data));
+                // Use optimized deep copy instead of JSON methods
+                const newData = deepCopy(data);
                 
                 // Get the current row data
                 const currentRow = (newData as any)[rowIndex];
@@ -141,10 +178,10 @@ export function DataTable<TData, TValue>({
                 onDataChange?.(newData);
             },
         },
-    });
+    }), [data, columns, sorting, columnFilters, onDataChange]);
 
-    // Helper function to update data by student ID
-    const updateStudentData = (studentId: string, field: string, value: any) => {
+    const table = useReactTable(tableConfig);    // Helper function to update data by student ID - memoized for performance
+    const updateStudentData = useCallback((studentId: string, field: string, value: any) => {
         // Instead of trying to find the student in possibly filtered data,
         // we'll make a direct update to the full data array
         const updatedData = [...data].map((student: any) => {
@@ -204,10 +241,8 @@ export function DataTable<TData, TValue>({
         
         // Directly call onDataChange with the updated data
         onDataChange?.(updatedData);
-    };
-
-    // Apply bulk settings to selected students
-    const applyBulkSettingsToSelected = () => {
+    }, [data, onDataChange]);    // Apply bulk settings to selected students - memoized for performance
+    const applyBulkSettingsToSelected = useCallback(() => {
         if (selectedStudentIds.length === 0) return;
 
         const worksheetNumber = bulkWorksheetNumber ? parseInt(bulkWorksheetNumber) : 0;
@@ -238,32 +273,34 @@ export function DataTable<TData, TValue>({
         // Clear bulk inputs after applying
         setBulkWorksheetNumber('');
         setBulkGrade('');
-    };    // Feature removed: No longer auto-mark students as absent
+    }, [selectedStudentIds, bulkWorksheetNumber, bulkGrade, data, onDataChange]);
 
-    // Clear all selections
-    const clearSelections = () => {
+    // Clear all selections - memoized for performance
+    const clearSelections = useCallback(() => {
         setSelectedStudentIds([]);
         setBulkWorksheetNumber('');
         setBulkGrade('');
-    };    // Get filtered and sorted rows based on table state and search
-    const filteredRows = table.getRowModel().rows;
+    }, []);
+
+    // Memoize filtered rows calculation
+    const filteredRows = useMemo(() => table.getRowModel().rows, [table]);
     
-    // Get all students for the dropdown
-    const allStudents = data.map(student => ({
+    // Memoize all students for the dropdown - only recalculate when data changes
+    const allStudents = useMemo(() => data.map(student => ({
         id: (student as any).studentId,
         name: (student as any).name,
         tokenNumber: (student as any).tokenNumber,
-    }));
+    })), [data]);
 
-    // Filter students based on search term
-    const filteredStudents = allStudents.filter(student => 
-        student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.tokenNumber.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-
-    // Toggle student selection - updated to ensure correct state updates
-    const toggleStudentSelection = (studentId: string) => {
-        // Update the selection state
+    // Memoize filtered students based on debounced search term
+    const filteredStudents = useMemo(() => 
+        allStudents.filter(student => 
+            student.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+            student.tokenNumber.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+        ),
+        [allStudents, debouncedSearchTerm]
+    );    // Toggle student selection - memoized and optimized
+    const toggleStudentSelection = useCallback((studentId: string) => {
         setSelectedStudentIds(prevIds => {
             const isCurrentlySelected = prevIds.includes(studentId);
             
@@ -274,23 +311,22 @@ export function DataTable<TData, TValue>({
                 return [...prevIds, studentId];
             }
         });
-        
-        // We no longer need the setTimeout as we directly set dropdown state in the onSelect handler
-    };
+    }, []);
 
-    // Add bulk selection and deselection functions
-    const selectAllFilteredStudents = () => {
+    // Bulk selection functions - memoized for performance
+    const selectAllFilteredStudents = useCallback(() => {
         const filteredIds = filteredStudents.map(student => student.id);
         setSelectedStudentIds(filteredIds);
-    };
+    }, [filteredStudents]);
 
-    const clearAllSelections = () => {
+    const clearAllSelections = useCallback(() => {
         setSelectedStudentIds([]);
         setBulkWorksheetNumber('');
         setBulkGrade('');
-    };
+    }, []);
 
-    const gradeOptions = Array.from({ length: 40 }, (_, i) => (40 - i).toString());
+    // Memoize grade options to prevent recreation on every render
+    const gradeOptions = useMemo(() => Array.from({ length: 40 }, (_, i) => (40 - i).toString()), []);
 
 
     return (

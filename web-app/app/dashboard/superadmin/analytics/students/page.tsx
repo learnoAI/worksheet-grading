@@ -1,13 +1,33 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { analyticsAPI, School, Class, StudentAnalytics } from '@/lib/api/analyticsAPI';
 import { toast } from 'sonner';
-import { Download, Filter, X } from 'lucide-react';
+import { Download, Filter, X, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
+
+type SortField = 'name' | 'tokenNumber' | 'school' | 'class' | 'totalWorksheets' | 'repetitionRate' | 'absentPercentage' | 'firstWorksheetDate' | 'lastWorksheetDate';
+type SortDirection = 'asc' | 'desc';
+
+// Custom debounce hook for better performance
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [value, delay]);
+
+    return debouncedValue;
+}
 
 export default function StudentAnalyticsPage() {
     // Filter state
@@ -21,11 +41,18 @@ export default function StudentAnalyticsPage() {
     const [maxAbsentRate, setMaxAbsentRate] = useState<string>('');
     const [minRepetitionRate, setMinRepetitionRate] = useState<string>('');
     const [isDownloading, setIsDownloading] = useState<boolean>(false);
-    
-    // Data state
+      // Sorting state - Default to token number sorting for better efficiency
+    const [sortField, setSortField] = useState<SortField>('tokenNumber');
+    const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+      // Data state
     const [students, setStudents] = useState<StudentAnalytics[]>([]);
-    const [filteredStudents, setFilteredStudents] = useState<StudentAnalytics[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
+
+    // Debounce search term for better performance
+    const debouncedSearchName = useDebounce(searchName, 300);
+    const debouncedMinWorksheets = useDebounce(minWorksheets, 300);
+    const debouncedMaxAbsentRate = useDebounce(maxAbsentRate, 300);
+    const debouncedMinRepetitionRate = useDebounce(minRepetitionRate, 300);
     
     // Load schools on initial render
     useEffect(() => {
@@ -81,15 +108,92 @@ export default function StudentAnalyticsPage() {
             }
         };
         
-        loadStudentAnalytics();
-    }, [selectedSchoolId, selectedClassId]);
-      // Filter students by name and additional criteria when any filter changes
-    useEffect(() => {
+        loadStudentAnalytics();    }, [selectedSchoolId, selectedClassId]);    // Optimized token parser - memoized to avoid recreating the function
+    const parseToken = useCallback((token: string | null) => {
+        if (!token) return { type: 'string' as const, original: '' };
+        
+        // Check if it matches YearSNumber format (e.g., 24S138)
+        const yearSMatch = token.match(/^(\d+)S(\d+)$/);
+        if (yearSMatch) {
+            const year = parseInt(yearSMatch[1]);
+            const number = parseInt(yearSMatch[2]);
+            return { type: 'yearS' as const, year, number, original: token };
+        }
+        
+        // Check if it's a pure number
+        const pureNumber = parseInt(token);
+        if (!isNaN(pureNumber) && token === pureNumber.toString()) {
+            return { type: 'number' as const, number: pureNumber, original: token };
+        }
+        
+        // Fallback to string sorting for other formats
+        return { type: 'string' as const, original: token };
+    }, []);
+
+    // Optimized sorting function - memoized to avoid recreation
+    const sortStudents = useCallback((studentsToSort: StudentAnalytics[], field: SortField, direction: SortDirection) => {
+        return [...studentsToSort].sort((a, b) => {
+            let aValue: any = a[field];
+            let bValue: any = b[field];
+
+            let result = 0;
+
+            // Handle different data types
+            if (field === 'tokenNumber') {
+                // Custom token number sorting (optimized)
+                const aParsed = parseToken(aValue);
+                const bParsed = parseToken(bValue);
+                
+                // Sort by type first: numbers, then yearS format, then strings
+                const typeOrder = { number: 0, yearS: 1, string: 2 };
+                const aTypeOrder = typeOrder[aParsed.type] || 2;
+                const bTypeOrder = typeOrder[bParsed.type] || 2;
+                
+                if (aTypeOrder !== bTypeOrder) {
+                    result = aTypeOrder - bTypeOrder;
+                } else if (aParsed.type === 'number' && bParsed.type === 'number') {
+                    result = aParsed.number - bParsed.number;
+                } else if (aParsed.type === 'yearS' && bParsed.type === 'yearS') {
+                    if (aParsed.year !== bParsed.year) {
+                        result = aParsed.year - bParsed.year;
+                    } else {
+                        result = aParsed.number - bParsed.number;
+                    }
+                } else {
+                    result = aParsed.original.localeCompare(bParsed.original);
+                }
+            } else if (field === 'firstWorksheetDate' || field === 'lastWorksheetDate') {
+                // Date sorting
+                if (!aValue && !bValue) result = 0;
+                else if (!aValue) result = 1; // null dates go to end
+                else if (!bValue) result = -1;
+                else {
+                    const aDate = new Date(aValue);
+                    const bDate = new Date(bValue);
+                    result = aDate.getTime() - bDate.getTime();
+                }
+            } else if (typeof aValue === 'number' && typeof bValue === 'number') {
+                // Number sorting
+                result = aValue - bValue;
+            } else {
+                // String sorting
+                const aStr = (aValue || '').toString().toLowerCase();
+                const bStr = (bValue || '').toString().toLowerCase();
+                result = aStr.localeCompare(bStr);
+            }
+
+            // Apply sort direction
+            return direction === 'desc' ? -result : result;
+        });
+    }, [parseToken]);
+
+    // Memoized filtered and sorted students - only recalculates when dependencies change
+    const filteredStudents = useMemo(() => {
         let filtered = [...students];
         
-        // Name/token search
-        if (searchName.trim() !== '') {
-            const searchLower = searchName.toLowerCase();
+        // Name/token search using debounced value
+        if (debouncedSearchName.trim() !== '') {
+            const searchLower = debouncedSearchName.toLowerCase();
             filtered = filtered.filter(student => 
                 student.name.toLowerCase().includes(searchLower) ||
                 student.username.toLowerCase().includes(searchLower) ||
@@ -98,34 +202,72 @@ export default function StudentAnalyticsPage() {
         }
         
         // Minimum worksheets filter
-        if (minWorksheets) {
-            const minWorksheetsNum = parseInt(minWorksheets);
+        if (debouncedMinWorksheets) {
+            const minWorksheetsNum = parseInt(debouncedMinWorksheets);
             if (!isNaN(minWorksheetsNum)) {
                 filtered = filtered.filter(student => student.totalWorksheets >= minWorksheetsNum);
             }
         }
         
         // Maximum absent rate filter
-        if (maxAbsentRate) {
-            const maxAbsentRateNum = parseFloat(maxAbsentRate);
+        if (debouncedMaxAbsentRate) {
+            const maxAbsentRateNum = parseFloat(debouncedMaxAbsentRate);
             if (!isNaN(maxAbsentRateNum)) {
                 filtered = filtered.filter(student => student.absentPercentage <= maxAbsentRateNum);
             }
         }
         
         // Minimum repetition rate filter
-        if (minRepetitionRate) {
-            const minRepetitionRateNum = parseFloat(minRepetitionRate);
+        if (debouncedMinRepetitionRate) {
+            const minRepetitionRateNum = parseFloat(debouncedMinRepetitionRate);
             if (!isNaN(minRepetitionRateNum)) {
                 filtered = filtered.filter(student => student.repetitionRate >= minRepetitionRateNum);
             }
         }
-        
-        setFilteredStudents(filtered);
-    }, [searchName, students, minWorksheets, maxAbsentRate, minRepetitionRate]);
-    
-    // Handle download
-    const handleDownload = async () => {
+
+        // Apply sorting
+        return sortStudents(filtered, sortField, sortDirection);
+    }, [
+        students, 
+        debouncedSearchName, 
+        debouncedMinWorksheets, 
+        debouncedMaxAbsentRate, 
+        debouncedMinRepetitionRate, 
+        sortField, 
+        sortDirection,
+        sortStudents
+    ]);    // Handle sorting - memoized for performance
+    const handleSort = useCallback((field: SortField) => {
+        if (sortField === field) {
+            // Toggle direction if same field
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+        } else {
+            // Set new field and default to ascending
+            setSortField(field);
+            setSortDirection('asc');
+        }
+    }, [sortField, sortDirection]);
+
+    // Render sort button - memoized to prevent unnecessary re-renders
+    const renderSortButton = useCallback((field: SortField, title: string) => {
+        const isActive = sortField === field;
+        const Icon = isActive 
+            ? (sortDirection === 'asc' ? ArrowUp : ArrowDown)
+            : ChevronsUpDown;
+            
+        return (
+            <button
+                onClick={() => handleSort(field)}
+                className="flex items-center gap-1 hover:bg-gray-100 p-1 rounded transition-colors"
+                title={`Sort by ${title}`}
+                key={field}
+            >
+                <span>{title}</span>
+                <Icon className={`h-4 w-4 ${isActive ? 'text-blue-600' : 'text-gray-400'}`} />
+            </button>
+        );
+    }, [sortField, sortDirection, handleSort]);    // Handle download - memoized for performance
+    const handleDownload = useCallback(async () => {
         setIsDownloading(true);
         try {
             await analyticsAPI.downloadStudentAnalytics({
@@ -139,20 +281,22 @@ export default function StudentAnalyticsPage() {
         } finally {
             setIsDownloading(false);
         }
-    };
+    }, [selectedSchoolId, selectedClassId]);
 
-    // Clear all filters
-    const clearAllFilters = () => {
+    // Clear all filters - memoized and set token sorting as default
+    const clearAllFilters = useCallback(() => {
         setSelectedSchoolId('all');
         setSelectedClassId('all');
         setSearchName('');
         setMinWorksheets('');
         setMaxAbsentRate('');
         setMinRepetitionRate('');
-    };
+        setSortField('tokenNumber'); // Default to token number sorting
+        setSortDirection('asc');
+    }, []);
 
-    // Handle student class removal
-    const handleRemoveFromClass = async (studentId: string, classId: string) => {
+    // Handle student class removal - memoized for performance
+    const handleRemoveFromClass = useCallback(async (studentId: string, classId: string) => {
         if (!classId || classId === 'all') return;
         
         try {
@@ -168,12 +312,13 @@ export default function StudentAnalyticsPage() {
             console.error('Error removing student from class:', error);
             toast.error('Failed to remove student from class');
         }
-    };
+    }, [selectedSchoolId, selectedClassId]);
     
-    const formatDate = (dateString: string | null) => {
+    // Memoized date formatter to avoid recreation
+    const formatDate = useCallback((dateString: string | null) => {
         if (!dateString) return 'N/A';
         return new Date(dateString).toLocaleDateString();
-    };
+    }, []);
     
     return (
         <div className="space-y-6">
@@ -327,19 +472,36 @@ export default function StudentAnalyticsPage() {
                         <div className="text-center py-8 text-muted-foreground">
                             No students found for the selected filters
                         </div>
-                    ) : (
-                        <div className="overflow-x-auto">
+                    ) : (                        <div className="overflow-x-auto">
                             <table className="w-full border-collapse">                                <thead>
                                     <tr className="border-b">
-                                        <th className="text-left py-3 px-4 font-medium">Name</th>
-                                        <th className="text-left py-3 px-4 font-medium">Token #</th>
-                                        <th className="text-left py-3 px-4 font-medium">School</th>
-                                        <th className="text-left py-3 px-4 font-medium">Class</th>
-                                        <th className="text-left py-3 px-4 font-medium">Total Worksheets</th>
-                                        <th className="text-left py-3 px-4 font-medium">Repetition Rate</th>
-                                        <th className="text-left py-3 px-4 font-medium">Absent %</th>
-                                        <th className="text-left py-3 px-4 font-medium">First Worksheet</th>
-                                        <th className="text-left py-3 px-4 font-medium">Last Worksheet</th>
+                                        <th className="text-left py-3 px-4 font-medium">
+                                            {renderSortButton('name', 'Name')}
+                                        </th>
+                                        <th className="text-left py-3 px-4 font-medium">
+                                            {renderSortButton('tokenNumber', 'Token #')}
+                                        </th>
+                                        <th className="text-left py-3 px-4 font-medium">
+                                            {renderSortButton('school', 'School')}
+                                        </th>
+                                        <th className="text-left py-3 px-4 font-medium">
+                                            {renderSortButton('class', 'Class')}
+                                        </th>
+                                        <th className="text-left py-3 px-4 font-medium">
+                                            {renderSortButton('totalWorksheets', 'Total Worksheets')}
+                                        </th>
+                                        <th className="text-left py-3 px-4 font-medium">
+                                            {renderSortButton('repetitionRate', 'Repetition Rate')}
+                                        </th>
+                                        <th className="text-left py-3 px-4 font-medium">
+                                            {renderSortButton('absentPercentage', 'Absent %')}
+                                        </th>
+                                        <th className="text-left py-3 px-4 font-medium">
+                                            {renderSortButton('firstWorksheetDate', 'First Worksheet')}
+                                        </th>
+                                        <th className="text-left py-3 px-4 font-medium">
+                                            {renderSortButton('lastWorksheetDate', 'Last Worksheet')}
+                                        </th>
                                         <th className="text-left py-3 px-4 font-medium">Actions</th>
                                     </tr>
                                 </thead>
