@@ -494,7 +494,7 @@ export default function StudentAnalyticsPage() {
                                             {renderSortButton('repetitionRate', 'Repetition Rate')}
                                         </th>
                                         <th className="text-left py-3 px-4 font-medium">
-                                            {renderSortButton('absentPercentage', 'Absent %')}
+                                            {renderSortButton('absentPercentage', 'Attendance')}
                                         </th>
                                         <th className="text-left py-3 px-4 font-medium">
                                             {renderSortButton('firstWorksheetDate', 'First Worksheet')}
