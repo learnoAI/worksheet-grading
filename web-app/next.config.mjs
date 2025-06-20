@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Disable experimental tracing to avoid Windows permission issues
+  experimental: {
+    instrumentationHook: false,
+  },
   images: {
     remotePatterns: [
       {

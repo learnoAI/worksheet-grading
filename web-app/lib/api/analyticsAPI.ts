@@ -18,6 +18,7 @@ export interface StudentAnalytics {
     name: string;
     username: string;
     tokenNumber: string | null;
+    isArchived: boolean;
     schools: string[];
     classes: string[];
     school: string; // Primary school name

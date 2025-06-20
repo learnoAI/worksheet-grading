@@ -11,7 +11,15 @@ export const userAPI = {
         return fetchAPI<User>(`/users/${id}`);
     },
 
-    createUser: async (userData: { username: string; password: string; role: string }): Promise<User> => {
+    createUser: async (userData: { 
+        name: string; 
+        username: string; 
+        password: string; 
+        role: string;
+        tokenNumber?: string;
+        classId?: string;
+        schoolId?: string;
+    }): Promise<User> => {
         return fetchAPI<User>('/users', {
             method: 'POST',
             body: JSON.stringify(userData)
@@ -30,5 +38,32 @@ export const userAPI = {
             method: 'POST',
             body: JSON.stringify({ newPassword })
         });
+    },
+
+    // CSV upload for students
+    uploadStudentsCsv: async (students: Array<{
+        name: string;
+        tokenNumber: string;
+        className: string;
+        schoolName: string;
+    }>): Promise<{ message: string; results: any }> => {
+        return fetchAPI<{ message: string; results: any }>('/users/upload-csv', {
+            method: 'POST',
+            body: JSON.stringify({ students })
+        });
+    },
+
+    // Archive student
+    archiveStudent: async (id: string): Promise<{ message: string }> => {
+        return fetchAPI<{ message: string }>(`/users/${id}/archive`, {
+            method: 'POST'
+        });
+    },
+
+    // Unarchive student
+    unarchiveStudent: async (id: string): Promise<{ message: string }> => {
+        return fetchAPI<{ message: string }>(`/users/${id}/unarchive`, {
+            method: 'POST'
+        });
     }
-}; 
+};

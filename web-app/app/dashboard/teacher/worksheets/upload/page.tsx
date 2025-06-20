@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { classAPI, worksheetAPI } from '@/lib/api';
-import { UploadIcon } from 'lucide-react';
 import { StudentWorksheetCard } from './student-worksheet-card';
 
 interface Class {
@@ -35,6 +34,56 @@ interface StudentWorksheet {
     isUploading: boolean;
 }
 
+// Token number sorting function (same as used in grade/columns.tsx)
+const sortStudentsByTokenNumber = <T extends { tokenNumber: string }>(students: T[]): T[] => {
+    return [...students].sort((a, b) => {
+        const parseToken = (token: string) => {
+            // Check if it matches YearSNumber format (e.g., 24S138)
+            const yearSMatch = token.match(/^(\d+)S(\d+)$/);
+            if (yearSMatch) {
+                const year = parseInt(yearSMatch[1]);
+                const number = parseInt(yearSMatch[2]);
+                return { type: 'yearS' as const, year, number, original: token };
+            }
+            
+            // Check if it's a pure number
+            const pureNumber = parseInt(token);
+            if (!isNaN(pureNumber) && token === pureNumber.toString()) {
+                return { type: 'number' as const, number: pureNumber, original: token };
+            }
+            
+            // Fallback to string sorting for other formats
+            return { type: 'string' as const, original: token };
+        };
+        
+        const aParsed = parseToken(a.tokenNumber);
+        const bParsed = parseToken(b.tokenNumber);
+        
+        // Sort by type first: numbers, then yearS format, then strings
+        const typeOrder = { number: 0, yearS: 1, string: 2 };
+        const aTypeOrder = typeOrder[aParsed.type] || 2;
+        const bTypeOrder = typeOrder[bParsed.type] || 2;
+        
+        if (aTypeOrder !== bTypeOrder) {
+            return aTypeOrder - bTypeOrder;
+        }
+        
+        // Within same type, sort appropriately
+        if (aParsed.type === 'number' && bParsed.type === 'number') {
+            return aParsed.number - bParsed.number;
+        } else if (aParsed.type === 'yearS' && bParsed.type === 'yearS') {
+            // Sort by year first, then by number
+            if (aParsed.year !== bParsed.year) {
+                return aParsed.year - bParsed.year;
+            }
+            return aParsed.number - bParsed.number;
+        } else {
+            // String comparison for other formats
+            return aParsed.original.localeCompare(bParsed.original);
+        }
+    });
+};
+
 export default function UploadWorksheetPage() {
     const { user } = useAuth();
     const router = useRouter();
@@ -43,9 +92,13 @@ export default function UploadWorksheetPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [selectedClass, setSelectedClass] = useState<string>('');
     const [students, setStudents] = useState<Student[]>([]);
-    const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
-    const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
+    const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);    const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
     const fileInputRefs = useRef<{[key: string]: HTMLInputElement | null}>({});
+
+    // Memoized sorted student worksheets to ensure consistent ordering in UI
+    const sortedStudentWorksheets = useMemo(() => {
+        return sortStudentsByTokenNumber(studentWorksheets);
+    }, [studentWorksheets]);
 
     // Fetch classes for the current teacher
     useEffect(() => {
@@ -64,9 +117,7 @@ export default function UploadWorksheetPage() {
         };
 
         fetchInitialData();
-    }, [user?.id]);
-
-    // Fetch students for the selected class
+    }, [user?.id]);    // Fetch students for the selected class
     useEffect(() => {
         const fetchStudents = async () => {
             if (!selectedClass) {
@@ -77,17 +128,25 @@ export default function UploadWorksheetPage() {
 
             try {
                 const studentsData = await classAPI.getClassStudents(selectedClass);
-                setStudents(studentsData);
-                setStudentWorksheets(studentsData.map(student => ({
-                    studentId: student.id,
-                    name: student.name,
-                    tokenNumber: student.tokenNumber,
-                    worksheetNumber: 0,
-                    isAbsent: false,  // Default to NOT absent
-                    files: null,
-                    grade: '',
-                    isUploading: false
-                })));
+                
+                // Sort students by token number using the same logic as grading table
+                const sortedStudents = sortStudentsByTokenNumber(studentsData);
+                setStudents(sortedStudents);
+                
+                // Create sorted student worksheets maintaining the same order
+                const sortedStudentWorksheets = sortStudentsByTokenNumber(
+                    sortedStudents.map(student => ({
+                        studentId: student.id,
+                        name: student.name,
+                        tokenNumber: student.tokenNumber,
+                        worksheetNumber: 0,
+                        isAbsent: false,  // Default to NOT absent
+                        files: null,
+                        grade: '',
+                        isUploading: false
+                    }))
+                );
+                setStudentWorksheets(sortedStudentWorksheets);
             } catch (error) {
                 console.error('Error fetching students:', error);
                 toast.error('Failed to load students');
@@ -101,26 +160,30 @@ export default function UploadWorksheetPage() {
         setStudentWorksheets(prev => prev.map(sw => 
             sw.studentId === studentId ? { ...sw, files } : sw
         ));
-    };
-
-    const handleUpdateWorksheet = (index: number, field: string, value: any) => {
+    };    const handleUpdateWorksheet = (sortedIndex: number, field: string, value: any) => {
+        // Find the actual worksheet in the original array by studentId
+        const sortedWorksheet = sortedStudentWorksheets[sortedIndex];
+        const originalIndex = studentWorksheets.findIndex(w => w.studentId === sortedWorksheet.studentId);
+        
+        if (originalIndex === -1) return;
+        
         const newWorksheets = [...studentWorksheets];
         
         // If marking as absent, clear other fields
         if (field === "isAbsent" && value === true) {
-            newWorksheets[index] = {
-                ...newWorksheets[index],
+            newWorksheets[originalIndex] = {
+                ...newWorksheets[originalIndex],
                 isAbsent: true,
                 worksheetNumber: 0,  // Clear worksheet number
                 grade: '',           // Clear grade
                 files: null          // Clear files
             };
         } else {
-            (newWorksheets[index] as any)[field] = value;
+            (newWorksheets[originalIndex] as any)[field] = value;
             
             // If setting worksheet number or uploading files, ensure student isn't marked as absent
             if ((field === "worksheetNumber" && value > 0) || field === "files") {
-                newWorksheets[index].isAbsent = false;
+                newWorksheets[originalIndex].isAbsent = false;
             }
         }
         
@@ -416,17 +479,16 @@ export default function UploadWorksheetPage() {
                                 required
                             />
                         </div>
-                    </div>                    {selectedClass && studentWorksheets.length > 0 && (
+                    </div>                    {selectedClass && sortedStudentWorksheets.length > 0 && (
                         <>
                             {/* Scrollable Card Grid Layout */}
                             <div className="border rounded-lg shadow-sm bg-white overflow-hidden">
-                                <div className="max-h-[70vh] overflow-y-auto p-4">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {studentWorksheets.map((worksheet, index) => (
+                                <div className="max-h-[70vh] overflow-y-auto p-4">                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {sortedStudentWorksheets.map((worksheet, sortedIndex) => (
                                             <StudentWorksheetCard 
                                                 key={worksheet.studentId}
                                                 worksheet={worksheet}
-                                                index={index}
+                                                index={sortedIndex}
                                                 onUpdate={handleUpdateWorksheet}
                                                 onFileChange={handleFileChange}
                                                 onUpload={handleUpload}
@@ -438,8 +500,8 @@ export default function UploadWorksheetPage() {
                             </div>                            <div className="flex justify-end mt-6 space-x-3">
                                 <Button
                                     onClick={handleBatchProcess}
-                                    disabled={isSaving || studentWorksheets.some(ws => ws.isUploading) || 
-                                             !studentWorksheets.some(ws => !ws.isAbsent && ws.files && ws.files.length > 0 && ws.worksheetNumber)}
+                                    disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) || 
+                                             !sortedStudentWorksheets.some(ws => !ws.isAbsent && ws.files && ws.files.length > 0 && ws.worksheetNumber)}
                                     className="w-full sm:w-auto"
                                     variant="secondary"
                                 >
@@ -447,7 +509,7 @@ export default function UploadWorksheetPage() {
                                 </Button>
                                 <Button
                                     onClick={handleSaveAllChanges}
-                                    disabled={isSaving || studentWorksheets.some(ws => ws.isUploading)}
+                                    disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
                                     className="w-full sm:w-auto"
                                 >
                                     {isSaving ? 'Saving All...' : 'Save All Changes'}
@@ -455,7 +517,7 @@ export default function UploadWorksheetPage() {
                             </div>
                             
                             <div className="text-sm text-muted-foreground">
-                                Showing {studentWorksheets.length} students
+                                Showing {sortedStudentWorksheets.length} students
                             </div>
                         </>
                     )}

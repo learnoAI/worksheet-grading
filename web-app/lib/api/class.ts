@@ -38,5 +38,77 @@ export const classAPI = {
         return fetchAPI<{ message: string; class: Class }>(`/classes/${id}/unarchive`, {
             method: 'POST'
         });
+    },
+
+    // Teacher management functions
+    getClassTeachers: async (classId: string): Promise<User[]> => {
+        return fetchAPI<User[]>(`/classes/${classId}/teachers`);
+    },
+
+    getAvailableTeachers: async (classId: string): Promise<User[]> => {
+        return fetchAPI<User[]>(`/classes/teachers/available/${classId}`);
+    },
+
+    addTeacherToClass: async (classId: string, teacherId: string): Promise<any> => {
+        return fetchAPI<any>(`/classes/${classId}/teachers/${teacherId}`, {
+            method: 'POST'
+        });
+    },    removeTeacherFromClass: async (classId: string, teacherId: string): Promise<{ message: string }> => {
+        return fetchAPI<{ message: string }>(`/classes/${classId}/teachers/${teacherId}`, {
+            method: 'DELETE'
+        });
+    },
+
+    // Student management functions
+    getClassStudentsWithDetails: async (classId: string): Promise<User[]> => {
+        return fetchAPI<User[]>(`/classes/${classId}/students`);
+    },
+
+    addStudentToClass: async (classId: string, studentId: string): Promise<any> => {
+        return fetchAPI<any>(`/classes/${classId}/students/${studentId}`, {
+            method: 'POST'
+        });
+    },
+
+    removeStudentFromClass: async (classId: string, studentId: string): Promise<{ message: string }> => {
+        return fetchAPI<{ message: string }>(`/classes/${classId}/students/${studentId}`, {
+            method: 'DELETE'
+        });    },
+
+    // Alias methods for backwards compatibility
+    getStudents: async (classId: string): Promise<User[]> => {
+        return fetchAPI<User[]>(`/classes/${classId}/students`);
+    },
+
+    getTeachers: async (classId: string): Promise<User[]> => {
+        return fetchAPI<User[]>(`/classes/${classId}/teachers`);
+    },
+
+    addStudent: async (classId: string, studentId: string): Promise<any> => {
+        return fetchAPI<any>(`/classes/${classId}/students/${studentId}`, {
+            method: 'POST'
+        });
+    },
+
+    removeStudent: async (classId: string, studentId: string): Promise<{ message: string }> => {
+        return fetchAPI<{ message: string }>(`/classes/${classId}/students/${studentId}`, {
+            method: 'DELETE'
+        });
+    },
+
+    addTeacher: async (classId: string, teacherId: string): Promise<any> => {
+        return fetchAPI<any>(`/classes/${classId}/teachers/${teacherId}`, {
+            method: 'POST'
+        });
+    },
+
+    removeTeacher: async (classId: string, teacherId: string): Promise<{ message: string }> => {
+        return fetchAPI<{ message: string }>(`/classes/${classId}/teachers/${teacherId}`, {
+            method: 'DELETE'
+        });
+    },
+
+    getAvailableStudents: async (classId: string): Promise<User[]> => {
+        return fetchAPI<User[]>(`/classes/students/available/${classId}`);
     }
 };

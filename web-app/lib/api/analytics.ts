@@ -19,6 +19,7 @@ export interface StudentAnalytics {
     name: string;
     username: string;
     tokenNumber: string | null;
+    isArchived: boolean;
     class: string;
     school: string;
     totalWorksheets: number;

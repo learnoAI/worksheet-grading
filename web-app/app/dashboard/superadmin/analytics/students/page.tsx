@@ -4,10 +4,13 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { analyticsAPI, School, Class, StudentAnalytics } from '@/lib/api/analyticsAPI';
+import { userAPI } from '@/lib/api/user';
 import { toast } from 'sonner';
-import { Download, Filter, X, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
+import { Download, Filter, X, ArrowUp, ArrowDown, ChevronsUpDown, Archive, ArchiveRestore } from 'lucide-react';
 
 type SortField = 'name' | 'tokenNumber' | 'school' | 'class' | 'totalWorksheets' | 'repetitionRate' | 'absentPercentage' | 'firstWorksheetDate' | 'lastWorksheetDate';
 type SortDirection = 'asc' | 'desc';
@@ -35,12 +38,13 @@ export default function StudentAnalyticsPage() {
     const [classes, setClasses] = useState<Class[]>([]);    const [selectedSchoolId, setSelectedSchoolId] = useState<string>('all');
     const [selectedClassId, setSelectedClassId] = useState<string>('all');
     const [searchName, setSearchName] = useState<string>('');
-    
-    // Additional filter states
+      // Additional filter states
     const [minWorksheets, setMinWorksheets] = useState<string>('');
     const [maxAbsentRate, setMaxAbsentRate] = useState<string>('');
     const [minRepetitionRate, setMinRepetitionRate] = useState<string>('');
+    const [showArchived, setShowArchived] = useState<string>('active');
     const [isDownloading, setIsDownloading] = useState<boolean>(false);
+    const [actionLoading, setActionLoading] = useState<string | null>(null);
       // Sorting state - Default to token number sorting for better efficiency
     const [sortField, setSortField] = useState<SortField>('tokenNumber');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -185,11 +189,16 @@ export default function StudentAnalyticsPage() {
             // Apply sort direction
             return direction === 'desc' ? -result : result;
         });
-    }, [parseToken]);
-
-    // Memoized filtered and sorted students - only recalculates when dependencies change
+    }, [parseToken]);    // Memoized filtered and sorted students - only recalculates when dependencies change
     const filteredStudents = useMemo(() => {
         let filtered = [...students];
+        
+        // Filter by archive status
+        if (showArchived === 'active') {
+            filtered = filtered.filter(student => !student.isArchived);
+        } else if (showArchived === 'archived') {
+            filtered = filtered.filter(student => student.isArchived);
+        }
         
         // Name/token search using debounced value
         if (debouncedSearchName.trim() !== '') {
@@ -229,6 +238,7 @@ export default function StudentAnalyticsPage() {
         return sortStudents(filtered, sortField, sortDirection);
     }, [
         students, 
+        showArchived,
         debouncedSearchName, 
         debouncedMinWorksheets, 
         debouncedMaxAbsentRate, 
@@ -236,7 +246,7 @@ export default function StudentAnalyticsPage() {
         sortField, 
         sortDirection,
         sortStudents
-    ]);    // Handle sorting - memoized for performance
+    ]);// Handle sorting - memoized for performance
     const handleSort = useCallback((field: SortField) => {
         if (sortField === field) {
             // Toggle direction if same field
@@ -281,9 +291,7 @@ export default function StudentAnalyticsPage() {
         } finally {
             setIsDownloading(false);
         }
-    }, [selectedSchoolId, selectedClassId]);
-
-    // Clear all filters - memoized and set token sorting as default
+    }, [selectedSchoolId, selectedClassId]);    // Clear all filters - memoized and set token sorting as default
     const clearAllFilters = useCallback(() => {
         setSelectedSchoolId('all');
         setSelectedClassId('all');
@@ -291,11 +299,10 @@ export default function StudentAnalyticsPage() {
         setMinWorksheets('');
         setMaxAbsentRate('');
         setMinRepetitionRate('');
+        setShowArchived('active');
         setSortField('tokenNumber'); // Default to token number sorting
         setSortDirection('asc');
-    }, []);
-
-    // Handle student class removal - memoized for performance
+    }, []);// Handle student class removal - memoized for performance
     const handleRemoveFromClass = useCallback(async (studentId: string, classId: string) => {
         if (!classId || classId === 'all') return;
         
@@ -311,6 +318,48 @@ export default function StudentAnalyticsPage() {
         } catch (error) {
             console.error('Error removing student from class:', error);
             toast.error('Failed to remove student from class');
+        }
+    }, [selectedSchoolId, selectedClassId]);
+
+    // Handle student archiving - memoized for performance
+    const handleArchiveStudent = useCallback(async (studentId: string) => {
+        try {
+            setActionLoading(studentId);
+            await userAPI.archiveStudent(studentId);
+            toast.success('Student archived successfully');
+            
+            // Refresh student data
+            const updatedData = await analyticsAPI.getStudentAnalytics({
+                schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
+                classId: selectedClassId !== 'all' ? selectedClassId : undefined
+            });
+            setStudents(updatedData);
+        } catch (error: any) {
+            console.error('Error archiving student:', error);
+            toast.error(error.message || 'Failed to archive student');
+        } finally {
+            setActionLoading(null);
+        }
+    }, [selectedSchoolId, selectedClassId]);
+
+    // Handle student unarchiving - memoized for performance
+    const handleUnarchiveStudent = useCallback(async (studentId: string) => {
+        try {
+            setActionLoading(studentId);
+            await userAPI.unarchiveStudent(studentId);
+            toast.success('Student unarchived successfully');
+            
+            // Refresh student data
+            const updatedData = await analyticsAPI.getStudentAnalytics({
+                schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
+                classId: selectedClassId !== 'all' ? selectedClassId : undefined
+            });
+            setStudents(updatedData);
+        } catch (error: any) {
+            console.error('Error unarchiving student:', error);
+            toast.error(error.message || 'Failed to unarchive student');
+        } finally {
+            setActionLoading(null);
         }
     }, [selectedSchoolId, selectedClassId]);
     
@@ -350,9 +399,8 @@ export default function StudentAnalyticsPage() {
                         </div>
                     </CardTitle>
                     <CardDescription>Filter student data by school, class, and performance metrics</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                </CardHeader>                <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                         <div>
                             <label className="block text-sm font-medium mb-1">School</label>
                             <Select
@@ -390,6 +438,20 @@ export default function StudentAnalyticsPage() {
                                             {classItem.name}
                                         </SelectItem>
                                     ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Status</label>
+                            <Select value={showArchived} onValueChange={setShowArchived}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="active">Active Students</SelectItem>
+                                    <SelectItem value="archived">Archived Students</SelectItem>
+                                    <SelectItem value="all">All Students</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -450,8 +512,33 @@ export default function StudentAnalyticsPage() {
                             </div>
                         </div>
                     </div>
-                </CardContent>
-            </Card>
+                </CardContent>            </Card>
+
+            {/* Summary Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card>
+                    <CardContent className="p-4">
+                        <div className="text-2xl font-bold">
+                            {students.filter(s => !s.isArchived).length}
+                        </div>
+                        <p className="text-sm text-muted-foreground">Active Students</p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardContent className="p-4">
+                        <div className="text-2xl font-bold">
+                            {students.filter(s => s.isArchived).length}
+                        </div>
+                        <p className="text-sm text-muted-foreground">Archived Students</p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardContent className="p-4">
+                        <div className="text-2xl font-bold">{filteredStudents.length}</div>
+                        <p className="text-sm text-muted-foreground">Filtered Results</p>
+                    </CardContent>
+                </Card>
+            </div>
               {/* Student Analytics Table */}
             <Card>
                 <CardHeader>
@@ -471,76 +558,234 @@ export default function StudentAnalyticsPage() {
                     ) : filteredStudents.length === 0 ? (
                         <div className="text-center py-8 text-muted-foreground">
                             No students found for the selected filters
-                        </div>
-                    ) : (                        <div className="overflow-x-auto">
-                            <table className="w-full border-collapse">                                <thead>
-                                    <tr className="border-b">
-                                        <th className="text-left py-3 px-4 font-medium">
-                                            {renderSortButton('name', 'Name')}
-                                        </th>
-                                        <th className="text-left py-3 px-4 font-medium">
-                                            {renderSortButton('tokenNumber', 'Token #')}
-                                        </th>
-                                        <th className="text-left py-3 px-4 font-medium">
-                                            {renderSortButton('school', 'School')}
-                                        </th>
-                                        <th className="text-left py-3 px-4 font-medium">
-                                            {renderSortButton('class', 'Class')}
-                                        </th>
-                                        <th className="text-left py-3 px-4 font-medium">
-                                            {renderSortButton('totalWorksheets', 'Total Worksheets')}
-                                        </th>
-                                        <th className="text-left py-3 px-4 font-medium">
-                                            {renderSortButton('repetitionRate', 'Repetition Rate')}
-                                        </th>
-                                        <th className="text-left py-3 px-4 font-medium">
-                                            {renderSortButton('absentPercentage', 'Attendance')}
-                                        </th>
-                                        <th className="text-left py-3 px-4 font-medium">
-                                            {renderSortButton('firstWorksheetDate', 'First Worksheet')}
-                                        </th>
-                                        <th className="text-left py-3 px-4 font-medium">
-                                            {renderSortButton('lastWorksheetDate', 'Last Worksheet')}
-                                        </th>
-                                        <th className="text-left py-3 px-4 font-medium">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredStudents.map(student => (
-                                        <tr key={student.id} className="border-b hover:bg-gray-50">
-                                            <td className="py-3 px-4">{student.name}</td>
-                                            <td className="py-3 px-4">{student.tokenNumber || 'N/A'}</td>
-                                            <td className="py-3 px-4">{student.school}</td>
-                                            <td className="py-3 px-4">{student.class}</td>
-                                            <td className="py-3 px-4">{student.totalWorksheets}</td>
-                                            <td className="py-3 px-4">
-                                                {student.repetitionRate.toFixed(1)}%
-                                            </td>
-                                            <td className="py-3 px-4">
-                                                {student.absentPercentage.toFixed(1)}%
-                                            </td>
-                                            <td className="py-3 px-4">
-                                                {formatDate(student.firstWorksheetDate)}
-                                            </td>
-                                            <td className="py-3 px-4">
-                                                {formatDate(student.lastWorksheetDate)}
-                                            </td>
-                                            <td className="py-3 px-4">
-                                                {selectedClassId && selectedClassId !== 'all' && (
-                                                    <Button
-                                                        size="sm"
-                                                        variant="default"
-                                                        onClick={() => handleRemoveFromClass(student.id, selectedClassId)}
+                        </div>                    ) : (
+                        <>
+                            {/* Desktop Table View */}
+                            <div className="hidden md:block w-full overflow-x-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-[150px] min-w-[120px]">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="truncate">Name</span>
+                                                    {renderSortButton('name', 'Name')}
+                                                </div>
+                                            </TableHead>
+                                            <TableHead className="w-[100px] min-w-[80px]">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="truncate">Token #</span>
+                                                    {renderSortButton('tokenNumber', 'Token #')}
+                                                </div>
+                                            </TableHead>
+                                            <TableHead className="w-[150px] min-w-[120px]">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="truncate">School</span>
+                                                    {renderSortButton('school', 'School')}
+                                                </div>
+                                            </TableHead>
+                                            <TableHead className="w-[100px] min-w-[80px]">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="truncate">Class</span>
+                                                    {renderSortButton('class', 'Class')}
+                                                </div>
+                                            </TableHead>
+                                            <TableHead className="w-[80px] min-w-[60px] hidden lg:table-cell">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="truncate">Worksheets</span>
+                                                    {renderSortButton('totalWorksheets', 'Total Worksheets')}
+                                                </div>
+                                            </TableHead>
+                                            <TableHead className="w-[90px] min-w-[70px] hidden lg:table-cell">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="truncate">Rep. Rate</span>
+                                                    {renderSortButton('repetitionRate', 'Repetition Rate')}
+                                                </div>
+                                            </TableHead>
+                                            <TableHead className="w-[90px] min-w-[70px] hidden xl:table-cell">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="truncate">Attendance</span>
+                                                    {renderSortButton('absentPercentage', 'Attendance')}
+                                                </div>
+                                            </TableHead>
+                                            <TableHead className="w-[100px] min-w-[80px] hidden xl:table-cell">
+                                                <div className="flex items-center gap-1">
+                                                    <span className="truncate">Last Activity</span>
+                                                    {renderSortButton('lastWorksheetDate', 'Last Worksheet')}
+                                                </div>
+                                            </TableHead>
+                                            <TableHead className="w-[80px] min-w-[60px]">
+                                                <span className="truncate">Status</span>
+                                            </TableHead>
+                                            <TableHead className="w-[120px] min-w-[100px]">
+                                                <span className="truncate">Actions</span>
+                                            </TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {filteredStudents.map(student => (
+                                            <TableRow key={student.id}>
+                                                <TableCell className="font-medium">
+                                                    <div className="truncate max-w-[140px]" title={student.name}>
+                                                        {student.name}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="truncate max-w-[90px]" title={student.tokenNumber || 'N/A'}>
+                                                        {student.tokenNumber || 'N/A'}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="truncate max-w-[140px]" title={student.school}>
+                                                        {student.school}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="truncate max-w-[90px]" title={student.class}>
+                                                        {student.class}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="hidden lg:table-cell text-center">
+                                                    {student.totalWorksheets}
+                                                </TableCell>
+                                                <TableCell className="hidden lg:table-cell text-center">
+                                                    {student.repetitionRate.toFixed(1)}%
+                                                </TableCell>
+                                                <TableCell className="hidden xl:table-cell text-center">
+                                                    {student.absentPercentage.toFixed(1)}%
+                                                </TableCell>
+                                                <TableCell className="hidden xl:table-cell">
+                                                    <div className="truncate max-w-[90px]" title={formatDate(student.lastWorksheetDate)}>
+                                                        {formatDate(student.lastWorksheetDate)}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge 
+                                                        variant={student.isArchived ? "secondary" : "default"}
+                                                        className={`text-xs ${student.isArchived ? "bg-gray-100 text-gray-800" : ""}`}
                                                     >
-                                                        Remove from Class
-                                                    </Button>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                                        {student.isArchived ? 'Archived' : 'Active'}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="flex flex-col gap-1 min-w-[100px]">
+                                                        {student.isArchived ? (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                onClick={() => handleUnarchiveStudent(student.id)}
+                                                                disabled={actionLoading === student.id}
+                                                                className="h-7 px-2 text-xs"
+                                                            >
+                                                                <ArchiveRestore className="h-3 w-3 mr-1" />
+                                                                {actionLoading === student.id ? 'Unarchiving...' : 'Unarchive'}
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                onClick={() => handleArchiveStudent(student.id)}
+                                                                disabled={actionLoading === student.id}
+                                                                className="h-7 px-2 text-xs"
+                                                            >
+                                                                <Archive className="h-3 w-3 mr-1" />
+                                                                {actionLoading === student.id ? 'Archiving...' : 'Archive'}
+                                                            </Button>
+                                                        )}
+                                                        {selectedClassId && selectedClassId !== 'all' && (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="default"
+                                                                onClick={() => handleRemoveFromClass(student.id, selectedClassId)}
+                                                                className="h-7 px-2 text-xs"
+                                                            >
+                                                                Remove
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+
+                            {/* Mobile Card View */}
+                            <div className="md:hidden space-y-4">
+                                {filteredStudents.map(student => (
+                                    <Card key={student.id} className="p-4">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div className="flex-1">
+                                                <h3 className="font-semibold text-sm">{student.name}</h3>
+                                                <p className="text-xs text-muted-foreground">Token: {student.tokenNumber || 'N/A'}</p>
+                                                <p className="text-xs text-muted-foreground">{student.class} • {student.school}</p>
+                                            </div>
+                                            <Badge 
+                                                variant={student.isArchived ? "secondary" : "default"}
+                                                className={`text-xs ${student.isArchived ? "bg-gray-100 text-gray-800" : ""}`}
+                                            >
+                                                {student.isArchived ? 'Archived' : 'Active'}
+                                            </Badge>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                                            <div>
+                                                <span className="text-muted-foreground">Worksheets:</span>
+                                                <span className="ml-1 font-medium">{student.totalWorksheets}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-muted-foreground">Rep. Rate:</span>
+                                                <span className="ml-1 font-medium">{student.repetitionRate.toFixed(1)}%</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-muted-foreground">Attendance:</span>
+                                                <span className="ml-1 font-medium">{student.absentPercentage.toFixed(1)}%</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-muted-foreground">Last Activity:</span>
+                                                <span className="ml-1 font-medium">{formatDate(student.lastWorksheetDate)}</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex gap-2">
+                                            {student.isArchived ? (
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => handleUnarchiveStudent(student.id)}
+                                                    disabled={actionLoading === student.id}
+                                                    className="flex-1 h-8 text-xs"
+                                                >
+                                                    <ArchiveRestore className="h-3 w-3 mr-1" />
+                                                    {actionLoading === student.id ? 'Unarchiving...' : 'Unarchive'}
+                                                </Button>
+                                            ) : (
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => handleArchiveStudent(student.id)}
+                                                    disabled={actionLoading === student.id}
+                                                    className="flex-1 h-8 text-xs"
+                                                >
+                                                    <Archive className="h-3 w-3 mr-1" />
+                                                    {actionLoading === student.id ? 'Archiving...' : 'Archive'}
+                                                </Button>
+                                            )}
+                                            {selectedClassId && selectedClassId !== 'all' && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="default"
+                                                    onClick={() => handleRemoveFromClass(student.id, selectedClassId)}
+                                                    className="flex-1 h-8 text-xs"
+                                                >
+                                                    Remove
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        </>
+                    
                     )}
                 </CardContent>
             </Card>

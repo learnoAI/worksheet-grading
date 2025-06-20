@@ -27,6 +27,7 @@ export interface User {
     createdAt: string;
     tokenNumber: string;
     updatedAt: string;
+    isArchived?: boolean;
     adminSchools?: AdminSchool[];
     notifications?: Notification[];
     studentClasses?: StudentClass[];
