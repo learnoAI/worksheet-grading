@@ -14,6 +14,7 @@ model User {
   name              String
   tokenNumber       String?         @unique
   role              UserRole
+  isArchived        Boolean         @default(false)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   adminSchools      AdminSchool[]

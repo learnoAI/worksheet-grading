@@ -277,3 +277,396 @@ export const getClassById = async (req: Request, res: Response) => {
         return res.status(500).json({ message: 'Server error while retrieving class details' });
     }
 };
+
+/**
+ * Add a teacher to a class
+ * @route POST /api/classes/:id/teachers/:teacherId
+ */
+export const addTeacherToClass = async (req: Request, res: Response) => {
+    const { id: classId, teacherId } = req.params;
+
+    try {
+        // Check if class exists
+        const classEntity = await prisma.class.findUnique({
+            where: { id: classId }
+        });
+
+        if (!classEntity) {
+            return res.status(404).json({ message: 'Class not found' });
+        }
+
+        // Check if teacher exists
+        const teacher = await prisma.user.findUnique({
+            where: { 
+                id: teacherId,
+                role: 'TEACHER'
+            }
+        });
+
+        if (!teacher) {
+            return res.status(404).json({ message: 'Teacher not found' });
+        }
+
+        // Check if teacher is already in class
+        const existingTeacherClass = await prisma.teacherClass.findUnique({
+            where: {
+                teacherId_classId: {
+                    teacherId,
+                    classId
+                }
+            }
+        });
+
+        if (existingTeacherClass) {
+            return res.status(400).json({ message: 'Teacher is already assigned to this class' });
+        }
+
+        // Add teacher to class
+        const newTeacherClass = await prisma.teacherClass.create({
+            data: {
+                teacherId,
+                classId
+            }
+        });
+
+        // Add teacher to school if not already added
+        const schoolId = classEntity.schoolId;
+        
+        const existingTeacherSchool = await prisma.teacherSchool.findUnique({
+            where: {
+                teacherId_schoolId: {
+                    teacherId,
+                    schoolId
+                }
+            }
+        });
+
+        if (!existingTeacherSchool) {
+            await prisma.teacherSchool.create({
+                data: {
+                    teacherId,
+                    schoolId
+                }
+            });
+        }
+
+        return res.status(201).json(newTeacherClass);
+    } catch (error) {
+        console.error('Error adding teacher to class:', error);
+        return res.status(500).json({ message: 'Server error while adding teacher to class' });
+    }
+};
+
+/**
+ * Remove a teacher from a class
+ * @route DELETE /api/classes/:id/teachers/:teacherId
+ */
+export const removeTeacherFromClass = async (req: Request, res: Response) => {
+    const { id: classId, teacherId } = req.params;
+
+    try {
+        // Check if teacher-class relationship exists
+        const teacherClass = await prisma.teacherClass.findUnique({
+            where: {
+                teacherId_classId: {
+                    teacherId,
+                    classId
+                }
+            }
+        });
+
+        if (!teacherClass) {
+            return res.status(404).json({ message: 'Teacher is not assigned to this class' });
+        }
+
+        // Remove teacher from class
+        await prisma.teacherClass.delete({
+            where: {
+                teacherId_classId: {
+                    teacherId,
+                    classId
+                }
+            }
+        });
+
+        return res.status(200).json({ message: 'Teacher removed from class successfully' });
+    } catch (error) {
+        console.error('Error removing teacher from class:', error);
+        return res.status(500).json({ message: 'Server error while removing teacher from class' });
+    }
+};
+
+/**
+ * Get teachers for a specific class
+ * @route GET /api/classes/:id/teachers
+ */
+export const getClassTeachers = async (req: Request, res: Response) => {
+    const { id: classId } = req.params;
+
+    try {
+        const teachers = await prisma.user.findMany({
+            where: {
+                role: 'TEACHER',
+                teacherClasses: {
+                    some: {
+                        classId
+                    }
+                }
+            },
+            select: {
+                id: true,
+                name: true,
+                username: true,
+                createdAt: true
+            }
+        });
+
+        return res.status(200).json(teachers);
+    } catch (error) {
+        console.error('Error getting class teachers:', error);
+        return res.status(500).json({ message: 'Server error while retrieving class teachers' });
+    }
+};
+
+/**
+ * Get available teachers (not assigned to a specific class)
+ * @route GET /api/classes/teachers/available/:classId
+ */
+export const getAvailableTeachers = async (req: Request, res: Response) => {
+    const { classId } = req.params;
+
+    try {
+        const teachers = await prisma.user.findMany({
+            where: {
+                role: 'TEACHER',
+                isArchived: false,
+                teacherClasses: {
+                    none: {
+                        classId
+                    }
+                }
+            },
+            select: {
+                id: true,
+                name: true,
+                username: true,
+                createdAt: true
+            },
+            orderBy: {
+                name: 'asc'
+            }
+        });
+
+        return res.status(200).json(teachers);
+    } catch (error) {
+        console.error('Error getting available teachers:', error);
+        return res.status(500).json({ message: 'Server error while retrieving available teachers' });
+    }
+};
+
+/**
+ * Get students for a specific class
+ * @route GET /api/classes/:id/students
+ */
+export const getClassStudents = async (req: Request, res: Response) => {
+    const { id: classId } = req.params;
+
+    try {
+        const students = await prisma.user.findMany({
+            where: {
+                role: 'STUDENT',
+                studentClasses: {
+                    some: {
+                        classId
+                    }
+                }
+            },
+            select: {
+                id: true,
+                name: true,
+                username: true,
+                tokenNumber: true,
+                isArchived: true,
+                createdAt: true
+            },
+            orderBy: {
+                tokenNumber: 'asc'
+            }
+        });
+
+        return res.status(200).json(students);
+    } catch (error) {
+        console.error('Error getting class students:', error);
+        return res.status(500).json({ message: 'Server error while retrieving class students' });
+    }
+};
+
+/**
+ * Get available students (not assigned to a specific class)
+ * @route GET /api/classes/students/available/:classId
+ */
+export const getAvailableStudents = async (req: Request, res: Response) => {
+    const { classId } = req.params;
+
+    try {
+        // Get the school ID for this class
+        const classEntity = await prisma.class.findUnique({
+            where: { id: classId },
+            select: { schoolId: true }
+        });
+
+        if (!classEntity) {
+            return res.status(404).json({ message: 'Class not found' });
+        }
+
+        const students = await prisma.user.findMany({
+            where: {
+                role: 'STUDENT',
+                isArchived: false,
+                studentClasses: {
+                    none: {
+                        classId
+                    }
+                },
+                studentSchools: {
+                    some: {
+                        schoolId: classEntity.schoolId
+                    }
+                }
+            },
+            select: {
+                id: true,
+                name: true,
+                username: true,
+                tokenNumber: true,
+                createdAt: true
+            },
+            orderBy: {
+                tokenNumber: 'asc'
+            }
+        });
+
+        return res.status(200).json(students);
+    } catch (error) {
+        console.error('Error getting available students:', error);
+        return res.status(500).json({ message: 'Server error while retrieving available students' });
+    }
+};
+
+/**
+ * Add a student to a class
+ * @route POST /api/classes/:id/students/:studentId
+ */
+export const addStudentToClass = async (req: Request, res: Response) => {
+    const { id: classId, studentId } = req.params;
+
+    try {
+        // Check if class exists
+        const classEntity = await prisma.class.findUnique({
+            where: { id: classId }
+        });
+
+        if (!classEntity) {
+            return res.status(404).json({ message: 'Class not found' });
+        }
+
+        // Check if student exists
+        const student = await prisma.user.findUnique({
+            where: { 
+                id: studentId,
+                role: 'STUDENT'
+            }
+        });
+
+        if (!student) {
+            return res.status(404).json({ message: 'Student not found' });
+        }
+
+        // Check if student is already in class
+        const existingStudentClass = await prisma.studentClass.findUnique({
+            where: {
+                studentId_classId: {
+                    studentId,
+                    classId
+                }
+            }
+        });
+
+        if (existingStudentClass) {
+            return res.status(400).json({ message: 'Student is already assigned to this class' });
+        }
+
+        // Add student to class
+        const newStudentClass = await prisma.studentClass.create({
+            data: {
+                studentId,
+                classId
+            }
+        });
+
+        // Add student to school if not already added
+        const schoolId = classEntity.schoolId;
+        
+        const existingStudentSchool = await prisma.studentSchool.findUnique({
+            where: {
+                studentId_schoolId: {
+                    studentId,
+                    schoolId
+                }
+            }
+        });
+
+        if (!existingStudentSchool) {
+            await prisma.studentSchool.create({
+                data: {
+                    studentId,
+                    schoolId
+                }
+            });
+        }
+
+        return res.status(201).json(newStudentClass);
+    } catch (error) {
+        console.error('Error adding student to class:', error);
+        return res.status(500).json({ message: 'Server error while adding student to class' });
+    }
+};
+
+/**
+ * Remove a student from a class
+ * @route DELETE /api/classes/:id/students/:studentId
+ */
+export const removeStudentFromClass = async (req: Request, res: Response) => {
+    const { id: classId, studentId } = req.params;
+
+    try {
+        // Check if student-class relationship exists
+        const studentClass = await prisma.studentClass.findUnique({
+            where: {
+                studentId_classId: {
+                    studentId,
+                    classId
+                }
+            }
+        });
+
+        if (!studentClass) {
+            return res.status(404).json({ message: 'Student is not assigned to this class' });
+        }
+
+        // Remove student from class
+        await prisma.studentClass.delete({
+            where: {
+                studentId_classId: {
+                    studentId,
+                    classId
+                }
+            }
+        });
+
+        return res.status(200).json({ message: 'Student removed from class successfully' });
+    } catch (error) {
+        console.error('Error removing student from class:', error);
+        return res.status(500).json({ message: 'Server error while removing student from class' });
+    }
+};

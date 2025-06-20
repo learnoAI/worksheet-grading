@@ -5,7 +5,10 @@ import {
     updateUser,
     resetPassword,
     getUsers,
-    getUserById
+    getUserById,
+    uploadCsv,
+    archiveStudent,
+    unarchiveStudent
 } from '../controllers/userController';
 import { UserRole } from '@prisma/client';
 import { auth, authorizeRoles, asHandler } from '../middleware/utils';
@@ -57,4 +60,35 @@ router.get('/', auth, asHandler(getUsers));
 // Get user by ID
 router.get('/:id', auth, asHandler(getUserById));
 
-export default router; 
+// Upload CSV to add multiple students
+router.post(
+    '/upload-csv',
+    [
+        auth,
+        authorizeRoles([UserRole.SUPERADMIN]),
+        body('students').isArray().withMessage('Students must be an array')
+    ],
+    asHandler(uploadCsv)
+);
+
+// Archive student (superadmin only)
+router.post(
+    '/:id/archive',
+    [
+        auth,
+        authorizeRoles([UserRole.SUPERADMIN])
+    ],
+    asHandler(archiveStudent)
+);
+
+// Unarchive student (superadmin only)
+router.post(
+    '/:id/unarchive',
+    [
+        auth,
+        authorizeRoles([UserRole.SUPERADMIN])
+    ],
+    asHandler(unarchiveStudent)
+);
+
+export default router;

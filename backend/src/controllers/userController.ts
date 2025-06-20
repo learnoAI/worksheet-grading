@@ -3,6 +3,34 @@ import bcrypt from 'bcrypt';
 import { validationResult } from 'express-validator';
 import prisma from '../utils/prisma';
 import { UserRole } from '@prisma/client';
+import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+
+// Configure multer for CSV uploads
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = path.join(__dirname, '../../uploads/csv');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        cb(null, `students-${Date.now()}.csv`);
+    }
+});
+
+export const upload = multer({ 
+    storage,
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only CSV files are allowed'));
+        }
+    }
+});
 
 /**
  * Create a new user (admin/superadmin only)
@@ -15,7 +43,7 @@ export const createUser = async (req: Request, res: Response) => {
         return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, username, password, role } = req.body;
+    const { name, username, password, role, tokenNumber, classId, schoolId } = req.body;
 
     try {
         // Check if username already exists
@@ -25,6 +53,17 @@ export const createUser = async (req: Request, res: Response) => {
 
         if (existingUser) {
             return res.status(400).json({ message: 'Username already exists' });
+        }
+
+        // Check if token number already exists (for students)
+        if (tokenNumber) {
+            const existingToken = await prisma.user.findFirst({
+                where: { tokenNumber }
+            });
+
+            if (existingToken) {
+                return res.status(400).json({ message: 'Token number already exists' });
+            }
         }
 
         // Hash password
@@ -37,16 +76,75 @@ export const createUser = async (req: Request, res: Response) => {
                 name,
                 username,
                 password: hashedPassword,
-                role: role as UserRole
+                role: role as UserRole,
+                tokenNumber: tokenNumber || null
             },
             select: {
                 id: true,
+                name: true,
                 username: true,
                 role: true,
+                tokenNumber: true,
                 createdAt: true,
                 updatedAt: true
             }
         });
+
+        // Handle class and school assignments for students and teachers
+        if (role === 'STUDENT' && classId) {
+            // Add student to class
+            await prisma.studentClass.create({
+                data: {
+                    studentId: newUser.id,
+                    classId
+                }
+            });
+
+            // Get school from class and add student to school
+            const classEntity = await prisma.class.findUnique({
+                where: { id: classId },
+                select: { schoolId: true }
+            });
+
+            if (classEntity) {
+                // Check if student-school relationship already exists
+                const existingStudentSchool = await prisma.studentSchool.findUnique({
+                    where: {
+                        studentId_schoolId: {
+                            studentId: newUser.id,
+                            schoolId: classEntity.schoolId
+                        }
+                    }
+                });
+
+                if (!existingStudentSchool) {
+                    await prisma.studentSchool.create({
+                        data: {
+                            studentId: newUser.id,
+                            schoolId: classEntity.schoolId
+                        }
+                    });
+                }
+            }
+        } else if (role === 'TEACHER' && classId) {
+            // Add teacher to class
+            await prisma.teacherClass.create({
+                data: {
+                    teacherId: newUser.id,
+                    classId
+                }
+            });
+        }
+
+        // If schoolId is provided for admin, add admin-school relationship
+        if (role === 'ADMIN' && schoolId) {
+            await prisma.adminSchool.create({
+                data: {
+                    adminId: newUser.id,
+                    schoolId
+                }
+            });
+        }
 
         return res.status(201).json(newUser);
     } catch (error) {
@@ -210,4 +308,219 @@ export const getUserById = async (req: Request, res: Response) => {
         console.error('Get user by ID error:', error);
         return res.status(500).json({ message: 'Server error while retrieving user' });
     }
-}; 
+};
+
+/**
+ * Upload CSV file to add multiple students
+ * @route POST /api/users/upload-csv
+ */
+export const uploadCsv = async (req: Request, res: Response) => {
+    const { students } = req.body; // Array of student objects from frontend
+
+    if (!students || !Array.isArray(students) || students.length === 0) {
+        return res.status(400).json({ message: 'No student data provided' });
+    }
+
+    const results = {
+        created: 0,
+        updated: 0,
+        errors: [] as string[]
+    };
+
+    try {
+        for (const studentData of students) {
+            const { name, tokenNumber, className, schoolName } = studentData;
+
+            if (!name || !tokenNumber || !className || !schoolName) {
+                results.errors.push(`Missing required fields for student: ${name || tokenNumber}`);
+                continue;
+            }
+
+            try {
+                // Find school
+                const school = await prisma.school.findFirst({
+                    where: { name: schoolName }
+                });
+
+                if (!school) {
+                    results.errors.push(`School not found: ${schoolName}`);
+                    continue;
+                }
+
+                // Find class
+                const classEntity = await prisma.class.findFirst({
+                    where: { 
+                        name: className,
+                        schoolId: school.id
+                    }
+                });
+
+                if (!classEntity) {
+                    results.errors.push(`Class not found: ${className} in ${schoolName}`);
+                    continue;
+                }
+
+                // Check if student with token number already exists
+                const existingStudent = await prisma.user.findFirst({
+                    where: { tokenNumber }
+                });
+
+                if (existingStudent) {
+                    // Update existing student name if different
+                    if (existingStudent.name !== name) {
+                        await prisma.user.update({
+                            where: { id: existingStudent.id },
+                            data: { name }
+                        });
+                        results.updated++;
+                    }
+
+                    // Ensure student is in the correct class
+                    const existingStudentClass = await prisma.studentClass.findUnique({
+                        where: {
+                            studentId_classId: {
+                                studentId: existingStudent.id,
+                                classId: classEntity.id
+                            }
+                        }
+                    });
+
+                    if (!existingStudentClass) {
+                        await prisma.studentClass.create({
+                            data: {
+                                studentId: existingStudent.id,
+                                classId: classEntity.id
+                            }
+                        });
+                    }
+
+                    // Ensure student is in the correct school
+                    const existingStudentSchool = await prisma.studentSchool.findUnique({
+                        where: {
+                            studentId_schoolId: {
+                                studentId: existingStudent.id,
+                                schoolId: school.id
+                            }
+                        }
+                    });
+
+                    if (!existingStudentSchool) {
+                        await prisma.studentSchool.create({
+                            data: {
+                                studentId: existingStudent.id,
+                                schoolId: school.id
+                            }
+                        });
+                    }
+                } else {
+                    // Create new student
+                    const username = name.toLowerCase().replace(/\s+/g, '_') + '_' + tokenNumber;
+                    const password = 'saarthi@123'; // Default password
+
+                    // Hash password
+                    const salt = await bcrypt.genSalt(10);
+                    const hashedPassword = await bcrypt.hash(password, salt);
+
+                    const newStudent = await prisma.user.create({
+                        data: {
+                            name,
+                            username,
+                            password: hashedPassword,
+                            role: 'STUDENT' as UserRole,
+                            tokenNumber
+                        }
+                    });
+
+                    // Add student to class
+                    await prisma.studentClass.create({
+                        data: {
+                            studentId: newStudent.id,
+                            classId: classEntity.id
+                        }
+                    });
+
+                    // Add student to school
+                    await prisma.studentSchool.create({
+                        data: {
+                            studentId: newStudent.id,
+                            schoolId: school.id
+                        }
+                    });
+
+                    results.created++;
+                }
+            } catch (error) {
+                console.error('Error processing student:', studentData, error);
+                results.errors.push(`Failed to process student: ${name} (${tokenNumber})`);
+            }
+        }
+
+        return res.status(200).json({
+            message: 'CSV processing completed',
+            results
+        });
+    } catch (error) {
+        console.error('CSV upload error:', error);
+        return res.status(500).json({ message: 'Server error during CSV upload' });
+    }
+};
+
+/**
+ * Archive a student (admin/superadmin only)
+ * @route POST /api/users/:id/archive
+ */
+export const archiveStudent = async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    try {
+        // Check if student exists
+        const existingStudent = await prisma.user.findUnique({
+            where: { id }
+        });
+
+        if (!existingStudent) {
+            return res.status(404).json({ message: 'Student not found' });
+        }
+
+        // Archive student by updating their status
+        await prisma.user.update({
+            where: { id },
+            data: { isArchived: true }
+        });
+
+        return res.status(200).json({ message: 'Student archived successfully' });
+    } catch (error) {
+        console.error('Archive student error:', error);
+        return res.status(500).json({ message: 'Server error during student archiving' });
+    }
+};
+
+/**
+ * Unarchive a student (admin/superadmin only)
+ * @route POST /api/users/:id/unarchive
+ */
+export const unarchiveStudent = async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    try {
+        // Check if student exists
+        const existingStudent = await prisma.user.findUnique({
+            where: { id }
+        });
+
+        if (!existingStudent) {
+            return res.status(404).json({ message: 'Student not found' });
+        }
+
+        // Unarchive student by updating their status
+        await prisma.user.update({
+            where: { id },
+            data: { isArchived: false }
+        });
+
+        return res.status(200).json({ message: 'Student unarchived successfully' });
+    } catch (error) {
+        console.error('Unarchive student error:', error);
+        return res.status(500).json({ message: 'Server error during student unarchiving' });
+    }
+};

@@ -188,8 +188,7 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                     schoolId: schoolId as string
                 }
             };
-        }
-          // Get all students with their class information
+        }        // Get all students with their class information
         const students = await prisma.user.findMany({
             where: filter,
             select: {
@@ -197,6 +196,7 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                 username: true,
                 name: true,
                 tokenNumber: true,
+                isArchived: true,
                 studentClasses: {
                     include: {
                         class: {
@@ -237,12 +237,12 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
             
             // Class and school info
             const primaryClass = student.studentClasses[0]?.class;
-            
-            return {
+              return {
                 id: student.id,
                 name: student.name,
                 username: student.username,
                 tokenNumber: student.tokenNumber,
+                isArchived: student.isArchived || false,
                 class: primaryClass ? primaryClass.name : 'No Class',
                 school: primaryClass ? primaryClass.school.name : 'No School',
                 totalWorksheets,
@@ -556,8 +556,7 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 }
             };
         }
-        
-        // Get all students with their class information
+          // Get all students with their class information
         const students = await prisma.user.findMany({
             where: filter,
             select: {
@@ -565,6 +564,7 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 username: true,
                 name: true,
                 tokenNumber: true,
+                isArchived: true,
                 studentClasses: {
                     include: {
                         class: {
@@ -609,12 +609,12 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
             const averageGrade = gradedWorksheets.length > 0 
                 ? gradedWorksheets.reduce((sum, w) => sum + (w.grade || 0), 0) / gradedWorksheets.length 
                 : 0;
-            
-            return {
+              return {
                 id: student.id,
                 name: student.name,
                 username: student.username,
                 tokenNumber: student.tokenNumber || '',
+                isArchived: student.isArchived || false,
                 class: primaryClass ? primaryClass.name : 'No Class',
                 school: primaryClass ? primaryClass.school.name : 'No School',
                 totalWorksheets,
@@ -627,8 +627,7 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 lastWorksheetDate: lastWorksheet?.submittedOn ? lastWorksheet.submittedOn.toISOString().split('T')[0] : '',
             };
         });
-        
-        if (format === 'csv') {
+          if (format === 'csv') {
             // Generate CSV
             const csvHeaders = [
                 'Name',
@@ -636,6 +635,7 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 'Token Number',
                 'School',
                 'Class',
+                'Status',
                 'Total Worksheets',
                 'Absences',
                 'Absent Percentage (%)',
@@ -652,6 +652,7 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 `"${student.tokenNumber}"`,
                 `"${student.school}"`,
                 `"${student.class}"`,
+                student.isArchived ? 'Archived' : 'Active',
                 student.totalWorksheets,
                 student.absences,
                 student.absentPercentage,
