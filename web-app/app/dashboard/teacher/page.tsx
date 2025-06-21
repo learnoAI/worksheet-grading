@@ -112,7 +112,7 @@ export default function TeacherDashboardPage() {
                                             </span>
                                             {worksheet.grade && (
                                                 <span className="ml-2 font-medium">
-                                                    Grade: {worksheet.grade}/10
+                                                    Grade: {worksheet.grade}
                                                 </span>
                                             )}
                                         </div>

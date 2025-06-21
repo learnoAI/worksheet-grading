@@ -299,39 +299,57 @@ export default function UploadWorksheetPage() {
         
         try {
             // Process all worksheets in parallel with a concurrency limit
-            const batchSize = 3; // Process 3 worksheets at a time to avoid overwhelming the server
+            const batchSize = 10; // Process 10 worksheets at a time in parallel
             let successful = 0;
             let failed = 0;
+              console.log(`Processing ${studentsWithFiles.length} worksheets in batches of ${batchSize}...`);
             
             // Process worksheets in batches to control concurrency
             for (let i = 0; i < studentsWithFiles.length; i += batchSize) {
                 const currentBatch = studentsWithFiles.slice(i, i + batchSize);
+                const batchNumber = Math.floor(i / batchSize) + 1;
+                const totalBatches = Math.ceil(studentsWithFiles.length / batchSize);
+                
+                console.log(`Processing batch ${batchNumber}/${totalBatches} (${currentBatch.length} worksheets)...`);
                 
                 const batchResults = await Promise.allSettled(
                     currentBatch.map(worksheet => handleUpload(worksheet))
                 );
                 
-                // Count successes and failures for this batch
-                successful += batchResults.filter(r => 
-                    r.status === 'fulfilled' && r.value && r.value.success
-                ).length;
+                // Count successes and failures for this batch with detailed logging
+                batchResults.forEach((result, index) => {
+                    if (result.status === 'fulfilled' && result.value && result.value.success) {
+                        successful++;
+                        console.log(`✓ Successfully processed worksheet for ${currentBatch[index].name}`);
+                    } else {
+                        failed++;
+                        const studentName = currentBatch[index].name;
+                        const error = result.status === 'rejected' ? 
+                            (result.reason?.message || result.reason || 'Upload failed') : 
+                            'Processing failed';
+                        console.error(`✗ Failed to process worksheet for ${studentName}:`, error);
+                    }
+                });
                 
-                failed += batchResults.filter(r => 
-                    r.status === 'rejected' || (r.status === 'fulfilled' && (!r.value || !r.value.success))
-                ).length;
-                
-                // Small delay between batches to prevent rate limiting
+                // Add a delay between batches to be gentle on the server
                 if (i + batchSize < studentsWithFiles.length) {
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    console.log(`Waiting 1 second before next batch...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
                 }
             }
             
-            if (successful > 0) {
-                toast.success(`Successfully processed ${successful} worksheet${successful !== 1 ? 's' : ''}`);
+            // Show final results
+            console.log(`Batch processing completed: ${successful} successful, ${failed} failed`);
+              if (successful > 0) {
+                toast.success(`Successfully processed ${successful} worksheet${successful !== 1 ? 's' : ''}!`);
             }
             
             if (failed > 0) {
-                toast.error(`Failed to process ${failed} worksheet${failed !== 1 ? 's' : ''}`);
+                toast.error(`Failed to process ${failed} worksheet${failed !== 1 ? 's' : ''}. Check console for details.`);
+            }
+            
+            if (successful === 0 && failed === 0) {
+                toast.info('No worksheets were processed.');
             }
         } catch (error) {
             console.error('Error in batch processing:', error);

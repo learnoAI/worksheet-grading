@@ -3,11 +3,19 @@ import { ProcessingStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
-import { Prisma } from '@prisma/client';
 
-/**
- * Proxy endpoint to process worksheets through the Python API
- */
+interface PythonApiResponse {
+    success: boolean;
+    token_no?: string;
+    worksheet_name?: string;
+    mongodb_id?: string;
+    grade?: number;
+    error?: string;
+    // Fields we add in our backend
+    worksheetId?: string;
+    databaseWarning?: string;
+}
+
 export const processWorksheets = async (req: Request, res: Response) => {
     const formData = new FormData();
     const pythonApiUrl = process.env.PYTHON_API_URL;
@@ -63,13 +71,22 @@ export const processWorksheets = async (req: Request, res: Response) => {
         });
         
         // Get response from Python API
-        const pythonResponse = await response.json();
-        
-        if (!response.ok || !pythonResponse.success) {
+        const pythonResponse: PythonApiResponse = await response.json();
+          if (!response.ok || !pythonResponse.success) {
             console.error('Error from Python API:', pythonResponse);
             return res.status(400).json(pythonResponse);
         }
-          console.log('Python API response:', pythonResponse);
+
+        console.log('Python API response:', pythonResponse);
+
+        // Validate required fields from Python API
+        if (!pythonResponse.mongodb_id || pythonResponse.grade === undefined) {
+            console.error('Python API response missing required fields (mongodb_id or grade):', pythonResponse);
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid response from processing service: missing required fields'
+            });
+        }
         
         // If Python API was successful, create the worksheet record in our database
         if (pythonResponse.success) {
@@ -87,14 +104,13 @@ export const processWorksheets = async (req: Request, res: Response) => {
                             worksheetNumber: parseInt(worksheetNumber)
                         }
                     });
-                    
-                    // Create worksheet record with MongoDB ID and grade from Python API
+                      // Create worksheet record with MongoDB ID and grade from Python API
                     const worksheet = await prisma.worksheet.create({
                         data: {
                             classId,
                             studentId,
                             templateId: template?.id, // Optional if template not found
-                            grade: pythonResponse.grade || pythonResponse.totalScore || 0,
+                            grade: pythonResponse.grade || 0,
                             notes: `Auto-graded worksheet ${worksheetNumber}`,
                             submittedById: submittedById!,
                             status: ProcessingStatus.COMPLETED,
@@ -102,8 +118,8 @@ export const processWorksheets = async (req: Request, res: Response) => {
                             submittedOn: submittedOn ? new Date(submittedOn) : new Date(),
                             isAbsent: false,
                             isRepeated: false,
-                            ...(pythonResponse.mongoDbId || pythonResponse.mongodb_id ? { 
-                                mongoDbId: pythonResponse.mongoDbId || pythonResponse.mongodb_id 
+                            ...(pythonResponse.mongodb_id ? { 
+                                mongoDbId: pythonResponse.mongodb_id 
                             } : {})
                         }
                     });

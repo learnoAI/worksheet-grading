@@ -83,7 +83,7 @@ export default function WorksheetDetailPage({ params }: { params: { id: string }
                     {worksheet.grade && (
                         <div>
                             <h3 className="font-medium">Grade</h3>
-                            <p>{worksheet.grade}/10</p>
+                            <p>{worksheet.grade}</p>
                         </div>
                     )}
                     <div>

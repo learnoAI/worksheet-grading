@@ -261,8 +261,8 @@ async function testCompleteWorkflow() {
     if (processResponse.success) {
       console.log('   ✓ Successfully processed all worksheet images');
       console.log('     Worksheet ID:', processResponse.worksheetId || 'Not provided');
-      console.log('     MongoDB ID:', processResponse.mongoDbId || 'Not provided');
-      console.log('     Total Score:', processResponse.totalScore || 'N/A');
+      console.log('     MongoDB ID:', processResponse.mongodb_id || 'Not provided');
+      console.log('     Total Score:', processResponse.grade || 'N/A');
       console.log('     Correct Answers:', processResponse.correctAnswers || 'N/A');
       console.log('     Wrong Answers:', processResponse.wrongAnswers || 'N/A');
       console.log('     Grade:', processResponse.grade || 'N/A');

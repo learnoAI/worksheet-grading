@@ -105,7 +105,7 @@ export function StudentWorksheetCard({
                     <div className="space-y-1.5">
                         <Label htmlFor={`grade-${worksheet.studentId}`} className="text-sm font-medium">Grade</Label>
                         <div className="h-10 px-3 py-2 text-sm flex items-center border rounded-md bg-gray-50">
-                            {worksheet.grade ? `${worksheet.grade}/10` : (worksheet.isUploading ? "Processing..." : "-")}
+                            {worksheet.grade ? `${worksheet.grade}` : (worksheet.isUploading ? "Processing..." : "-")}
                         </div>
                     </div>
                 </div>

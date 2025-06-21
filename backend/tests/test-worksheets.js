@@ -129,10 +129,10 @@ async function testWorksheetNumbers() {
       
       if (processResponse.success) {
         console.log(`✓ Worksheet ${worksheetNumber} EXISTS and works!`);
-        console.log(`  Score: ${processResponse.totalScore}`);
+        console.log(`  Score: ${processResponse.grade}`);
         console.log(`  Correct: ${processResponse.correctAnswers}`);
         console.log(`  Wrong: ${processResponse.wrongAnswers}`);
-        console.log(`  MongoDB ID: ${processResponse.mongoDbId}`);
+        console.log(`  MongoDB ID: ${processResponse.mongodb_id}`);
       } else {
         console.log(`✗ Worksheet ${worksheetNumber}: ${processResponse.error || processResponse.message}`);
       }

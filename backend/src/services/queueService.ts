@@ -55,7 +55,7 @@ worksheetQueue.process(async (job) => {
         // Create notification for the teacher
         await prisma.notification.create({
             data: {
-                message: `Worksheet grading completed for class ${worksheet.class.name}. Grade: ${mockGrade}/10`,
+                message: `Worksheet grading completed for class ${worksheet.class.name}. Grade: ${mockGrade}`,
                 userId: worksheet.submittedById
             }
         });
