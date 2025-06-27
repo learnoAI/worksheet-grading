@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -539,14 +538,13 @@ export default function UploadWorksheetPage() {
 
     if (isLoading) {
         return <div className="flex items-center justify-center min-h-[60vh]">Loading...</div>;
-    }
-
-    return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold">Upload Student Worksheets</h1>
+    }    return (
+        <div className="space-y-4 md:space-y-6">
+            <div className="flex justify-between items-center px-2 md:px-0">
+                <h1 className="text-xl md:text-2xl font-bold">Upload Student Worksheets</h1>
                 <Button
                     variant="outline"
+                    size="sm"
                     onClick={() => {
                         const basePath = user?.role === 'TEACHER' ? '/dashboard/teacher' : '/dashboard/superadmin';
                         router.push(`${basePath}/worksheets`);
@@ -556,15 +554,15 @@ export default function UploadWorksheetPage() {
                 </Button>
             </div>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Upload Worksheet Images</CardTitle>
-                    <CardDescription>Select class and date, then upload and grade worksheets for each student.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div className="bg-white rounded-lg border shadow-sm">
+                <div className="p-4 md:p-6 border-b">
+                    <h2 className="text-lg font-semibold mb-1">Upload Worksheet Images</h2>
+                    <p className="text-sm text-gray-600">Select class and date, then upload and grade worksheets for each student.</p>
+                </div>
+                <div className="p-4 md:p-6 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                         <div className="space-y-2">
-                            <Label htmlFor="class">Class</Label>
+                            <Label htmlFor="class" className="text-sm font-medium">Class</Label>
                             <select
                                 id="class"
                                 value={selectedClass}
@@ -582,7 +580,7 @@ export default function UploadWorksheetPage() {
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor="submittedOn">Date</Label>
+                            <Label htmlFor="submittedOn" className="text-sm font-medium">Date</Label>
                             <Input
                                 id="submittedOn"
                                 type="date"
@@ -594,27 +592,30 @@ export default function UploadWorksheetPage() {
                         </div>
                     </div>                    {selectedClass && sortedStudentWorksheets.length > 0 && (
                         <>
-                            {/* Scrollable Card Grid Layout */}
-                            <div className="border rounded-lg shadow-sm bg-white overflow-hidden">
-                                <div className="max-h-[70vh] overflow-y-auto p-4">                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {sortedStudentWorksheets.map((worksheet, sortedIndex) => (                                            <StudentWorksheetCard 
-                                                key={worksheet.studentId}
-                                                worksheet={worksheet}
-                                                index={sortedIndex}
-                                                onUpdate={handleUpdateWorksheet}
-                                                onPageFileChange={handlePageFileChange}
-                                                onUpload={handleUpload}
-                                                onSave={handleSaveStudent}
-                                                fileInputRefs={fileInputRefs}
-                                            />
-                                        ))}
-                                    </div>
+                            {/* Scrollable Student Grid */}
+                            <div className="max-h-[70vh] overflow-y-auto">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 p-2 md:p-0">
+                                    {sortedStudentWorksheets.map((worksheet, sortedIndex) => (
+                                        <StudentWorksheetCard 
+                                            key={worksheet.studentId}
+                                            worksheet={worksheet}
+                                            index={sortedIndex}
+                                            onUpdate={handleUpdateWorksheet}
+                                            onPageFileChange={handlePageFileChange}
+                                            onUpload={handleUpload}
+                                            onSave={handleSaveStudent}
+                                            fileInputRefs={fileInputRefs}
+                                        />
+                                    ))}
                                 </div>
-                            </div>                            <div className="flex justify-end mt-6 space-x-3">                                <Button
+                            </div>
+
+                            <div className="flex flex-col md:flex-row justify-end mt-4 space-y-2 md:space-y-0 md:space-x-3 px-2 md:px-0">
+                                <Button
                                     onClick={handleBatchProcess}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) || 
                                              !sortedStudentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
-                                    className="w-full sm:w-auto"
+                                    className="w-full md:w-auto"
                                     variant="secondary"
                                 >
                                     AI Grade All
@@ -622,19 +623,19 @@ export default function UploadWorksheetPage() {
                                 <Button
                                     onClick={handleSaveAllChanges}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
-                                    className="w-full sm:w-auto"
+                                    className="w-full md:w-auto"
                                 >
                                     {isSaving ? 'Saving All...' : 'Save All Changes'}
                                 </Button>
                             </div>
                             
-                            <div className="text-sm text-muted-foreground">
+                            <div className="text-sm text-muted-foreground px-2 md:px-0">
                                 Showing {sortedStudentWorksheets.length} students
                             </div>
                         </>
                     )}
-                </CardContent>
-            </Card>
+                </div>
+            </div>
         </div>
     );
 }

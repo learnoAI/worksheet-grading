@@ -52,19 +52,17 @@ export default function TeacherLayout({
 
     if (isLoading || !user) {
         return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
-    }
-
-    return (
+    }    return (
         <div className="min-h-screen bg-gray-100">
             {/* Header */}
             <header className="bg-white shadow">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <h1 className="text-xl font-bold">Worksheet Grading App</h1>
-                    <div className="flex items-center gap-4">
-                        <div className="text-sm text-gray-600">
+                <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-8 py-3 md:py-4 flex justify-between items-center">
+                    <h1 className="text-lg md:text-xl font-bold">Worksheet Grading App</h1>
+                    <div className="flex items-center gap-2 md:gap-4">
+                        <div className="text-xs md:text-sm text-gray-600 hidden sm:block">
                             Logged in as <span className="font-medium">{user.username}</span> (Teacher)
                         </div>
-                        <Button variant="outline" onClick={handleLogout}>
+                        <Button variant="outline" size="sm" onClick={handleLogout}>
                             Logout
                         </Button>
                     </div>
@@ -72,32 +70,32 @@ export default function TeacherLayout({
             </header>
 
             {/* Main content */}
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-                <div className="flex flex-col md:flex-row gap-6">
+            <div className="max-w-7xl mx-auto px-2 md:px-4 lg:px-8 py-3 md:py-6">
+                <div className="flex flex-col md:flex-row gap-3 md:gap-6">
                     {/* Sidebar */}
-                    <aside className="w-full md:w-64 bg-white p-4 rounded-lg shadow">
-                        <nav className="space-y-2">
-                            <Link href="/dashboard/teacher" className="block p-2 rounded hover:bg-gray-100">
+                    <aside className="w-full md:w-64 bg-white p-3 md:p-4 rounded-lg shadow">
+                        <nav className="space-y-1 md:space-y-2">
+                            <Link href="/dashboard/teacher" className="block p-2 rounded hover:bg-gray-100 text-sm">
                                 Dashboard
                             </Link>
 
-                            <Link href="/dashboard/teacher/classes" className="block p-2 rounded hover:bg-gray-100">
+                            <Link href="/dashboard/teacher/classes" className="block p-2 rounded hover:bg-gray-100 text-sm">
                                 My Classes
                             </Link>
 
-                            <Link href="/dashboard/teacher/worksheets/grade" className="block p-2 rounded hover:bg-gray-100">
+                            <Link href="/dashboard/teacher/worksheets/grade" className="block p-2 rounded hover:bg-gray-100 text-sm">
                                 Grade Worksheets
                             </Link>
 
-                            <Link href="/dashboard/teacher/worksheets/upload" className="block p-2 rounded hover:bg-gray-100">
+                            <Link href="/dashboard/teacher/worksheets/upload" className="block p-2 rounded hover:bg-gray-100 text-sm">
                                 Upload Worksheets
                             </Link>
 
-                            <Link href="/dashboard/teacher/students" className="block p-2 rounded hover:bg-gray-100">
+                            <Link href="/dashboard/teacher/students" className="block p-2 rounded hover:bg-gray-100 text-sm">
                                 Students
                             </Link>
 
-                            <Link href="/dashboard/teacher/notifications" className="flex items-center justify-between p-2 rounded hover:bg-gray-100">
+                            <Link href="/dashboard/teacher/notifications" className="flex items-center justify-between p-2 rounded hover:bg-gray-100 text-sm">
                                 <span>Notifications</span>
                                 {unreadCount > 0 && (
                                     <span className="bg-blue-500 text-white text-xs rounded-full px-2 py-1">
@@ -109,7 +107,7 @@ export default function TeacherLayout({
                     </aside>
 
                     {/* Main content */}
-                    <main className="flex-1 bg-white p-6 rounded-lg shadow">
+                    <main className="flex-1 bg-white p-3 md:p-6 rounded-lg shadow">
                         {children}
                     </main>
                 </div>

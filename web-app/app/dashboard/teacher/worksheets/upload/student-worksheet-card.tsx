@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -94,76 +93,75 @@ export function StudentWorksheetCard({
             }
         };
         input.click();
-    };
-
-    return (
-        <Card 
-            className={`overflow-hidden transition-colors relative ${
+    };    return (
+        <div 
+            className={`rounded-lg border transition-colors relative ${
                 worksheet.isAbsent ? 'bg-gray-50 border-gray-200' : 
-                worksheet.grade ? 'bg-green-50 border-green-200' : 'bg-white'
-            }`}
+                worksheet.grade ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'
+            } p-3 md:p-4`}
         >
-            <CardContent className="p-6">
-                <div className="flex items-center space-x-4 mb-4">
-                    <div className="flex-shrink-0">
-                        <div className={`w-12 h-12 rounded-full ${getInitialsBgColor(worksheet.name)} text-white flex items-center justify-center text-lg font-semibold`}>
-                            {avatarLetters}
-                        </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <h3 className="text-lg font-semibold text-gray-900 truncate">{worksheet.name}</h3>
-                        <p className="text-sm text-gray-500">
-                            Token no: {worksheet.tokenNumber}
-                        </p>
+            <div className="flex items-center space-x-3 mb-3">
+                <div className="flex-shrink-0">
+                    <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full ${getInitialsBgColor(worksheet.name)} text-white flex items-center justify-center text-sm md:text-lg font-semibold`}>
+                        {avatarLetters}
                     </div>
                 </div>
+                <div className="flex-1 min-w-0">
+                    <h3 className="text-base md:text-lg font-semibold text-gray-900 truncate">{worksheet.name}</h3>
+                    <p className="text-xs md:text-sm text-gray-500">
+                        Token: {worksheet.tokenNumber}
+                    </p>
+                </div>
+            </div>
 
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div className="space-y-1.5">
-                        <Label htmlFor={`worksheet-${worksheet.studentId}`} className="text-sm font-medium">Worksheet no</Label>
-                        <Input
-                            id={`worksheet-${worksheet.studentId}`}
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={worksheet.worksheetNumber || ''}
-                            onChange={(e) => handleWorksheetNumberChange(e.target.value)}
-                            disabled={worksheet.isAbsent}
-                            placeholder={worksheet.isAbsent ? "N/A" : "#"}
-                            className="h-10"
-                        />
-                    </div>                    <div className="space-y-1.5">
-                        <Label htmlFor={`grade-${worksheet.studentId}`} className="text-sm font-medium">Grade</Label>                        <Input
-                            id={`grade-${worksheet.studentId}`}
-                            type="number"
-                            min="0"
-                            max="10"
-                            step="0.1"
-                            value={worksheet.grade || ''}
-                            onChange={(e) => handleGradeChange(e.target.value)}
-                            onClick={() => {
-                                // If absent is checked, uncheck it when user attempts to enter grade
-                                if (worksheet.isAbsent) {
-                                    onUpdate(index, "isAbsent", false);
-                                }
-                            }}
-                            disabled={worksheet.isAbsent || worksheet.isUploading}
-                            placeholder={worksheet.isAbsent ? "N/A" : (worksheet.isUploading ? "Processing..." : "Grade")}
-                            className="h-10"
-                        />
-                    </div>
-                </div>                <div className="space-y-3 mb-4">
-                    <div className="space-y-1.5">
-                        <Label className="text-sm font-medium">Worksheet Pages</Label>
-                        <div className="grid grid-cols-2 gap-3">                            {/* Page 1 */}
-                            <div className={`border-2 border-dashed rounded-lg p-3 text-center transition-colors ${
+            <div className="grid grid-cols-2 gap-2 md:gap-4 mb-3">
+                <div className="space-y-1">
+                    <Label htmlFor={`worksheet-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">Worksheet #</Label>
+                    <Input
+                        id={`worksheet-${worksheet.studentId}`}
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={worksheet.worksheetNumber || ''}
+                        onChange={(e) => handleWorksheetNumberChange(e.target.value)}
+                        disabled={worksheet.isAbsent}
+                        placeholder={worksheet.isAbsent ? "N/A" : "#"}
+                        className="h-8 md:h-10 text-sm"
+                    />
+                </div>
+                <div className="space-y-1">
+                    <Label htmlFor={`grade-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">Grade</Label>
+                    <Input
+                        id={`grade-${worksheet.studentId}`}
+                        type="number"
+                        min="0"
+                        max="10"
+                        step="0.1"
+                        value={worksheet.grade || ''}
+                        onChange={(e) => handleGradeChange(e.target.value)}
+                        onClick={() => {
+                            // If absent is checked, uncheck it when user attempts to enter grade
+                            if (worksheet.isAbsent) {
+                                onUpdate(index, "isAbsent", false);
+                            }
+                        }}
+                        disabled={worksheet.isAbsent || worksheet.isUploading}
+                        placeholder={worksheet.isAbsent ? "N/A" : (worksheet.isUploading ? "Processing..." : "Grade")}
+                        className="h-8 md:h-10 text-sm"
+                    />
+                </div>
+            </div>                <div className="space-y-2 mb-3">
+                    <div className="space-y-1">
+                        <Label className="text-xs md:text-sm font-medium">Worksheet Pages</Label>
+                        <div className="grid grid-cols-2 gap-2 md:gap-3">                            {/* Page 1 */}
+                            <div className={`border border-dashed rounded-lg p-2 md:p-3 text-center transition-colors ${
                                 worksheet.page1File ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-gray-50'
                             } ${worksheet.isAbsent ? 'opacity-50' : ''}`}>
-                                <div className="space-y-2">
-                                    <div className="text-sm font-medium text-gray-700">Page 1</div>
+                                <div className="space-y-1 md:space-y-2">
+                                    <div className="text-xs md:text-sm font-medium text-gray-700">Page 1</div>
                                     {worksheet.page1File ? (
-                                        <div className="space-y-2">
-                                            <div className="relative w-full h-24 bg-gray-100 rounded overflow-hidden">
+                                        <div className="space-y-1 md:space-y-2">
+                                            <div className="relative w-full h-16 md:h-24 bg-gray-100 rounded overflow-hidden">
                                                 <img
                                                     src={URL.createObjectURL(worksheet.page1File)}
                                                     alt="Page 1 preview"
@@ -171,11 +169,11 @@ export function StudentWorksheetCard({
                                                 />
                                             </div>
                                             <div className="text-xs text-green-600">
-                                                ✓ {worksheet.page1File.name}
+                                                ✓ Uploaded
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="text-xs text-gray-500 py-8">No image</div>
+                                        <div className="text-xs text-gray-500 py-4 md:py-8">No image</div>
                                     )}
                                     <div className="flex flex-col space-y-1">
                                         <Button
@@ -183,34 +181,32 @@ export function StudentWorksheetCard({
                                             size="sm"
                                             onClick={() => handlePageFileCapture(1)}
                                             disabled={worksheet.isAbsent || worksheet.isUploading}
-                                            className="text-xs h-7"
+                                            className="text-xs h-6 md:h-7 px-2"
                                         >
-                                            <Camera size={12} className="mr-1" />
-                                            Capture
+                                            <Camera size={10} className="mr-1" />
+                                            Camera
                                         </Button>
                                         <Button
                                             variant="outline"
                                             size="sm"
                                             onClick={() => handlePageFileUpload(1)}
                                             disabled={worksheet.isAbsent || worksheet.isUploading}
-                                            className="text-xs h-7"
+                                            className="text-xs h-6 md:h-7 px-2"
                                         >
-                                            <UploadIcon size={12} className="mr-1" />
+                                            <UploadIcon size={10} className="mr-1" />
                                             Upload
                                         </Button>
                                     </div>
                                 </div>
-                            </div>
-
-                            {/* Page 2 */}
-                            <div className={`border-2 border-dashed rounded-lg p-3 text-center transition-colors ${
+                            </div>                            {/* Page 2 */}
+                            <div className={`border border-dashed rounded-lg p-2 md:p-3 text-center transition-colors ${
                                 worksheet.page2File ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-gray-50'
                             } ${worksheet.isAbsent ? 'opacity-50' : ''}`}>
-                                <div className="space-y-2">
-                                    <div className="text-sm font-medium text-gray-700">Page 2</div>
+                                <div className="space-y-1 md:space-y-2">
+                                    <div className="text-xs md:text-sm font-medium text-gray-700">Page 2</div>
                                     {worksheet.page2File ? (
-                                        <div className="space-y-2">
-                                            <div className="relative w-full h-24 bg-gray-100 rounded overflow-hidden">
+                                        <div className="space-y-1 md:space-y-2">
+                                            <div className="relative w-full h-16 md:h-24 bg-gray-100 rounded overflow-hidden">
                                                 <img
                                                     src={URL.createObjectURL(worksheet.page2File)}
                                                     alt="Page 2 preview"
@@ -218,11 +214,11 @@ export function StudentWorksheetCard({
                                                 />
                                             </div>
                                             <div className="text-xs text-green-600">
-                                                ✓ {worksheet.page2File.name}
+                                                ✓ Uploaded
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="text-xs text-gray-500 py-8">No image</div>
+                                        <div className="text-xs text-gray-500 py-4 md:py-8">No image</div>
                                     )}
                                     <div className="flex flex-col space-y-1">
                                         <Button
@@ -230,45 +226,44 @@ export function StudentWorksheetCard({
                                             size="sm"
                                             onClick={() => handlePageFileCapture(2)}
                                             disabled={worksheet.isAbsent || worksheet.isUploading}
-                                            className="text-xs h-7"
+                                            className="text-xs h-6 md:h-7 px-2"
                                         >
-                                            <Camera size={12} className="mr-1" />
-                                            Capture
+                                            <Camera size={10} className="mr-1" />
+                                            Camera
                                         </Button>
                                         <Button
                                             variant="outline"
                                             size="sm"
                                             onClick={() => handlePageFileUpload(2)}
                                             disabled={worksheet.isAbsent || worksheet.isUploading}
-                                            className="text-xs h-7"
+                                            className="text-xs h-6 md:h-7 px-2"
                                         >
-                                            <UploadIcon size={12} className="mr-1" />
+                                            <UploadIcon size={10} className="mr-1" />
                                             Upload
-                                        </Button>
-                                    </div>
+                                        </Button>                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="flex flex-wrap justify-between items-center mt-4">
-                    <div className="space-x-4 flex items-center">
-                        <div className="flex items-center space-x-2">
-                            <input
-                                type="checkbox"
-                                id={`absent-${worksheet.studentId}`}
-                                checked={worksheet.isAbsent}
-                                onChange={(e) => handleAbsentChange(e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <Label htmlFor={`absent-${worksheet.studentId}`} className="text-sm">Absent</Label>
-                        </div>
-                    </div>                    <div className="mt-2 sm:mt-0 flex space-x-2">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-3 space-y-2 md:space-y-0">
+                    <div className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            id={`absent-${worksheet.studentId}`}
+                            checked={worksheet.isAbsent}
+                            onChange={(e) => handleAbsentChange(e.target.checked)}
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <Label htmlFor={`absent-${worksheet.studentId}`} className="text-sm">Absent</Label>
+                    </div>
+
+                    <div className="flex w-full md:w-auto space-x-2">
                         <Button 
                             onClick={() => onUpload(worksheet)}
                             disabled={worksheet.isAbsent || worksheet.isUploading || (!worksheet.page1File && !worksheet.page2File) || !worksheet.worksheetNumber}
-                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            className="bg-blue-600 hover:bg-blue-700 text-white flex-1 md:flex-none"
                             size="sm"
                         >
                             {worksheet.isUploading ? "Processing..." : "AI Grade"}
@@ -278,14 +273,13 @@ export function StudentWorksheetCard({
                             disabled={worksheet.isAbsent || worksheet.isUploading || !worksheet.worksheetNumber}
                             variant="outline"
                             size="sm"
+                            className="flex-1 md:flex-none"
                         >
                             Save
                         </Button>
-                        
                     </div>
                 </div>
-                
-            </CardContent>
-        </Card>
+                      
+        </div>
     );
 }
