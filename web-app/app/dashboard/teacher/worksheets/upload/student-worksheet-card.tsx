@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,6 @@ interface StudentWorksheet {
     tokenNumber: string;
     worksheetNumber: number;
     isAbsent: boolean;
-    files: FileList | null;
     grade: string;
     isUploading: boolean;
     page1File?: File | null;
@@ -23,7 +23,6 @@ interface StudentWorksheetCardProps {
     worksheet: StudentWorksheet;
     index: number;
     onUpdate: (index: number, field: string, value: any) => void;
-    onFileChange: (studentId: string, files: FileList | null) => void;
     onPageFileChange?: (studentId: string, pageNumber: number, file: File | null) => void;
     onUpload: (worksheet: StudentWorksheet) => void;
     onSave: (worksheet: StudentWorksheet) => void;
@@ -156,19 +155,27 @@ export function StudentWorksheetCard({
                 </div>                <div className="space-y-3 mb-4">
                     <div className="space-y-1.5">
                         <Label className="text-sm font-medium">Worksheet Pages</Label>
-                        <div className="grid grid-cols-2 gap-3">
-                            {/* Page 1 */}
-                            <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
+                        <div className="grid grid-cols-2 gap-3">                            {/* Page 1 */}
+                            <div className={`border-2 border-dashed rounded-lg p-3 text-center transition-colors ${
                                 worksheet.page1File ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-gray-50'
                             } ${worksheet.isAbsent ? 'opacity-50' : ''}`}>
                                 <div className="space-y-2">
                                     <div className="text-sm font-medium text-gray-700">Page 1</div>
                                     {worksheet.page1File ? (
-                                        <div className="text-xs text-green-600">
-                                            ✓ {worksheet.page1File.name}
+                                        <div className="space-y-2">
+                                            <div className="relative w-full h-24 bg-gray-100 rounded overflow-hidden">
+                                                <img
+                                                    src={URL.createObjectURL(worksheet.page1File)}
+                                                    alt="Page 1 preview"
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            </div>
+                                            <div className="text-xs text-green-600">
+                                                ✓ {worksheet.page1File.name}
+                                            </div>
                                         </div>
                                     ) : (
-                                        <div className="text-xs text-gray-500">No image</div>
+                                        <div className="text-xs text-gray-500 py-8">No image</div>
                                     )}
                                     <div className="flex flex-col space-y-1">
                                         <Button
@@ -196,17 +203,26 @@ export function StudentWorksheetCard({
                             </div>
 
                             {/* Page 2 */}
-                            <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
+                            <div className={`border-2 border-dashed rounded-lg p-3 text-center transition-colors ${
                                 worksheet.page2File ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-gray-50'
                             } ${worksheet.isAbsent ? 'opacity-50' : ''}`}>
                                 <div className="space-y-2">
                                     <div className="text-sm font-medium text-gray-700">Page 2</div>
                                     {worksheet.page2File ? (
-                                        <div className="text-xs text-green-600">
-                                            ✓ {worksheet.page2File.name}
+                                        <div className="space-y-2">
+                                            <div className="relative w-full h-24 bg-gray-100 rounded overflow-hidden">
+                                                <img
+                                                    src={URL.createObjectURL(worksheet.page2File)}
+                                                    alt="Page 2 preview"
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            </div>
+                                            <div className="text-xs text-green-600">
+                                                ✓ {worksheet.page2File.name}
+                                            </div>
                                         </div>
                                     ) : (
-                                        <div className="text-xs text-gray-500">No image</div>
+                                        <div className="text-xs text-gray-500 py-8">No image</div>
                                     )}
                                     <div className="flex flex-col space-y-1">
                                         <Button

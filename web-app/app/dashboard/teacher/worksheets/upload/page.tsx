@@ -29,9 +29,10 @@ interface StudentWorksheet {
     tokenNumber: string;
     worksheetNumber: number;
     isAbsent: boolean;
-    files: FileList | null;
     grade: string;
     isUploading: boolean;
+    page1File?: File | null;
+    page2File?: File | null;
 }
 
 // Token number sorting function (same as used in grade/columns.tsx)
@@ -131,9 +132,7 @@ export default function UploadWorksheetPage() {
                 
                 // Sort students by token number using the same logic as grading table
                 const sortedStudents = sortStudentsByTokenNumber(studentsData);
-                setStudents(sortedStudents);
-                
-                // Create sorted student worksheets maintaining the same order
+                setStudents(sortedStudents);                // Create sorted student worksheets maintaining the same order
                 const sortedStudentWorksheets = sortStudentsByTokenNumber(
                     sortedStudents.map(student => ({
                         studentId: student.id,
@@ -141,9 +140,10 @@ export default function UploadWorksheetPage() {
                         tokenNumber: student.tokenNumber,
                         worksheetNumber: 0,
                         isAbsent: false,  // Default to NOT absent
-                        files: null,
                         grade: '',
-                        isUploading: false
+                        isUploading: false,
+                        page1File: null,
+                        page2File: null
                     }))
                 );
                 setStudentWorksheets(sortedStudentWorksheets);
@@ -151,45 +151,50 @@ export default function UploadWorksheetPage() {
                 console.error('Error fetching students:', error);
                 toast.error('Failed to load students');
             }
-        };
-
-        fetchStudents();
-    }, [selectedClass]);
-
-    const handleFileChange = (studentId: string, files: FileList | null) => {
-        setStudentWorksheets(prev => prev.map(sw => 
-            sw.studentId === studentId ? { ...sw, files } : sw
-        ));
-    };    const handleUpdateWorksheet = (sortedIndex: number, field: string, value: any) => {
+        };        fetchStudents();
+    }, [selectedClass]);    const handlePageFileChange = (studentId: string, pageNumber: number, file: File | null) => {
+        setStudentWorksheets(prev => prev.map(sw => {
+            if (sw.studentId === studentId) {
+                const updated = { ...sw };
+                
+                // Update the specific page file
+                if (pageNumber === 1) {
+                    updated.page1File = file;
+                } else if (pageNumber === 2) {
+                    updated.page2File = file;
+                }
+                
+                return updated;
+            }
+            return sw;
+        }));
+    };const handleUpdateWorksheet = (sortedIndex: number, field: string, value: any) => {
         // Find the actual worksheet in the original array by studentId
         const sortedWorksheet = sortedStudentWorksheets[sortedIndex];
         const originalIndex = studentWorksheets.findIndex(w => w.studentId === sortedWorksheet.studentId);
         
         if (originalIndex === -1) return;
         
-        const newWorksheets = [...studentWorksheets];
-        
-        // If marking as absent, clear other fields
+        const newWorksheets = [...studentWorksheets];        // If marking as absent, clear other fields        
         if (field === "isAbsent" && value === true) {
             newWorksheets[originalIndex] = {
                 ...newWorksheets[originalIndex],
                 isAbsent: true,
                 worksheetNumber: 0,  // Clear worksheet number
                 grade: '',           // Clear grade
-                files: null          // Clear files
-            };        } else {
+                page1File: null,     // Clear page 1 file
+                page2File: null      // Clear page 2 file
+            };
+        } else {
             (newWorksheets[originalIndex] as any)[field] = value;
-            
-            // If setting worksheet number, uploading files, or entering grade, ensure student isn't marked as absent
-            if ((field === "worksheetNumber" && value > 0) || field === "files" || (field === "grade" && value)) {
+                // If setting worksheet number, uploading files, or entering grade, ensure student isn't marked as absent
+            if ((field === "worksheetNumber" && value > 0) || field === "page1File" || field === "page2File" || (field === "grade" && value)) {
                 newWorksheets[originalIndex].isAbsent = false;
             }
         }
         
         setStudentWorksheets(newWorksheets);
-    };
-
-    const handleUpload = async (worksheet: StudentWorksheet) => {
+    };    const handleUpload = async (worksheet: StudentWorksheet) => {
         if (worksheet.isAbsent) {
             return;
         }
@@ -199,8 +204,9 @@ export default function UploadWorksheetPage() {
             return;
         }
 
-        if (!worksheet.files || worksheet.files.length === 0) {
-            toast.error('Please select at least one image file');
+        // Check if at least one page file exists
+        if (!worksheet.page1File && !worksheet.page2File) {
+            toast.error('Please upload at least one page image');
             return;
         }
 
@@ -221,9 +227,12 @@ export default function UploadWorksheetPage() {
             formData.append('token_no', worksheet.tokenNumber);
             formData.append('worksheet_name', worksheet.worksheetNumber.toString());
             
-            // Append all files
-            for (let i = 0; i < worksheet.files.length; i++) {
-                formData.append('files', worksheet.files[i]);
+            // Append page files
+            if (worksheet.page1File) {
+                formData.append('files', worksheet.page1File);
+            }
+            if (worksheet.page2File) {
+                formData.append('files', worksheet.page2File);
             }
 
             // Call our backend API endpoint which proxies to the Python API
@@ -247,21 +256,24 @@ export default function UploadWorksheetPage() {
             if (!result.success) {
                 throw new Error(result.error || 'Error processing worksheet');
             }
-            
-            // Update the grade from the API response
+              // Update the grade from the API response
             const grade = result.grade || result.totalScore || 0;
             setStudentWorksheets(prev => prev.map(sw => 
                 sw.studentId === worksheet.studentId 
-                    ? { ...sw, grade: grade.toString(), isUploading: false } 
+                    ? { 
+                        ...sw, 
+                        grade: grade.toString(), 
+                        isUploading: false,
+                        // Clear page files after successful processing
+                        page1File: null,
+                        page2File: null
+                    } 
                     : sw
             ));
             
             toast.success(`Worksheet for ${worksheet.name} processed successfully! Grade: ${grade}`);
             
-            // Clear file input
-            if (fileInputRefs.current[worksheet.studentId]) {
-                fileInputRefs.current[worksheet.studentId]!.value = '';
-            }
+            // No need to clear file input since we're using individual page files
             
             // Return success for batch processing
             return { success: true };
@@ -276,16 +288,13 @@ export default function UploadWorksheetPage() {
             // Return failure for batch processing
             return { success: false };
         }
-    };
-
-    // Process all non-absent students' worksheets in parallel
+    };    // Process all non-absent students' worksheets in parallel
     const handleBatchProcess = async () => {
         const studentsWithFiles = studentWorksheets.filter(sw => 
-            !sw.isAbsent && sw.files && sw.files.length > 0 && sw.worksheetNumber
+            !sw.isAbsent && (sw.page1File || sw.page2File) && sw.worksheetNumber
         );
-        
-        if (studentsWithFiles.length === 0) {
-            toast.error('No worksheets to process. Please upload files and assign worksheet numbers.');
+          if (studentsWithFiles.length === 0) {
+            toast.error('No worksheets to process. Please upload page images and assign worksheet numbers.');
             return;
         }
         
@@ -593,7 +602,7 @@ export default function UploadWorksheetPage() {
                                                 worksheet={worksheet}
                                                 index={sortedIndex}
                                                 onUpdate={handleUpdateWorksheet}
-                                                onFileChange={handleFileChange}
+                                                onPageFileChange={handlePageFileChange}
                                                 onUpload={handleUpload}
                                                 onSave={handleSaveStudent}
                                                 fileInputRefs={fileInputRefs}
@@ -601,11 +610,10 @@ export default function UploadWorksheetPage() {
                                         ))}
                                     </div>
                                 </div>
-                            </div>                            <div className="flex justify-end mt-6 space-x-3">
-                                <Button
+                            </div>                            <div className="flex justify-end mt-6 space-x-3">                                <Button
                                     onClick={handleBatchProcess}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) || 
-                                             !sortedStudentWorksheets.some(ws => !ws.isAbsent && ws.files && ws.files.length > 0 && ws.worksheetNumber)}
+                                             !sortedStudentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
                                     className="w-full sm:w-auto"
                                     variant="secondary"
                                 >
