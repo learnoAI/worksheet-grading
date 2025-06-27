@@ -248,8 +248,7 @@ export default function AnalyticsDashboardPage() {
                             <CardDescription>Overall worksheet completion metrics</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-center">
+                            <div className="space-y-4">                                <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground">Total Worksheets</span>
                                     <span className="font-medium text-lg">{analytics.totalWorksheets}</span>
                                 </div>

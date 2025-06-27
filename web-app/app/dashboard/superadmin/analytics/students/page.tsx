@@ -475,7 +475,7 @@ export default function StudentAnalyticsPage() {
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
-                                <label className="block text-sm font-medium mb-1">Min. Worksheets</label>
+                                <label className="block text-sm font-medium mb-1">Min. Total Worksheets</label>
                                 <Input
                                     type="number"
                                     placeholder="e.g., 5"
@@ -590,8 +590,7 @@ export default function StudentAnalyticsPage() {
                                                 </div>
                                             </TableHead>
                                             <TableHead className="w-[80px] min-w-[60px] hidden lg:table-cell">
-                                                <div className="flex items-center gap-1">
-                                                    <span className="truncate">Worksheets</span>
+                                                <div className="flex items-center gap-1">                                                    <span className="truncate">Total</span>
                                                     {renderSortButton('totalWorksheets', 'Total Worksheets')}
                                                 </div>
                                             </TableHead>
@@ -729,7 +728,7 @@ export default function StudentAnalyticsPage() {
                                         
                                         <div className="grid grid-cols-2 gap-2 text-xs mb-3">
                                             <div>
-                                                <span className="text-muted-foreground">Worksheets:</span>
+                                                <span className="text-muted-foreground">Total:</span>
                                                 <span className="ml-1 font-medium">{student.totalWorksheets}</span>
                                             </div>
                                             <div>

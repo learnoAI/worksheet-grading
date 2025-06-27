@@ -177,12 +177,11 @@ export default function UploadWorksheetPage() {
                 worksheetNumber: 0,  // Clear worksheet number
                 grade: '',           // Clear grade
                 files: null          // Clear files
-            };
-        } else {
+            };        } else {
             (newWorksheets[originalIndex] as any)[field] = value;
             
-            // If setting worksheet number or uploading files, ensure student isn't marked as absent
-            if ((field === "worksheetNumber" && value > 0) || field === "files") {
+            // If setting worksheet number, uploading files, or entering grade, ensure student isn't marked as absent
+            if ((field === "worksheetNumber" && value > 0) || field === "files" || (field === "grade" && value)) {
                 newWorksheets[originalIndex].isAbsent = false;
             }
         }
@@ -257,7 +256,7 @@ export default function UploadWorksheetPage() {
                     : sw
             ));
             
-            toast.success(`Worksheet for ${worksheet.name} processed successfully! Grade: ${grade}/10`);
+            toast.success(`Worksheet for ${worksheet.name} processed successfully! Grade: ${grade}`);
             
             // Clear file input
             if (fileInputRefs.current[worksheet.studentId]) {
@@ -357,6 +356,97 @@ export default function UploadWorksheetPage() {
         }
     };
 
+    // Save individual student worksheet
+    const handleSaveStudent = async (worksheet: StudentWorksheet) => {
+        if (!selectedClass) {
+            toast.error('Please select a class first');
+            return;
+        }
+
+        // Set uploading state for this specific student
+        setStudentWorksheets(prev => 
+            prev.map(w => w.studentId === worksheet.studentId 
+                ? { ...w, isUploading: true } 
+                : w
+            )
+        );
+
+        try {
+            if (worksheet.isAbsent) {
+                // Save absent student
+                const data = {
+                    classId: selectedClass,
+                    studentId: worksheet.studentId,
+                    worksheetNumber: 0,
+                    grade: 0,
+                    submittedOn: new Date(submittedOn).toISOString(),
+                    isAbsent: true,
+                    notes: 'Student absent'
+                };
+
+                const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
+                    selectedClass, 
+                    worksheet.studentId, 
+                    submittedOn
+                );
+
+                if (existingWorksheet && existingWorksheet.id) {
+                    await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                } else {
+                    await worksheetAPI.createGradedWorksheet(data);
+                }
+
+                toast.success(`${worksheet.name} marked as absent and saved`);
+            } else {
+                // Validate non-absent student data
+                if (!worksheet.worksheetNumber || worksheet.worksheetNumber <= 0) {
+                    toast.error('Please enter a worksheet number');
+                    return;
+                }
+
+                if (!worksheet.grade || worksheet.grade.trim() === '') {
+                    toast.error('Please enter a grade');
+                    return;
+                }
+
+                // Save student with grade
+                const data = {
+                    classId: selectedClass,
+                    studentId: worksheet.studentId,
+                    worksheetNumber: worksheet.worksheetNumber,
+                    grade: parseFloat(worksheet.grade),
+                    submittedOn: new Date(submittedOn).toISOString(),
+                    isAbsent: false
+                };
+
+                const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
+                    selectedClass, 
+                    worksheet.studentId, 
+                    submittedOn
+                );
+
+                if (existingWorksheet && existingWorksheet.id) {
+                    await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                } else {
+                    await worksheetAPI.createGradedWorksheet(data);
+                }
+
+                toast.success(`${worksheet.name}'s worksheet saved successfully`);
+            }
+        } catch (error) {
+            console.error('Error saving student worksheet:', error);
+            toast.error(`Failed to save ${worksheet.name}'s worksheet`);
+        } finally {
+            // Remove uploading state for this specific student
+            setStudentWorksheets(prev => 
+                prev.map(w => w.studentId === worksheet.studentId 
+                    ? { ...w, isUploading: false } 
+                    : w
+                )
+            );
+        }
+    };
+
     // Save all student worksheets including absent students
     const handleSaveAllChanges = async () => {
         setIsSaving(true);
@@ -397,13 +487,10 @@ export default function UploadWorksheetPage() {
                         await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
                     } else {
                         await worksheetAPI.createGradedWorksheet(data);
-                    }
-
-                }
-                // For students with grades but no files (manually entered grades or previously uploaded)
-                // This part handles saving changes for students who are NOT absent
-                // and might have had their grade manually entered or worksheet previously uploaded and graded.
-                else if (worksheet.grade && !worksheet.files) { // Or some other condition to identify these cases
+                    }                }
+                // For students with grades (manually entered or AI graded that might have been edited)
+                // This part handles saving changes for students who are NOT absent and have grades
+                else if (worksheet.grade && worksheet.worksheetNumber > 0) {
                     const data = {
                         classId: selectedClass,
                         studentId: worksheet.studentId,
@@ -416,8 +503,7 @@ export default function UploadWorksheetPage() {
                     if (existingWorksheet && existingWorksheet.id) {
                         await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
                     } else {
-                        // This case (grade exists, no files, but no existing DB record) might be an edge case
-                        // or indicate a new manual grade entry.
+                        // This case handles new manual grade entries or AI graded worksheets that need to be saved
                         await worksheetAPI.createGradedWorksheet(data);
                     }
                 }
@@ -502,14 +588,14 @@ export default function UploadWorksheetPage() {
                             {/* Scrollable Card Grid Layout */}
                             <div className="border rounded-lg shadow-sm bg-white overflow-hidden">
                                 <div className="max-h-[70vh] overflow-y-auto p-4">                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {sortedStudentWorksheets.map((worksheet, sortedIndex) => (
-                                            <StudentWorksheetCard 
+                                        {sortedStudentWorksheets.map((worksheet, sortedIndex) => (                                            <StudentWorksheetCard 
                                                 key={worksheet.studentId}
                                                 worksheet={worksheet}
                                                 index={sortedIndex}
                                                 onUpdate={handleUpdateWorksheet}
                                                 onFileChange={handleFileChange}
                                                 onUpload={handleUpload}
+                                                onSave={handleSaveStudent}
                                                 fileInputRefs={fileInputRefs}
                                             />
                                         ))}

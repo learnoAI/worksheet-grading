@@ -38,17 +38,17 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         // Get all worksheets in the date range with school filter
         const worksheets = await prisma.worksheet.findMany({
             where: filter
-        });
-        
-        // Calculate analytics metrics
-        const totalWorksheets = worksheets.length;
+        });        // Calculate analytics metrics
+        const allWorksheets = worksheets.length;
         const totalAbsent = worksheets.filter(w => w.isAbsent).length;
-        const absentPercentage = totalWorksheets > 0 ? (totalAbsent / totalWorksheets) * 100 : 0;
         const totalRepeated = worksheets.filter(w => w.isRepeated).length;
-        const repetitionRate = totalWorksheets > 0 ? (totalRepeated / totalWorksheets) * 100 : 0;
         
         const gradedWorksheets = worksheets.filter(w => w.grade !== null);
         const totalGraded = gradedWorksheets.length;
+        const totalWorksheets = allWorksheets - totalAbsent; // Non-absent worksheets
+        
+        const absentPercentage = allWorksheets > 0 ? (totalAbsent / allWorksheets) * 100 : 0;
+        const repetitionRate = allWorksheets > 0 ? (totalRepeated / allWorksheets) * 100 : 0;
         
         // High score is 80% or higher of outOf
         const highScoreCount = gradedWorksheets.filter(w => {
@@ -124,27 +124,29 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
                     }
                 }
             }
-        });
-        
+        });        
         // Calculate analytics
-        const totalWorksheets = worksheets.length;
+        const allWorksheets = worksheets.length;
         const totalAbsent = worksheets.filter(w => w.isAbsent).length;
         const totalRepeated = worksheets.filter(w => w.isRepeated).length;
+          // Calculate graded vs ungraded
+        const gradedWorksheets = worksheets.filter(w => w.grade !== null);
+        const totalGraded = gradedWorksheets.length;
+        const totalWorksheets = allWorksheets - totalAbsent; // Non-absent worksheets
         
         // Calculate high score percentage (≥80%)
         const highScoreThreshold = 8.0; // 80% of 10
         const highScores = worksheets.filter(w => !w.isAbsent && w.grade !== null && w.grade >= highScoreThreshold).length;
-        const nonAbsentCount = totalWorksheets - totalAbsent;
+        const nonAbsentCount = allWorksheets - totalAbsent;
         const highScorePercentage = nonAbsentCount > 0 ? (highScores / nonAbsentCount) * 100 : 0;
         
         // Calculate repetition rate
         const repetitionRate = nonAbsentCount > 0 ? (totalRepeated / nonAbsentCount) * 100 : 0;
-        
-        // Return compiled analytics
+          // Return compiled analytics
         res.status(200).json({
             totalWorksheets,
             totalAbsent,
-            absentPercentage: totalWorksheets > 0 ? (totalAbsent / totalWorksheets) * 100 : 0,
+            absentPercentage: allWorksheets > 0 ? (totalAbsent / allWorksheets) * 100 : 0,
             totalRepeated,
             repetitionRate,
             highScores,
@@ -205,13 +207,13 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                             }
                         }
                     }
-                },
-                studentWorksheets: {
+                },                studentWorksheets: {
                     select: {
                         id: true,
                         submittedOn: true,
                         isAbsent: true,
-                        isRepeated: true
+                        isRepeated: true,
+                        grade: true
                     },
                     orderBy: {
                         submittedOn: 'asc'
@@ -222,13 +224,16 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                 tokenNumber: 'asc'
             }
         });
-        
-        // Calculate analytics for each student
+          // Calculate analytics for each student
         const studentsWithAnalytics = students.map(student => {
             const worksheets = student.studentWorksheets;
-            const totalWorksheets = worksheets.length;
+            const allWorksheets = worksheets.length;
             const absences = worksheets.filter(w => w.isAbsent).length;
             const repetitions = worksheets.filter(w => w.isRepeated).length;
+            
+            // Calculate graded vs ungraded worksheets
+            const gradedWorksheets = worksheets.filter(w => w.grade !== null);
+            const totalWorksheets = allWorksheets - absences; // Non-absent worksheets
             
             // Get first and last worksheet dates
             const worksheetsWithDates = worksheets.filter(w => w.submittedOn !== null);
@@ -247,9 +252,9 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                 school: primaryClass ? primaryClass.school.name : 'No School',
                 totalWorksheets,
                 absences,
-                absentPercentage: totalWorksheets > 0 ? (absences / totalWorksheets) * 100 : 0,
+                absentPercentage: allWorksheets > 0 ? (absences / allWorksheets) * 100 : 0,
                 repetitions,
-                repetitionRate: (totalWorksheets - absences) > 0 ? (repetitions / (totalWorksheets - absences)) * 100 : 0,
+                repetitionRate: (allWorksheets - absences) > 0 ? (repetitions / (allWorksheets - absences)) * 100 : 0,
                 firstWorksheetDate: firstWorksheet?.submittedOn ? firstWorksheet.submittedOn.toISOString() : null,
                 lastWorksheetDate: lastWorksheet?.submittedOn ? lastWorksheet.submittedOn.toISOString() : null,
             };
@@ -588,13 +593,16 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 }
             }
         });
-        
-        // Calculate analytics for each student
+          // Calculate analytics for each student
         const studentsWithAnalytics = students.map(student => {
             const worksheets = student.studentWorksheets;
-            const totalWorksheets = worksheets.length;
+            const allWorksheets = worksheets.length;
             const absences = worksheets.filter(w => w.isAbsent).length;
             const repetitions = worksheets.filter(w => w.isRepeated).length;
+            
+            // Calculate graded vs ungraded worksheets
+            const gradedWorksheets = worksheets.filter(w => w.grade !== null);
+            const totalWorksheets = allWorksheets - absences; // Non-absent worksheets
             
             // Get first and last worksheet dates
             const worksheetsWithDates = worksheets.filter(w => w.submittedOn !== null);
@@ -605,9 +613,9 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
             const primaryClass = student.studentClasses[0]?.class;
             
             // Calculate average grade (excluding absent worksheets)
-            const gradedWorksheets = worksheets.filter(w => !w.isAbsent && w.grade !== null);
-            const averageGrade = gradedWorksheets.length > 0 
-                ? gradedWorksheets.reduce((sum, w) => sum + (w.grade || 0), 0) / gradedWorksheets.length 
+            const gradedNonAbsentWorksheets = worksheets.filter(w => !w.isAbsent && w.grade !== null);
+            const averageGrade = gradedNonAbsentWorksheets.length > 0 
+                ? gradedNonAbsentWorksheets.reduce((sum, w) => sum + (w.grade || 0), 0) / gradedNonAbsentWorksheets.length 
                 : 0;
               return {
                 id: student.id,
@@ -619,9 +627,9 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 school: primaryClass ? primaryClass.school.name : 'No School',
                 totalWorksheets,
                 absences,
-                absentPercentage: totalWorksheets > 0 ? Number((absences / totalWorksheets * 100).toFixed(2)) : 0,
+                absentPercentage: allWorksheets > 0 ? Number((absences / allWorksheets * 100).toFixed(2)) : 0,
                 repetitions,
-                repetitionRate: (totalWorksheets - absences) > 0 ? Number((repetitions / (totalWorksheets - absences) * 100).toFixed(2)) : 0,
+                repetitionRate: (allWorksheets - absences) > 0 ? Number((repetitions / (allWorksheets - absences) * 100).toFixed(2)) : 0,
                 averageGrade: Number(averageGrade.toFixed(2)),
                 firstWorksheetDate: firstWorksheet?.submittedOn ? firstWorksheet.submittedOn.toISOString().split('T')[0] : '',
                 lastWorksheetDate: lastWorksheet?.submittedOn ? lastWorksheet.submittedOn.toISOString().split('T')[0] : '',

@@ -4,7 +4,7 @@ import { fetchAPI } from './utils';
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5100/api';
 // Types for analytics data
 export interface OverallAnalytics {
-    totalWorksheets: number;
+    totalWorksheets: number; // Non-absent worksheets (total - absent)
     totalAbsent: number;
     absentPercentage: number;
     totalRepeated: number;
@@ -25,7 +25,7 @@ export interface StudentAnalytics {
     class: string;  // Primary class name
     firstWorksheetDate: string | null;
     lastWorksheetDate: string | null;
-    totalWorksheets: number;
+    totalWorksheets: number; // Non-absent worksheets for this student
     absentCount: number;
     absentPercentage: number;
     repeatedCount: number;
