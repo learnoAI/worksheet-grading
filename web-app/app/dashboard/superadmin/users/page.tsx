@@ -35,7 +35,8 @@ import {
     GraduationCap,
     BookOpen,
     Shield,
-    Crown
+    Crown,
+    X
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -313,6 +314,7 @@ export default function UsersPage() {
     // Core data state
     const [users, setUsers] = useState<UserWithDetails[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchLoading, setSearchLoading] = useState(false);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     
     // Pagination state
@@ -337,19 +339,38 @@ export default function UsersPage() {
         setCurrentPage(1);
     }, [selectedRole, showArchived, debouncedSearchTerm]);
 
+    // Initial load and auth check
     useEffect(() => {
-        // Redirect if not logged in or not a superadmin
         if (!isLoading && (!user || user.role !== UserRole.SUPERADMIN)) {
             toast.error('Access denied');
             router.push('/dashboard');
         } else if (!isLoading && user?.role === UserRole.SUPERADMIN) {
-            loadUsers();
+            // Only load on initial mount
+            loadUsers(false);
         }
-    }, [user, isLoading, router, currentPage, selectedRole, showArchived, debouncedSearchTerm]);
+    }, [user, isLoading, router]);
 
-    const loadUsers = useCallback(async () => {
+    // Load users when filters change (excluding search)
+    useEffect(() => {
+        if (user?.role === UserRole.SUPERADMIN) {
+            loadUsers(false);
+        }
+    }, [currentPage, selectedRole, showArchived]);
+
+    // Load users when search term changes (debounced)
+    useEffect(() => {
+        if (user?.role === UserRole.SUPERADMIN && debouncedSearchTerm !== searchTerm) {
+            loadUsers(true);
+        }
+    }, [debouncedSearchTerm]);
+
+    const loadUsers = useCallback(async (isSearch = false) => {
         try {
-            setLoading(true);
+            if (isSearch) {
+                setSearchLoading(true);
+            } else {
+                setLoading(true);
+            }
             
             const params: any = {
                 page: currentPage,
@@ -382,9 +403,27 @@ export default function UsersPage() {
             console.error('Error loading users:', error);
             toast.error('Failed to load users data');
         } finally {
-            setLoading(false);
+            if (isSearch) {
+                setSearchLoading(false);
+            } else {
+                setLoading(false);
+            }
         }
     }, [currentPage, selectedRole, showArchived, debouncedSearchTerm]);
+
+    const handleSearch = useCallback(() => {
+        if (user?.role === UserRole.SUPERADMIN) {
+            loadUsers(true);
+        }
+    }, [loadUsers, user]);
+
+    const handleClearSearch = useCallback(() => {
+        setSearchTerm('');
+        if (user?.role === UserRole.SUPERADMIN) {
+            // This will trigger the debounced search effect to clear results
+            setTimeout(() => loadUsers(true), 100);
+        }
+    }, [loadUsers, user]);
 
     const handleArchiveUser = useCallback(async (userId: string) => {
         try {
@@ -434,11 +473,11 @@ export default function UsersPage() {
     }, []);
 
     const handleEditSuccess = useCallback(() => {
-        loadUsers(); // Refresh the data
+        loadUsers(false); // Refresh the data
     }, [loadUsers]);
 
     const handleRefresh = useCallback(() => {
-        loadUsers();
+        loadUsers(false);
     }, [loadUsers]);
 
     const getRoleIcon = (role: UserRole) => {
@@ -495,7 +534,7 @@ export default function UsersPage() {
         return assignments.length > 0 ? assignments.join(', ') : 'No assignments';
     };
 
-    if (isLoading || loading) {
+    if (isLoading || (loading && users.length === 0)) {
         return <PageLoader />;
     }
 
@@ -539,22 +578,57 @@ export default function UsersPage() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                        {/* Search Section - Left side, takes more space */}
+                        <div className="lg:col-span-6">
                             <label className="block text-sm font-medium mb-2">Search</label>
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                                <Input
-                                    placeholder="Search by name, username, or token number..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="pl-10"
-                                />
+                            <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                    {searchTerm && (
+                                        <button
+                                            onClick={handleClearSearch}
+                                            className="absolute right-8 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 hover:text-gray-600"
+                                            title="Clear search"
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </button>
+                                    )}
+                                    {searchLoading && (
+                                        <Loader2 className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 animate-spin text-gray-400" />
+                                    )}
+                                    <Input
+                                        placeholder="Search by name, username, or token number..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                handleSearch();
+                                            }
+                                        }}
+                                        className={`pl-10 ${searchTerm ? 'pr-16' : searchLoading ? 'pr-10' : ''}`}
+                                    />
+                                </div>
+                                <Button
+                                    onClick={handleSearch}
+                                    disabled={searchLoading}
+                                    variant="outline"
+                                    size="default"
+                                    className="flex items-center gap-2"
+                                >
+                                    {searchLoading ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Search className="h-4 w-4" />
+                                    )}
+                                    Search
+                                </Button>
                             </div>
-                            <p className="text-xs text-gray-500 mt-1">Search across names, usernames, and token numbers</p>
+                            <p className="text-xs text-gray-500 mt-1">Search across names, usernames, and token numbers • Press Enter or click Search</p>
                         </div>
                         
-                        <div>
+                        {/* Role Filter - Right side */}
+                        <div className="lg:col-span-3">
                             <label className="block text-sm font-medium mb-2">Role</label>
                             <Select value={selectedRole} onValueChange={setSelectedRole}>
                                 <SelectTrigger>
@@ -569,7 +643,8 @@ export default function UsersPage() {
                             </Select>
                         </div>
                         
-                        <div>
+                        {/* Status Filter - Right side */}
+                        <div className="lg:col-span-3">
                             <label className="block text-sm font-medium mb-2">Status</label>
                             <Select value={showArchived} onValueChange={setShowArchived}>
                                 <SelectTrigger>
@@ -694,7 +769,7 @@ export default function UsersPage() {
                                 onPageChange={setCurrentPage}
                                 hasNextPage={hasNextPage}
                                 hasPrevPage={hasPrevPage}
-                                isLoading={loading}
+                                isLoading={loading || searchLoading}
                             />
                         </>
                     )}
