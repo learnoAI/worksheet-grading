@@ -13,14 +13,10 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { 
     Dialog, 
-    DialogContent, 
-    DialogDescription, 
-    DialogHeader, 
-    DialogTitle 
+    DialogContent
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { 
@@ -31,6 +27,7 @@ import {
     Users, 
     UserPlus, 
     Upload,
+    Download,
     GraduationCap,
     Loader2,
     Search,
@@ -108,16 +105,6 @@ const ComponentLoader = memo(() => (
     </div>
 ));
 
-// Skeleton loader for table rows
-const TableRowSkeleton = memo(() => (
-    <tr className="border-b">
-        {Array.from({ length: 7 }, (_, i) => (
-            <td key={i} className="py-3 px-4">
-                <div className="h-4 bg-gray-200 rounded animate-pulse"></div>
-            </td>
-        ))}
-    </tr>
-));
 
 // Memoized count display component
 const CountButton = memo(({ 
@@ -257,6 +244,7 @@ export default function ClassesPage() {
     // CSV Upload state
     const [showCsvUpload, setShowCsvUpload] = useState(false);
     const [csvData, setCsvData] = useState('');
+    const [csvFile, setCsvFile] = useState<File | null>(null);
     const [uploadingCsv, setUploadingCsv] = useState(false);
     
     // Create user state
@@ -472,9 +460,27 @@ export default function ClassesPage() {
         loadInitialData();
     }, [loadInitialData]);
 
+    const handleCsvFileUpload = useCallback((file: File) => {
+        if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
+            toast.error('Please select a valid CSV file');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const content = e.target?.result as string;
+            setCsvData(content);
+            setCsvFile(file);
+        };
+        reader.onerror = () => {
+            toast.error('Error reading CSV file');
+        };
+        reader.readAsText(file);
+    }, []);
+
     const handleCsvUpload = useCallback(async () => {
-        if (!csvData.trim()) {
-            toast.error('Please enter CSV data');
+        if (!csvFile || !csvData.trim()) {
+            toast.error('Please upload a CSV file first');
             return;
         }
 
@@ -482,7 +488,12 @@ export default function ClassesPage() {
             setUploadingCsv(true);
             
             // Parse CSV data
-            const lines = csvData.trim().split('\n');
+            const lines = csvData.split('\n').filter(line => line.trim());
+            if (lines.length < 2) {
+                toast.error('CSV file must contain at least a header row and one data row');
+                return;
+            }
+
             const headers = lines[0].split(',').map(h => h.trim());
             
             if (headers.length < 4 || !headers.includes('name') || !headers.includes('tokenNumber') || 
@@ -494,14 +505,18 @@ export default function ClassesPage() {
             const students: CsvStudent[] = [];
             for (let i = 1; i < lines.length; i++) {
                 const values = lines[i].split(',').map(v => v.trim());
-                if (values.length >= 4) {
+                if (values.length >= 4 && values.some(v => v)) { // Ensure at least one non-empty value
                     const student: CsvStudent = {
                         name: values[headers.indexOf('name')],
                         tokenNumber: values[headers.indexOf('tokenNumber')],
                         className: values[headers.indexOf('className')],
                         schoolName: values[headers.indexOf('schoolName')]
                     };
-                    students.push(student);
+                    
+                    // Validate required fields
+                    if (student.name && student.tokenNumber && student.className && student.schoolName) {
+                        students.push(student);
+                    }
                 }
             }
 
@@ -512,14 +527,15 @@ export default function ClassesPage() {
 
             const result = await userAPI.uploadStudentsCsv(students);
             
-            toast.success(`CSV processed: ${result.results.created} created, ${result.results.updated} updated`);
-            if (result.results.errors.length > 0) {
+            toast.success(`CSV processed successfully: ${result.results.created} students created, ${result.results.updated} students updated`);
+            if (result.results.errors && result.results.errors.length > 0) {
                 console.warn('CSV processing errors:', result.results.errors);
-                toast.warning(`${result.results.errors.length} records had errors`);
+                toast.warning(`${result.results.errors.length} records had errors - check console for details`);
             }
             
             setShowCsvUpload(false);
             setCsvData('');
+            setCsvFile(null);
             handleRefresh(); // Refresh data
         } catch (error: any) {
             console.error('Error uploading CSV:', error);
@@ -527,7 +543,35 @@ export default function ClassesPage() {
         } finally {
             setUploadingCsv(false);
         }
-    }, [csvData, handleRefresh]);
+    }, [csvFile, csvData, handleRefresh]);
+
+    const handleDownloadCsvTemplate = useCallback(() => {
+        const csvContent = `name,tokenNumber,className,schoolName
+John Doe,TN001,Class 1A,Greenwood Elementary School
+Jane Smith,TN002,Class 1A,Greenwood Elementary School
+Michael Johnson,TN003,Class 1B,Greenwood Elementary School
+Emily Brown,TN004,Class 1A,Greenwood Elementary School
+David Wilson,TN005,Class 2A,Riverside Middle School
+Sarah Davis,TN006,Class 2A,Riverside Middle School
+Robert Miller,TN007,Class 2B,Riverside Middle School
+Lisa Anderson,TN008,Class 3A,Oakwood High School
+William Taylor,TN009,Class 3A,Oakwood High School
+Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'student_template.csv');
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        toast.success('CSV template with sample data downloaded successfully');
+    }, []);
 
     const handleCreateUserSuccess = useCallback(() => {
         setShowCreateUser(false);
@@ -552,13 +596,13 @@ export default function ClassesPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <h1 className="text-2xl font-bold">Classes Management</h1>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                     <Button 
                         onClick={() => setShowCreateUser(true)}
                         size="sm"
-                        className="flex items-center gap-2"
+                        className="flex items-center gap-2 w-full sm:w-auto"
                     >
                         <UserPlus className="h-4 w-4" />
                         Add User
@@ -567,7 +611,7 @@ export default function ClassesPage() {
                         onClick={handleRefresh}
                         variant="outline"
                         size="sm"
-                        className="flex items-center gap-2"
+                        className="flex items-center gap-2 w-full sm:w-auto"
                     >
                         <RefreshCw className="h-4 w-4" />
                         Refresh
@@ -584,59 +628,73 @@ export default function ClassesPage() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium mb-2">Search</label>
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                                <Input
-                                    placeholder="Search classes or schools..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="pl-10"
-                                />
+                    <div className="space-y-4">
+                        {/* Filter Controls */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Search</label>
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                    <Input
+                                        placeholder="Search classes or schools..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="pl-10"
+                                    />
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium mb-2">School</label>
+                                <Select value={selectedSchool} onValueChange={setSelectedSchool}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select school" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">All Schools</SelectItem>
+                                        {schools.map(school => (
+                                            <SelectItem key={school.id} value={school.id}>
+                                                {school.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Status</label>
+                                <Select value={showArchived} onValueChange={setShowArchived}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select status" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="active">Active Classes</SelectItem>
+                                        <SelectItem value="archived">Archived Classes</SelectItem>
+                                        <SelectItem value="all">All Classes</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
-                        
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium mb-2">School</label>
-                            <Select value={selectedSchool} onValueChange={setSelectedSchool}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select school" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All Schools</SelectItem>
-                                    {schools.map(school => (
-                                        <SelectItem key={school.id} value={school.id}>
-                                            {school.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium mb-2">Status</label>
-                            <Select value={showArchived} onValueChange={setShowArchived}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="active">Active Classes</SelectItem>
-                                    <SelectItem value="archived">Archived Classes</SelectItem>
-                                    <SelectItem value="all">All Classes</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
 
-                        <div className="flex items-end">
+                        {/* Action Buttons */}
+                        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2">
                             <Button
                                 onClick={() => setShowCsvUpload(!showCsvUpload)}
                                 variant="outline"
-                                className="flex items-center gap-2"
+                                size="sm"
+                                className="flex items-center justify-center gap-2 w-full sm:w-auto"
                             >
                                 <Upload className="h-4 w-4" />
-                                CSV Upload
+                                {showCsvUpload ? 'Hide CSV Upload' : 'Upload CSV'}
+                            </Button>
+                            <Button
+                                onClick={handleDownloadCsvTemplate}
+                                variant="outline"
+                                size="sm"
+                                className="flex items-center justify-center gap-2 w-full sm:w-auto"
+                            >
+                                <Download className="h-4 w-4" />
+                                Download Template
                             </Button>
                         </div>
                     </div>
@@ -645,31 +703,76 @@ export default function ClassesPage() {
                     {showCsvUpload && (
                         <div className="border-t pt-4 space-y-4">
                             <div>
-                                <Label htmlFor="csvData">CSV Data</Label>
-                                <p className="text-sm text-gray-500 mb-2">
+                                <Label className="text-base font-semibold">Upload Student CSV</Label>
+                                <p className="text-sm text-gray-500 mt-1">
                                     Format: name,tokenNumber,className,schoolName (header row required)
                                 </p>
-                                <Textarea
-                                    id="csvData"
-                                    placeholder="name,tokenNumber,className,schoolName&#10;John Doe,TN001,Class 1A,School Name&#10;Jane Smith,TN002,Class 1A,School Name"
-                                    value={csvData}
-                                    onChange={(e) => setCsvData(e.target.value)}
-                                    rows={6}
-                                />
                             </div>
-                            <div className="flex gap-2">
+                            
+                            {/* File Upload Option */}
+                            <div className="space-y-4">
+                                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+                                    <div className="space-y-4">
+                                        <div className="mx-auto w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
+                                            <Upload className="h-6 w-6 text-blue-600" />
+                                        </div>
+                                        <div>
+                                            <Label htmlFor="csvFile" className="cursor-pointer">
+                                                <div className="text-sm font-medium text-gray-900 mb-1">
+                                                    Click to upload CSV file
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    Supports CSV files up to 10MB
+                                                </div>
+                                            </Label>
+                                            <input
+                                                id="csvFile"
+                                                type="file"
+                                                accept=".csv,text/csv"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) {
+                                                        handleCsvFileUpload(file);
+                                                    }
+                                                }}
+                                                className="hidden"
+                                            />
+                                        </div>
+                                        {csvFile && (
+                                            <div className="flex items-center justify-center gap-2 text-green-700 bg-green-50 px-3 py-2 rounded-md">
+                                                <span className="text-sm font-medium">✓ {csvFile.name}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="flex flex-col sm:flex-row gap-3">
                                 <Button
                                     onClick={handleCsvUpload}
-                                    disabled={uploadingCsv || !csvData.trim()}
+                                    disabled={uploadingCsv || !csvFile}
+                                    className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
                                 >
-                                    {uploadingCsv ? 'Processing...' : 'Process CSV'}
+                                    {uploadingCsv ? (
+                                        <>
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            Processing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Upload className="h-4 w-4 mr-2" />
+                                            Upload & Process CSV
+                                        </>
+                                    )}
                                 </Button>
                                 <Button
                                     variant="outline"
                                     onClick={() => {
                                         setShowCsvUpload(false);
                                         setCsvData('');
+                                        setCsvFile(null);
                                     }}
+                                    className="w-full sm:w-auto"
                                 >
                                     Cancel
                                 </Button>

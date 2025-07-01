@@ -62,7 +62,7 @@ export default function SuperAdminLayout({
                     <h1 className="text-xl font-bold">Worksheet Grading App</h1>
                     <div className="flex items-center gap-4">
                         <div className="text-sm text-gray-600">
-                            Logged in as <span className="font-medium">{user.username}</span> (Superadmin)
+                            Logged in as <span className="font-medium">{user.username}</span> (Admin)
                         </div>
                         <Button variant="outline" onClick={handleLogout}>
                             Logout

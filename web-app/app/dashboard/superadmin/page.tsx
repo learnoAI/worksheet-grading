@@ -19,7 +19,7 @@ export default function SuperAdminPage() {
     useEffect(() => {
         // Redirect if not logged in or not a superadmin
         if (!isLoading && (!user || user.role !== UserRole.SUPERADMIN)) {
-            toast.error('You do not have permission to access this page');
+            toast.error('Access denied');
             router.push('/dashboard');
         } else if (!isLoading && user?.role === UserRole.SUPERADMIN) {
             // Load all users
@@ -50,7 +50,7 @@ export default function SuperAdminPage() {
 
     return (
         <div className="space-y-6">
-            <h1 className="text-2xl font-bold">Superadmin Dashboard</h1>
+            <h1 className="text-2xl font-bold">Admin Dashboard</h1>
 
             {/* Admin Sections */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

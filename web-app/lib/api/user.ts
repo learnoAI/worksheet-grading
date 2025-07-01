@@ -7,6 +7,42 @@ export const userAPI = {
         return fetchAPI<User[]>(`/users${query}`);
     },
 
+    getUsersWithDetails: async (params: {
+        page?: number;
+        limit?: number;
+        role?: string;
+        isArchived?: boolean;
+        search?: string;
+    } = {}): Promise<{
+        users: User[];
+        pagination: {
+            currentPage: number;
+            totalPages: number;
+            totalCount: number;
+            hasNextPage: boolean;
+            hasPrevPage: boolean;
+        };
+    }> => {
+        const searchParams = new URLSearchParams();
+        if (params.page) searchParams.set('page', params.page.toString());
+        if (params.limit) searchParams.set('limit', params.limit.toString());
+        if (params.role) searchParams.set('role', params.role);
+        if (params.isArchived !== undefined) searchParams.set('isArchived', params.isArchived.toString());
+        if (params.search) searchParams.set('search', params.search);
+        
+        const query = searchParams.toString();
+        return fetchAPI<{
+            users: User[];
+            pagination: {
+                currentPage: number;
+                totalPages: number;
+                totalCount: number;
+                hasNextPage: boolean;
+                hasPrevPage: boolean;
+            };
+        }>(`/users/with-details${query ? `?${query}` : ''}`);
+    },
+
     getUserById: async (id: string): Promise<User> => {
         return fetchAPI<User>(`/users/${id}`);
     },
@@ -26,7 +62,15 @@ export const userAPI = {
         });
     },
 
-    updateUser: async (id: string, userData: { username?: string; password?: string; role?: string }): Promise<User> => {
+    updateUser: async (id: string, userData: { 
+        name?: string;
+        username?: string; 
+        password?: string; 
+        role?: string;
+        tokenNumber?: string;
+        classId?: string;
+        schoolId?: string;
+    }): Promise<User> => {
         return fetchAPI<User>(`/users/${id}`, {
             method: 'PUT',
             body: JSON.stringify(userData)
@@ -64,6 +108,13 @@ export const userAPI = {
     unarchiveStudent: async (id: string): Promise<{ message: string }> => {
         return fetchAPI<{ message: string }>(`/users/${id}/unarchive`, {
             method: 'POST'
+        });
+    },
+
+    // Delete user (hard delete)
+    deleteUser: async (id: string): Promise<{ message: string }> => {
+        return fetchAPI<{ message: string }>(`/users/${id}`, {
+            method: 'DELETE'
         });
     }
 };

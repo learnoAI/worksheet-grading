@@ -159,7 +159,7 @@ export const createUser = async (req: Request, res: Response) => {
  */
 export const updateUser = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { username, password, role } = req.body;
+    const { name, username, password, role, tokenNumber } = req.body;
 
     try {
         // Check if user exists
@@ -173,6 +173,10 @@ export const updateUser = async (req: Request, res: Response) => {
 
         // Prepare update data
         const updateData: any = {};
+
+        if (name) {
+            updateData.name = name;
+        }
 
         if (username) {
             // Check if new username is already taken
@@ -199,14 +203,34 @@ export const updateUser = async (req: Request, res: Response) => {
             updateData.role = role;
         }
 
+        if (tokenNumber !== undefined) {
+            // Check if token number is already taken by another user
+            if (tokenNumber && tokenNumber !== existingUser.tokenNumber) {
+                const existingToken = await prisma.user.findFirst({
+                    where: { 
+                        tokenNumber,
+                        id: { not: id } // Exclude current user
+                    }
+                });
+
+                if (existingToken) {
+                    return res.status(400).json({ message: 'Token number already exists' });
+                }
+            }
+            updateData.tokenNumber = tokenNumber || null;
+        }
+
         // Update user
         const updatedUser = await prisma.user.update({
             where: { id },
             data: updateData,
             select: {
                 id: true,
+                name: true,
                 username: true,
                 role: true,
+                tokenNumber: true,
+                isArchived: true,
                 createdAt: true,
                 updatedAt: true
             }
@@ -292,8 +316,11 @@ export const getUserById = async (req: Request, res: Response) => {
             where: { id },
             select: {
                 id: true,
+                name: true,
                 username: true,
                 role: true,
+                tokenNumber: true,
+                isArchived: true,
                 createdAt: true,
                 updatedAt: true
             }
@@ -522,5 +549,132 @@ export const unarchiveStudent = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Unarchive student error:', error);
         return res.status(500).json({ message: 'Server error during student unarchiving' });
+    }
+};
+
+/**
+ * Get all users with complete details including pagination
+ * @route GET /api/users/with-details
+ */
+export const getUsersWithDetails = async (req: Request, res: Response) => {
+    try {
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 30;
+        const role = req.query.role as UserRole | undefined;
+        const isArchived = req.query.isArchived === 'true' ? true : req.query.isArchived === 'false' ? false : undefined;
+        const searchTerm = req.query.search as string;
+
+        const offset = (page - 1) * limit;
+
+        // Build where clause
+        const where: any = {};
+        
+        if (role) {
+            where.role = role;
+        }
+        
+        if (isArchived !== undefined) {
+            where.isArchived = isArchived;
+        }
+        
+        if (searchTerm) {
+            where.OR = [
+                { name: { contains: searchTerm, mode: 'insensitive' } },
+                { username: { contains: searchTerm, mode: 'insensitive' } },
+                { tokenNumber: { contains: searchTerm, mode: 'insensitive' } }
+            ];
+        }
+
+        // Get total count for pagination
+        const totalCount = await prisma.user.count({ where });
+
+        // Get users with all details
+        const users = await prisma.user.findMany({
+            where,
+            select: {
+                id: true,
+                name: true,
+                username: true,
+                role: true,
+                tokenNumber: true,
+                isArchived: true,
+                createdAt: true,
+                updatedAt: true,
+                // Student relationships
+                studentClasses: {
+                    include: {
+                        class: {
+                            include: {
+                                school: {
+                                    select: {
+                                        id: true,
+                                        name: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                studentSchools: {
+                    include: {
+                        school: {
+                            select: {
+                                id: true,
+                                name: true
+                            }
+                        }
+                    }
+                },
+                // Teacher relationships
+                teacherClasses: {
+                    include: {
+                        class: {
+                            include: {
+                                school: {
+                                    select: {
+                                        id: true,
+                                        name: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                // Admin relationships
+                adminSchools: {
+                    include: {
+                        school: {
+                            select: {
+                                id: true,
+                                name: true
+                            }
+                        }
+                    }
+                }
+            },
+            orderBy: [
+                { isArchived: 'asc' },
+                { role: 'asc' },
+                { name: 'asc' }
+            ],
+            skip: offset,
+            take: limit
+        });
+
+        const totalPages = Math.ceil(totalCount / limit);
+
+        return res.status(200).json({
+            users,
+            pagination: {
+                currentPage: page,
+                totalPages,
+                totalCount,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1
+            }
+        });
+    } catch (error) {
+        console.error('Get users with details error:', error);
+        return res.status(500).json({ message: 'Server error while retrieving users' });
     }
 };

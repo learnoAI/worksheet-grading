@@ -6,6 +6,7 @@ import {
     resetPassword,
     getUsers,
     getUserById,
+    getUsersWithDetails,
     uploadCsv,
     archiveStudent,
     unarchiveStudent
@@ -38,7 +39,8 @@ router.put(
         body('name').optional(),
         body('username').optional(),
         body('password').optional().isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-        body('role').optional().isIn(Object.values(UserRole)).withMessage('Invalid role')
+        body('role').optional().isIn(Object.values(UserRole)).withMessage('Invalid role'),
+        body('tokenNumber').optional()
     ],
     asHandler(updateUser)
 );
@@ -53,6 +55,9 @@ router.post(
     ],
     asHandler(resetPassword)
 );
+
+// Get all users with complete details and pagination (superadmin only)
+router.get('/with-details', [auth, authorizeRoles([UserRole.SUPERADMIN])], asHandler(getUsersWithDetails));
 
 // Get all users (filtered by role if provided)
 router.get('/', auth, asHandler(getUsers));
