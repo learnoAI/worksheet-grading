@@ -609,7 +609,7 @@ export default function UsersPage() {
                                             <th className="py-3 px-4 text-left">User</th>
                                             <th className="py-3 px-4 text-left">Role</th>
                                             <th className="py-3 px-4 text-left">Token</th>
-                                            <th className="py-3 px-4 text-left">Assignments</th>
+                                            <th className="py-3 px-4 text-left">School</th>
                                             <th className="py-3 px-4 text-left">Status</th>
                                             <th className="py-3 px-4 text-left">Actions</th>
                                         </tr>
