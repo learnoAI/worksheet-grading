@@ -405,9 +405,22 @@ export default function GradeWorksheetPage() {
                 }
             });
 
+            // Instead of requiring all incomplete entries to be filled, just warn about them
+            // and only save the complete ones
             if (incompleteEntries.length > 0) {
                 const incompleteNames = incompleteEntries.map(g => g.name).join(', ');
-                toast.error(`Please fill in both Worksheet# and Grade for: ${incompleteNames}, or mark them as absent.`);
+                console.log(`Warning: ${incompleteEntries.length} students have incomplete data: ${incompleteNames}`);
+                // Don't return early - continue with saving the complete ones
+            }
+
+            // If no students are ready to save and no deletions needed, inform the user
+            if (toSave.length === 0 && toDelete.length === 0) {
+                if (incompleteEntries.length > 0) {
+                    const incompleteNames = incompleteEntries.map(g => g.name).join(', ');
+                    toast.error(`No students ready to save. Please fill in both Worksheet# and Grade for: ${incompleteNames}, or mark them as absent.`);
+                } else {
+                    toast.info('No changes to save.');
+                }
                 setIsSaving(false);
                 return;
             }
@@ -464,11 +477,19 @@ export default function GradeWorksheetPage() {
             const failedCount = saveResults.length - successCount;
             
             if (successCount > 0) {
-                if (failedCount > 0) {
-                    toast.success(`${successCount} grade(s) saved successfully. ${failedCount} failed.`);
-                } else {
-                    toast.success(`${successCount} grade(s) saved successfully`);
+                let message = `${successCount} grade(s) saved successfully`;
+                
+                if (incompleteEntries.length > 0) {
+                    const incompleteNames = incompleteEntries.slice(0, 3).map(g => g.name).join(', ');
+                    const remainingCount = incompleteEntries.length - 3;
+                    message += `. ${incompleteEntries.length} student${incompleteEntries.length !== 1 ? 's have' : ' has'} incomplete data (${incompleteNames}${remainingCount > 0 ? ` and ${remainingCount} more` : ''})`;
                 }
+                
+                if (failedCount > 0) {
+                    message += `. ${failedCount} failed to save`;
+                }
+                
+                toast.success(message);
                 
                 setStudentGrades(updatedGrades);
                 

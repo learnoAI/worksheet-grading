@@ -460,76 +460,117 @@ export default function UploadWorksheetPage() {
         setIsSaving(true);
         
         try {
-            const incompleteEntries = studentWorksheets.filter(
-                worksheet => !worksheet.isAbsent && 
-                (!worksheet.worksheetNumber || worksheet.worksheetNumber <= 0)
-            );
-            
-            if (incompleteEntries.length > 0) {
-                toast.error(`Please fill in worksheet numbers for all non-absent students. ${incompleteEntries.length} student(s) are incomplete.`);
+            // Filter students who can be saved (either absent OR have both worksheet number and grade)
+            const studentsToSave = studentWorksheets.filter(worksheet => {
+                if (worksheet.isAbsent) {
+                    return true; // Absent students can always be saved
+                }
+                // Non-absent students need both worksheet number and grade to be saved
+                return worksheet.worksheetNumber > 0 && worksheet.grade && worksheet.grade.trim() !== '';
+            });
+
+            // Filter students who have partial data (worksheet number but no grade, or vice versa)
+            const incompleteEntries = studentWorksheets.filter(worksheet => {
+                if (worksheet.isAbsent) {
+                    return false; // Absent students are never incomplete
+                }
+                const hasWorksheetNumber = worksheet.worksheetNumber > 0;
+                const hasGrade = worksheet.grade && worksheet.grade.trim() !== '';
+                
+                // Incomplete if they have one but not both
+                return (hasWorksheetNumber && !hasGrade) || (!hasWorksheetNumber && hasGrade);
+            });
+
+            if (studentsToSave.length === 0) {
+                toast.error('No students to save. Please mark students as absent or provide both worksheet numbers and grades.');
                 setIsSaving(false);
                 return;
             }
-            
-            // Save all changes - both absent students and those with uploaded grades
-            await Promise.all(studentWorksheets.map(async (worksheet) => {
-                if (worksheet.isAbsent) {
-                    // Always update the absent status, even if the student already had a grade
-                    const data = {
-                        classId: selectedClass,
-                        studentId: worksheet.studentId,
-                        worksheetNumber: 0,
-                        grade: 0, // Grade is 0 for absent students
-                        submittedOn: new Date(submittedOn).toISOString(),
-                        isAbsent: true,
-                        notes: 'Student absent'
-                    };
-                    
-                    // Check if a record already exists to decide between create and update
-                    // This logic might need refinement based on how existing records are identified
-                    // For simplicity, assuming grade presence indicates an existing record for now.
-                    // A more robust check would involve fetching existing worksheet by studentId and date.
-                    const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(selectedClass, worksheet.studentId, submittedOn);
 
-                    if (existingWorksheet && existingWorksheet.id) {
-                        await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+            let savedCount = 0;
+            let failedCount = 0;
+
+            // Save only the students who have complete data
+            await Promise.all(studentsToSave.map(async (worksheet) => {
+                try {
+                    if (worksheet.isAbsent) {
+                        // Save absent student
+                        const data = {
+                            classId: selectedClass,
+                            studentId: worksheet.studentId,
+                            worksheetNumber: 0,
+                            grade: 0,
+                            submittedOn: new Date(submittedOn).toISOString(),
+                            isAbsent: true,
+                            notes: 'Student absent'
+                        };
+                        
+                        const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
+                            selectedClass, 
+                            worksheet.studentId, 
+                            submittedOn
+                        );
+
+                        if (existingWorksheet && existingWorksheet.id) {
+                            await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                        } else {
+                            await worksheetAPI.createGradedWorksheet(data);
+                        }
+                        savedCount++;
                     } else {
-                        await worksheetAPI.createGradedWorksheet(data);
-                    }                }
-                // For students with grades (manually entered or AI graded that might have been edited)
-                // This part handles saving changes for students who are NOT absent and have grades
-                else if (worksheet.grade && worksheet.worksheetNumber > 0) {
-                    const data = {
-                        classId: selectedClass,
-                        studentId: worksheet.studentId,
-                        worksheetNumber: worksheet.worksheetNumber,
-                        grade: parseFloat(worksheet.grade),
-                        submittedOn: new Date(submittedOn).toISOString(),
-                        isAbsent: false
-                    };
-                     const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(selectedClass, worksheet.studentId, submittedOn);
-                    if (existingWorksheet && existingWorksheet.id) {
-                        await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
-                    } else {
-                        // This case handles new manual grade entries or AI graded worksheets that need to be saved
-                        await worksheetAPI.createGradedWorksheet(data);
+                        // Save student with grade (both worksheet number and grade are present)
+                        const data = {
+                            classId: selectedClass,
+                            studentId: worksheet.studentId,
+                            worksheetNumber: worksheet.worksheetNumber,
+                            grade: parseFloat(worksheet.grade),
+                            submittedOn: new Date(submittedOn).toISOString(),
+                            isAbsent: false
+                        };
+                        
+                        const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
+                            selectedClass, 
+                            worksheet.studentId, 
+                            submittedOn
+                        );
+                        
+                        if (existingWorksheet && existingWorksheet.id) {
+                            await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                        } else {
+                            await worksheetAPI.createGradedWorksheet(data);
+                        }
+                        savedCount++;
                     }
+                } catch (error) {
+                    console.error(`Error saving worksheet for ${worksheet.name}:`, error);
+                    failedCount++;
                 }
-                // Implicitly, worksheets that were uploaded and graded via handleUpload 
-                // are already saved to DB in that function.
-                // handleSaveAllChanges primarily handles absent students and potentially manual grade adjustments
-                // for already processed worksheets if that's a feature.
-                // If a student is not absent, has a worksheet number, but no grade yet (and no files for new upload),
-                // this function currently doesn't explicitly save them unless they fall into the above categories.
-                // This might be okay if the expectation is that grading happens via the 'Grade' button per student.
             }));
             
-            toast.success('Changes saved successfully');
-            router.refresh(); // Refresh to show updated data if necessary
+            // Provide feedback on the save operation
+            if (savedCount > 0) {
+                let message = `Successfully saved ${savedCount} student${savedCount !== 1 ? 's' : ''}`;
+                
+                if (incompleteEntries.length > 0) {
+                    const incompleteNames = incompleteEntries.slice(0, 3).map(w => w.name).join(', ');
+                    const remainingCount = incompleteEntries.length - 3;
+                    message += `. ${incompleteEntries.length} student${incompleteEntries.length !== 1 ? 's have' : ' has'} incomplete data (${incompleteNames}${remainingCount > 0 ? ` and ${remainingCount} more` : ''})`;
+                }
+                
+                if (failedCount > 0) {
+                    message += `. ${failedCount} failed to save`;
+                }
+                
+                toast.success(message);
+            }
+            
+            if (failedCount > 0 && savedCount === 0) {
+                toast.error(`Failed to save ${failedCount} student${failedCount !== 1 ? 's' : ''}`);
+            }
             
         } catch (error) {
             console.error('Error saving changes:', error);
-            toast.error('Failed to save some changes');
+            toast.error('Failed to save changes');
         } finally {
             setIsSaving(false);
         }
@@ -557,7 +598,10 @@ export default function UploadWorksheetPage() {
             <div className="bg-white rounded-lg border shadow-sm">
                 <div className="p-4 md:p-6 border-b">
                     <h2 className="text-lg font-semibold mb-1">Upload Worksheet Images</h2>
-                    <p className="text-sm text-gray-600">Select class and date, then upload and grade worksheets for each student.</p>
+                    <p className="text-sm text-gray-600">
+                        Select class and date, then upload and grade worksheets for each student. 
+                        You can save individual students or save all students who have complete data (marked absent OR have both worksheet number and grade).
+                    </p>
                 </div>
                 <div className="p-4 md:p-6 space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
@@ -624,9 +668,14 @@ export default function UploadWorksheetPage() {
                                     onClick={handleSaveAllChanges}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
                                     className="w-full md:w-auto"
+                                    title="Save changes for students who are marked absent or have both worksheet number and grade filled"
                                 >
-                                    {isSaving ? 'Saving All...' : 'Save All Changes'}
+                                    {isSaving ? 'Saving Changes...' : 'Save Ready Students'}
                                 </Button>
+                            </div>
+                            
+                            <div className="text-xs text-muted-foreground px-2 md:px-0 text-center">
+                                "Save Ready Students" will save only students who are marked absent or have both worksheet number and grade completed.
                             </div>
                             
                             <div className="text-sm text-muted-foreground px-2 md:px-0">
