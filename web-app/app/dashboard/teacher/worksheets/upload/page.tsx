@@ -668,14 +668,9 @@ export default function UploadWorksheetPage() {
                                     onClick={handleSaveAllChanges}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
                                     className="w-full md:w-auto"
-                                    title="Save changes for students who are marked absent or have both worksheet number and grade filled"
                                 >
-                                    {isSaving ? 'Saving Changes...' : 'Save Ready Students'}
+                                    {isSaving ? 'Saving Changes...' : 'Save All Changes'}
                                 </Button>
-                            </div>
-                            
-                            <div className="text-xs text-muted-foreground px-2 md:px-0 text-center">
-                                "Save Ready Students" will save only students who are marked absent or have both worksheet number and grade completed.
                             </div>
                             
                             <div className="text-sm text-muted-foreground px-2 md:px-0">
