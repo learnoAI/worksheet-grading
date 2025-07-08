@@ -703,7 +703,7 @@ export default function StudentAnalyticsPage() {
                                             </TableHead>
                                             <TableHead className="w-[90px] min-w-[70px] hidden xl:table-cell">
                                                 <div className="flex items-center gap-1">
-                                                    {renderSortButton('absentPercentage', 'Attendance')}
+                                                    {renderSortButton('absentPercentage', 'Absent %')}
                                                 </div>
                                             </TableHead>
                                             <TableHead className="w-[100px] min-w-[80px] hidden xl:table-cell">
@@ -835,7 +835,7 @@ export default function StudentAnalyticsPage() {
                                                 <span className="ml-1 font-medium">{student.repetitionRate.toFixed(1)}%</span>
                                             </div>
                                             <div>
-                                                <span className="text-muted-foreground">Attendance:</span>
+                                                <span className="text-muted-foreground">Absent %:</span>
                                                 <span className="ml-1 font-medium">{student.absentPercentage.toFixed(1)}%</span>
                                             </div>
                                             <div>

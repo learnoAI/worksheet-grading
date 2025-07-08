@@ -25,9 +25,9 @@ export interface StudentAnalytics {
     class: string;
     school: string;
     totalWorksheets: number; // Non-absent worksheets for this student
-    absences: number;
+    absentCount: number;
     absentPercentage: number;
-    repetitions: number;
+    repeatedCount: number;
     repetitionRate: number;
     firstWorksheetDate: string | null;
     lastWorksheetDate: string | null;

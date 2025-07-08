@@ -292,12 +292,12 @@ export default function AnalyticsDashboardPage() {
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground">Currently Repeated</span>
-                                    <span className="font-medium text-lg">{analytics.needsRepetitionCount}</span>
+                                    <span className="font-medium text-lg">{analytics.totalWorksheets-analytics.highScoreCount}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground">Current Repetition Rate</span>
                                     <span className="font-medium text-lg">
-                                        {analytics.needsRepetitionPercentage.toFixed(1)}%
+                                        {(((analytics.totalWorksheets-analytics.highScoreCount)/analytics.totalWorksheets)*100).toFixed(1)}%
                                     </span>
                                 </div>
                             </div>

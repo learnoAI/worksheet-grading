@@ -48,7 +48,7 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         const totalWorksheets = allWorksheets - totalAbsent; // Non-absent worksheets
         
         const absentPercentage = allWorksheets > 0 ? (totalAbsent / allWorksheets) * 100 : 0;
-        const repetitionRate = allWorksheets > 0 ? (totalRepeated / allWorksheets) * 100 : 0;
+        const repetitionRate = totalWorksheets > 0 ? (totalRepeated / totalWorksheets) * 100 : 0;
         
         // High score is 80% or higher of outOf
         const highScoreCount = gradedWorksheets.filter(w => {
@@ -266,9 +266,9 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                 class: primaryClass ? primaryClass.name : 'No Class',
                 school: primaryClass ? primaryClass.school.name : 'No School',
                 totalWorksheets,
-                absences,
+                absentCount: absences,
                 absentPercentage: allWorksheets > 0 ? (absences / allWorksheets) * 100 : 0,
-                repetitions,
+                repeatedCount: repetitions,
                 repetitionRate: (allWorksheets - absences) > 0 ? (repetitions / (allWorksheets - absences)) * 100 : 0,
                 firstWorksheetDate: firstWorksheet?.submittedOn ? firstWorksheet.submittedOn.toISOString() : null,
                 lastWorksheetDate: lastWorksheet?.submittedOn ? lastWorksheet.submittedOn.toISOString() : null,
@@ -641,9 +641,9 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 class: primaryClass ? primaryClass.name : 'No Class',
                 school: primaryClass ? primaryClass.school.name : 'No School',
                 totalWorksheets,
-                absences,
+                absentCount: absences,
                 absentPercentage: allWorksheets > 0 ? Number((absences / allWorksheets * 100).toFixed(2)) : 0,
-                repetitions,
+                repeatedCount: repetitions,
                 repetitionRate: (allWorksheets - absences) > 0 ? Number((repetitions / (allWorksheets - absences) * 100).toFixed(2)) : 0,
                 averageGrade: Number(averageGrade.toFixed(2)),
                 firstWorksheetDate: firstWorksheet?.submittedOn ? firstWorksheet.submittedOn.toISOString().split('T')[0] : '',
@@ -660,9 +660,9 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 'Class',
                 'Status',
                 'Total Worksheets',
-                'Absences',
+                'Absent Count',
                 'Absent Percentage (%)',
-                'Repetitions',
+                'Repeated Count',
                 'Repetition Rate (%)',
                 'Average Grade',
                 'First Worksheet Date',
@@ -677,9 +677,9 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 `"${student.class}"`,
                 student.isArchived ? 'Archived' : 'Active',
                 student.totalWorksheets,
-                student.absences,
+                student.absentCount,
                 student.absentPercentage,
-                student.repetitions,
+                student.repeatedCount,
                 student.repetitionRate,
                 student.averageGrade,
                 `"${student.firstWorksheetDate}"`,
