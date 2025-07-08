@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { analyticsAPI, School, Class, StudentAnalytics } from '@/lib/api/analyticsAPI';
 import { userAPI } from '@/lib/api/user';
 import { toast } from 'sonner';
-import { Download, Filter, X, ArrowUp, ArrowDown, ChevronsUpDown, Archive, ArchiveRestore } from 'lucide-react';
+import { Download, Filter, X, ArrowUp, ArrowDown, ChevronsUpDown, Archive, ArchiveRestore, ChevronLeft, ChevronRight } from 'lucide-react';
 
 type SortField = 'name' | 'tokenNumber' | 'school' | 'class' | 'totalWorksheets' | 'repetitionRate' | 'absentPercentage' | 'firstWorksheetDate' | 'lastWorksheetDate';
 type SortDirection = 'asc' | 'desc';
@@ -51,6 +51,10 @@ export default function StudentAnalyticsPage() {
       // Data state
     const [students, setStudents] = useState<StudentAnalytics[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
+    
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState<number>(1);
+    const [itemsPerPage, setItemsPerPage] = useState<number>(20);
 
     // Debounce search term for better performance
     const debouncedSearchName = useDebounce(searchName, 300);
@@ -246,7 +250,18 @@ export default function StudentAnalyticsPage() {
         sortField, 
         sortDirection,
         sortStudents
-    ]);// Handle sorting - memoized for performance
+    ]);
+
+    // Memoized pagination calculations
+    const totalPages = useMemo(() => Math.ceil(filteredStudents.length / itemsPerPage), [filteredStudents.length, itemsPerPage]);
+    const startIndex = useMemo(() => (currentPage - 1) * itemsPerPage, [currentPage, itemsPerPage]);
+    const endIndex = useMemo(() => startIndex + itemsPerPage, [startIndex, itemsPerPage]);
+    const paginatedStudents = useMemo(() => filteredStudents.slice(startIndex, endIndex), [filteredStudents, startIndex, endIndex]);
+    
+    // Reset to first page when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [selectedSchoolId, selectedClassId, debouncedSearchName, debouncedMinWorksheets, debouncedMaxAbsentRate, debouncedMinRepetitionRate, showArchived, sortField, sortDirection]);// Handle sorting - memoized for performance
     const handleSort = useCallback((field: SortField) => {
         if (sortField === field) {
             // Toggle direction if same field
@@ -302,6 +317,17 @@ export default function StudentAnalyticsPage() {
         setShowArchived('active');
         setSortField('tokenNumber'); // Default to token number sorting
         setSortDirection('asc');
+        setCurrentPage(1); // Reset pagination
+    }, []);
+
+    // Pagination handlers
+    const handlePageChange = useCallback((page: number) => {
+        setCurrentPage(page);
+    }, []);
+
+    const handleItemsPerPageChange = useCallback((value: string) => {
+        setItemsPerPage(parseInt(value));
+        setCurrentPage(1); // Reset to first page
     }, []);// Handle student class removal - memoized for performance
     const handleRemoveFromClass = useCallback(async (studentId: string, classId: string) => {
         if (!classId || classId === 'all') return;
@@ -539,13 +565,93 @@ export default function StudentAnalyticsPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* Pagination Controls */}
+            {filteredStudents.length > 0 && (
+                <Card>
+                    <CardContent className="p-4">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">Items per page:</span>
+                                <Select value={itemsPerPage.toString()} onValueChange={handleItemsPerPageChange}>
+                                    <SelectTrigger className="w-20">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="10">10</SelectItem>
+                                        <SelectItem value="20">20</SelectItem>
+                                        <SelectItem value="50">50</SelectItem>
+                                        <SelectItem value="100">100</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground">
+                                    Showing {startIndex + 1} to {Math.min(endIndex, filteredStudents.length)} of {filteredStudents.length} results
+                                </span>
+                            </div>
+                            
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handlePageChange(currentPage - 1)}
+                                    disabled={currentPage === 1}
+                                >
+                                    <ChevronLeft className="h-4 w-4" />
+                                    Previous
+                                </Button>
+                                
+                                <div className="flex items-center gap-1">
+                                    {/* Show page numbers */}
+                                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                        let pageNum;
+                                        if (totalPages <= 5) {
+                                            pageNum = i + 1;
+                                        } else if (currentPage <= 3) {
+                                            pageNum = i + 1;
+                                        } else if (currentPage >= totalPages - 2) {
+                                            pageNum = totalPages - 4 + i;
+                                        } else {
+                                            pageNum = currentPage - 2 + i;
+                                        }
+                                        
+                                        return (
+                                            <Button
+                                                key={pageNum}
+                                                variant={currentPage === pageNum ? "default" : "outline"}
+                                                size="sm"
+                                                onClick={() => handlePageChange(pageNum)}
+                                                className="w-8 h-8 p-0"
+                                            >
+                                                {pageNum}
+                                            </Button>
+                                        );
+                                    })}
+                                </div>
+                                
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handlePageChange(currentPage + 1)}
+                                    disabled={currentPage === totalPages}
+                                >
+                                    Next
+                                    <ChevronRight className="h-4 w-4" />
+                                </Button>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
               {/* Student Analytics Table */}
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center justify-between">
                         <span>Student Performance Analytics</span>
                         <span className="text-sm font-normal text-muted-foreground">
-                            Showing {filteredStudents.length} of {students.length} students
+                            Page {currentPage} of {totalPages} ({filteredStudents.length} total)
                         </span>
                     </CardTitle>
                     <CardDescription>Detailed analytics for each student</CardDescription>
@@ -567,48 +673,41 @@ export default function StudentAnalyticsPage() {
                                         <TableRow>
                                             <TableHead className="w-[150px] min-w-[120px]">
                                                 <div className="flex items-center gap-1">
-                                                    <span className="truncate">Name</span>
                                                     {renderSortButton('name', 'Name')}
                                                 </div>
                                             </TableHead>
                                             <TableHead className="w-[100px] min-w-[80px]">
                                                 <div className="flex items-center gap-1">
-                                                    <span className="truncate">Token #</span>
                                                     {renderSortButton('tokenNumber', 'Token #')}
                                                 </div>
                                             </TableHead>
                                             <TableHead className="w-[150px] min-w-[120px]">
                                                 <div className="flex items-center gap-1">
-                                                    <span className="truncate">School</span>
                                                     {renderSortButton('school', 'School')}
                                                 </div>
                                             </TableHead>
                                             <TableHead className="w-[100px] min-w-[80px]">
                                                 <div className="flex items-center gap-1">
-                                                    <span className="truncate">Class</span>
                                                     {renderSortButton('class', 'Class')}
                                                 </div>
                                             </TableHead>
                                             <TableHead className="w-[80px] min-w-[60px] hidden lg:table-cell">
-                                                <div className="flex items-center gap-1">                                                    <span className="truncate">Total</span>
+                                                <div className="flex items-center gap-1">
                                                     {renderSortButton('totalWorksheets', 'Total Worksheets')}
                                                 </div>
                                             </TableHead>
                                             <TableHead className="w-[90px] min-w-[70px] hidden lg:table-cell">
                                                 <div className="flex items-center gap-1">
-                                                    <span className="truncate">Rep. Rate</span>
                                                     {renderSortButton('repetitionRate', 'Repetition Rate')}
                                                 </div>
                                             </TableHead>
                                             <TableHead className="w-[90px] min-w-[70px] hidden xl:table-cell">
                                                 <div className="flex items-center gap-1">
-                                                    <span className="truncate">Attendance</span>
                                                     {renderSortButton('absentPercentage', 'Attendance')}
                                                 </div>
                                             </TableHead>
                                             <TableHead className="w-[100px] min-w-[80px] hidden xl:table-cell">
                                                 <div className="flex items-center gap-1">
-                                                    <span className="truncate">Last Activity</span>
                                                     {renderSortButton('lastWorksheetDate', 'Last Worksheet')}
                                                 </div>
                                             </TableHead>
@@ -621,7 +720,7 @@ export default function StudentAnalyticsPage() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {filteredStudents.map(student => (
+                                        {paginatedStudents.map(student => (
                                             <TableRow key={student.id}>
                                                 <TableCell className="font-medium">
                                                     <div className="truncate max-w-[140px]" title={student.name}>
@@ -710,7 +809,7 @@ export default function StudentAnalyticsPage() {
 
                             {/* Mobile Card View */}
                             <div className="md:hidden space-y-4">
-                                {filteredStudents.map(student => (
+                                {paginatedStudents.map(student => (
                                     <Card key={student.id} className="p-4">
                                         <div className="flex justify-between items-start mb-3">
                                             <div className="flex-1">

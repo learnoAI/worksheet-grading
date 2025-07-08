@@ -240,7 +240,7 @@ export default function AnalyticsDashboardPage() {
                     <p>Loading analytics data...</p>
                 </div>
             ) : analytics ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Total Worksheets & Completion Card */}
                     <Card>
                         <CardHeader>
@@ -286,18 +286,18 @@ export default function AnalyticsDashboardPage() {
                     <Card>
                         <CardHeader>
                             <CardTitle>Worksheet Repetition</CardTitle>
-                            <CardDescription>Tracking worksheet repetition</CardDescription>
+                            <CardDescription>Tracking worksheet repetition vs. performance needs</CardDescription>
                         </CardHeader>
                         <CardContent>
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">Total Repeated</span>
-                                    <span className="font-medium text-lg">{analytics.totalRepeated}</span>
+                                    <span className="text-muted-foreground">Currently Repeated</span>
+                                    <span className="font-medium text-lg">{analytics.needsRepetitionCount}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">Repetition Rate</span>
+                                    <span className="text-muted-foreground">Current Repetition Rate</span>
                                     <span className="font-medium text-lg">
-                                        {analytics.repetitionRate.toFixed(1)}%
+                                        {analytics.needsRepetitionPercentage.toFixed(1)}%
                                     </span>
                                 </div>
                             </div>
@@ -308,17 +308,17 @@ export default function AnalyticsDashboardPage() {
                     <Card>
                         <CardHeader>
                             <CardTitle>Performance Metrics</CardTitle>
-                            <CardDescription>Student performance analytics</CardDescription>
+                            <CardDescription>Student performance analytics (passing criteria: ≥80%)</CardDescription>
                         </CardHeader>
                         <CardContent>
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">High Scores (≥80%)</span>
+                                    <span className="text-muted-foreground">Passing Scores (≥80%)</span>
                                     <span className="font-medium text-lg">{analytics.highScoreCount}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">High Score Rate</span>
-                                    <span className="font-medium text-lg">
+                                    <span className="text-muted-foreground">Passing Rate</span>
+                                    <span className="font-medium text-lg" >
                                         {analytics.highScorePercentage.toFixed(1)}%
                                     </span>
                                 </div>

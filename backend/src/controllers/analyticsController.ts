@@ -59,6 +59,15 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         
         const highScorePercentage = totalGraded > 0 ? (highScoreCount / totalGraded) * 100 : 0;
         
+        // Calculate needed repetition rate (worksheets that scored below 80% and should be repeated)
+        const needsRepetitionCount = gradedWorksheets.filter(w => {
+            const outOf = w.outOf || 40; // Default to 40 if outOf is not set
+            const minScore = outOf * 0.8; // 80% threshold
+            return w.grade !== null && w.grade < minScore;
+        }).length;
+        
+        const needsRepetitionPercentage = totalGraded > 0 ? (needsRepetitionCount / totalGraded) * 100 : 0;
+        
         return res.status(200).json({
             totalWorksheets,
             totalAbsent,
@@ -67,7 +76,9 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             repetitionRate,
             highScoreCount,
             highScorePercentage,
-            totalGraded
+            totalGraded,
+            needsRepetitionCount,
+            needsRepetitionPercentage
         });
     } catch (error) {
         console.error('Error getting overall analytics:', error);
@@ -134,9 +145,13 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
         const totalGraded = gradedWorksheets.length;
         const totalWorksheets = allWorksheets - totalAbsent; // Non-absent worksheets
         
-        // Calculate high score percentage (≥80%)
-        const highScoreThreshold = 8.0; // 80% of 10
-        const highScores = worksheets.filter(w => !w.isAbsent && w.grade !== null && w.grade >= highScoreThreshold).length;
+        // Calculate high score percentage (≥80% of outOf)
+        const highScores = worksheets.filter(w => {
+            if (w.isAbsent || w.grade === null) return false;
+            const outOf = w.outOf || 40; // Default to 40 if outOf is not set
+            const minScore = outOf * 0.8; // 80% threshold
+            return w.grade >= minScore;
+        }).length;
         const nonAbsentCount = allWorksheets - totalAbsent;
         const highScorePercentage = nonAbsentCount > 0 ? (highScores / nonAbsentCount) * 100 : 0;
         

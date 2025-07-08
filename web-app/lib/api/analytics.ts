@@ -12,6 +12,8 @@ export interface OverallAnalytics {
     highScoreCount: number;
     highScorePercentage: number;
     totalGraded: number;
+    needsRepetitionCount: number;
+    needsRepetitionPercentage: number;
 }
 
 export interface StudentAnalytics {

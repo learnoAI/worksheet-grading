@@ -599,8 +599,7 @@ export default function UploadWorksheetPage() {
                 <div className="p-4 md:p-6 border-b">
                     <h2 className="text-lg font-semibold mb-1">Upload Worksheet Images</h2>
                     <p className="text-sm text-gray-600">
-                        Select class and date, then upload and grade worksheets for each student. 
-                        You can save individual students or save all students who have complete data (marked absent OR have both worksheet number and grade).
+                        Select class and date, then upload and grade worksheets for each student.
                     </p>
                 </div>
                 <div className="p-4 md:p-6 space-y-4">
