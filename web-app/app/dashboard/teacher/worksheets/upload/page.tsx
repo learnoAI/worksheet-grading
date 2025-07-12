@@ -10,6 +10,9 @@ import { toast } from 'sonner';
 import { classAPI, worksheetAPI } from '@/lib/api';
 import { StudentWorksheetCard } from './student-worksheet-card';
 
+// Threshold for worksheet progression (80% of 40)
+const PROGRESSION_THRESHOLD = 32;
+
 interface Class {
     id: string;
     name: string;
@@ -30,8 +33,13 @@ interface StudentWorksheet {
     isAbsent: boolean;
     grade: string;
     isUploading: boolean;
+    isRepeated?: boolean;
     page1File?: File | null;
     page2File?: File | null;
+    // Additional fields from grade page
+    id?: string;
+    existing?: boolean;
+    isNew?: boolean;
 }
 
 // Token number sorting function (same as used in grade/columns.tsx)
@@ -84,12 +92,72 @@ const sortStudentsByTokenNumber = <T extends { tokenNumber: string }>(students: 
     });
 };
 
+// Function to get recommended worksheet number based on previous performance
+const getRecommendedWorksheetNumber = async (
+    classId: string, 
+    studentId: string, 
+    currentDate: string,
+    currentWorksheetNumber: number
+): Promise<number> => {
+    try {
+        if (currentWorksheetNumber > 0) {
+            return currentWorksheetNumber;
+        }
+        
+        const selectedDate = new Date(currentDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        selectedDate.setHours(0, 0, 0, 0);
+        
+        const previousWorksheets = await worksheetAPI.getPreviousWorksheets(
+            classId,
+            studentId, 
+            currentDate
+        );
+        
+        if (!previousWorksheets || previousWorksheets.length === 0) {
+            return 0;
+        }
+        
+        const sortedWorksheets = previousWorksheets.sort((a, b) => {
+            const dateA = new Date(a.submittedOn || '').getTime();
+            const dateB = new Date(b.submittedOn || '').getTime();
+            return dateB - dateA;
+        });
+        
+        const allPreviousAreAbsent = sortedWorksheets.every(ws => !!ws.isAbsent);
+        
+        const latestValidWorksheet = sortedWorksheets.find(ws => !ws.isAbsent);
+        
+        if (allPreviousAreAbsent) {
+            return 0;
+        }
+        
+        if (!latestValidWorksheet) {
+            return 0;
+        }
+        
+        const score = latestValidWorksheet.grade || 0;
+        const worksheetNumber = latestValidWorksheet.template?.worksheetNumber || 0;
+        
+        if (score >= PROGRESSION_THRESHOLD) {
+            const newWorksheetNumber = worksheetNumber + 1;
+            return newWorksheetNumber;
+        } else {
+            return worksheetNumber;
+        }
+    } catch (error) {
+        return 0;
+    }
+};
+
 export default function UploadWorksheetPage() {
     const { user } = useAuth();
     const router = useRouter();
     const [classes, setClasses] = useState<Class[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [isFetchingTableData, setIsFetchingTableData] = useState(false);
     const [selectedClass, setSelectedClass] = useState<string>('');
     const [students, setStudents] = useState<Student[]>([]);
     const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);    const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
@@ -117,9 +185,9 @@ export default function UploadWorksheetPage() {
         };
 
         fetchInitialData();
-    }, [user?.id]);    // Fetch students for the selected class
+    }, [user?.id]);    // Fetch students for the selected class and load existing worksheet data
     useEffect(() => {
-        const fetchStudents = async () => {
+        const fetchStudentsAndWorksheets = async () => {
             if (!selectedClass) {
                 setStudents([]);
                 setStudentWorksheets([]);
@@ -127,31 +195,110 @@ export default function UploadWorksheetPage() {
             }
 
             try {
+                setIsFetchingTableData(true);
+                
                 const studentsData = await classAPI.getClassStudents(selectedClass);
                 
                 // Sort students by token number using the same logic as grading table
                 const sortedStudents = sortStudentsByTokenNumber(studentsData);
-                setStudents(sortedStudents);                // Create sorted student worksheets maintaining the same order
-                const sortedStudentWorksheets = sortStudentsByTokenNumber(
-                    sortedStudents.map(student => ({
-                        studentId: student.id,
-                        name: student.name,
-                        tokenNumber: student.tokenNumber,
-                        worksheetNumber: 0,
-                        isAbsent: false,  // Default to NOT absent
-                        grade: '',
-                        isUploading: false,
-                        page1File: null,
-                        page2File: null
-                    }))
-                );
-                setStudentWorksheets(sortedStudentWorksheets);
+                setStudents(sortedStudents);
+
+                const selectedDate = new Date(submittedOn);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                selectedDate.setHours(0, 0, 0, 0);
+                
+                const studentsWithHistory = new Map<string, boolean>();
+                
+                const worksheets = await Promise.all(sortedStudents.map(async (student) => {
+                    try {
+                        // Check if worksheet already exists for this date
+                        const worksheet = await worksheetAPI.getWorksheetByClassStudentDate(
+                            selectedClass,
+                            student.id,
+                            submittedOn
+                        );
+                        
+                        if (worksheet) {
+                            return {
+                                studentId: student.id,
+                                name: student.name,
+                                tokenNumber: student.tokenNumber,
+                                id: worksheet.id || '',
+                                worksheetNumber: worksheet.isAbsent ? 0 : (worksheet.template?.worksheetNumber || 0),
+                                grade: worksheet.isAbsent ? '' : (worksheet.grade?.toString() || ''),
+                                existing: true,
+                                isAbsent: !!worksheet.isAbsent,
+                                isRepeated: worksheet.isAbsent ? false : (worksheet.isRepeated || false),
+                                isNew: false,
+                                isUploading: false,
+                                page1File: null,
+                                page2File: null
+                            };
+                        }
+                        
+                        // Get previous worksheets to calculate recommendation
+                        const previousWorksheets = await worksheetAPI.getPreviousWorksheets(
+                            selectedClass,
+                            student.id, 
+                            submittedOn
+                        );
+                        
+                        const hasHistory = previousWorksheets && previousWorksheets.length > 0;
+                        studentsWithHistory.set(student.id, hasHistory);
+                        
+                        const recommendedWorksheetNumber = await getRecommendedWorksheetNumber(
+                            selectedClass,
+                            student.id, 
+                            submittedOn,
+                            0
+                        );
+                        
+                        return {
+                            studentId: student.id,
+                            name: student.name,
+                            tokenNumber: student.tokenNumber,
+                            id: '',
+                            worksheetNumber: recommendedWorksheetNumber,
+                            grade: '',
+                            existing: false,
+                            isAbsent: false,
+                            isRepeated: false,
+                            isNew: !hasHistory,
+                            isUploading: false,
+                            page1File: null,
+                            page2File: null
+                        };
+                    } catch (error) {
+                        return {
+                            studentId: student.id,
+                            name: student.name,
+                            tokenNumber: student.tokenNumber,
+                            id: '',
+                            worksheetNumber: 0,
+                            grade: '',
+                            existing: false,
+                            isAbsent: false,
+                            isRepeated: false,
+                            isNew: !studentsWithHistory.get(student.id),
+                            isUploading: false,
+                            page1File: null,
+                            page2File: null
+                        };
+                    }
+                }));
+
+                setStudentWorksheets(worksheets);
             } catch (error) {
-                console.error('Error fetching students:', error);
-                toast.error('Failed to load students');
+                console.error('Error fetching students and worksheets:', error);
+                toast.error('Failed to load student data');
+            } finally {
+                setIsFetchingTableData(false);
             }
-        };        fetchStudents();
-    }, [selectedClass]);    const handlePageFileChange = (studentId: string, pageNumber: number, file: File | null) => {
+        };
+
+        fetchStudentsAndWorksheets();
+    }, [selectedClass, submittedOn]);    const handlePageFileChange = (studentId: string, pageNumber: number, file: File | null) => {
         setStudentWorksheets(prev => prev.map(sw => {
             if (sw.studentId === studentId) {
                 const updated = { ...sw };
@@ -182,7 +329,8 @@ export default function UploadWorksheetPage() {
                 worksheetNumber: 0,  // Clear worksheet number
                 grade: '',           // Clear grade
                 page1File: null,     // Clear page 1 file
-                page2File: null      // Clear page 2 file
+                page2File: null,     // Clear page 2 file
+                isRepeated: false    // Clear repeat flag
             };
         } else {
             (newWorksheets[originalIndex] as any)[field] = value;
@@ -381,14 +529,15 @@ export default function UploadWorksheetPage() {
 
         try {
             if (worksheet.isAbsent) {
-                // Save absent student
+                // Save absent student - include required fields with default values
                 const data = {
                     classId: selectedClass,
                     studentId: worksheet.studentId,
-                    worksheetNumber: 0,
-                    grade: 0,
+                    worksheetNumber: 0, // Required by API but set to 0 for absent students
+                    grade: 0, // Required by API but set to 0 for absent students
                     submittedOn: new Date(submittedOn).toISOString(),
                     isAbsent: true,
+                    isRepeated: false,
                     notes: 'Student absent'
                 };
 
@@ -417,14 +566,21 @@ export default function UploadWorksheetPage() {
                     return;
                 }
 
+                const gradeValue = parseFloat(worksheet.grade);
+                if (isNaN(gradeValue) || gradeValue < 0 || gradeValue > 40) {
+                    toast.error('Please enter a valid grade between 0 and 40');
+                    return;
+                }
+
                 // Save student with grade
                 const data = {
                     classId: selectedClass,
                     studentId: worksheet.studentId,
                     worksheetNumber: worksheet.worksheetNumber,
-                    grade: parseFloat(worksheet.grade),
+                    grade: gradeValue,
                     submittedOn: new Date(submittedOn).toISOString(),
-                    isAbsent: false
+                    isAbsent: false,
+                    isRepeated: worksheet.isRepeated || false
                 };
 
                 const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
@@ -443,7 +599,19 @@ export default function UploadWorksheetPage() {
             }
         } catch (error) {
             console.error('Error saving student worksheet:', error);
-            toast.error(`Failed to save ${worksheet.name}'s worksheet`);
+            
+            // Provide more specific error messages
+            if (error instanceof Error) {
+                if (error.message.includes('template')) {
+                    toast.error(`Failed to save ${worksheet.name}: No template found for worksheet number ${worksheet.worksheetNumber}`);
+                } else if (error.message.includes('grade')) {
+                    toast.error(`Failed to save ${worksheet.name}: Invalid grade value`);
+                } else {
+                    toast.error(`Failed to save ${worksheet.name}: ${error.message}`);
+                }
+            } else {
+                toast.error(`Failed to save ${worksheet.name}'s worksheet`);
+            }
         } finally {
             // Remove uploading state for this specific student
             setStudentWorksheets(prev => 
@@ -494,14 +662,15 @@ export default function UploadWorksheetPage() {
             await Promise.all(studentsToSave.map(async (worksheet) => {
                 try {
                     if (worksheet.isAbsent) {
-                        // Save absent student
+                        // Save absent student - include required fields with default values
                         const data = {
                             classId: selectedClass,
                             studentId: worksheet.studentId,
-                            worksheetNumber: 0,
-                            grade: 0,
+                            worksheetNumber: 0, // Required by API but set to 0 for absent students
+                            grade: 0, // Required by API but set to 0 for absent students
                             submittedOn: new Date(submittedOn).toISOString(),
                             isAbsent: true,
+                            isRepeated: false,
                             notes: 'Student absent'
                         };
                         
@@ -518,14 +687,23 @@ export default function UploadWorksheetPage() {
                         }
                         savedCount++;
                     } else {
+                        // Validate grade value
+                        const gradeValue = parseFloat(worksheet.grade);
+                        if (isNaN(gradeValue) || gradeValue < 0 || gradeValue > 40) {
+                            console.error(`Invalid grade for ${worksheet.name}: ${worksheet.grade}`);
+                            failedCount++;
+                            return;
+                        }
+
                         // Save student with grade (both worksheet number and grade are present)
                         const data = {
                             classId: selectedClass,
                             studentId: worksheet.studentId,
                             worksheetNumber: worksheet.worksheetNumber,
-                            grade: parseFloat(worksheet.grade),
+                            grade: gradeValue,
                             submittedOn: new Date(submittedOn).toISOString(),
-                            isAbsent: false
+                            isAbsent: false,
+                            isRepeated: worksheet.isRepeated || false
                         };
                         
                         const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
@@ -633,7 +811,15 @@ export default function UploadWorksheetPage() {
                                 required
                             />
                         </div>
-                    </div>                    {selectedClass && sortedStudentWorksheets.length > 0 && (
+                    </div>
+
+                    {selectedClass && isFetchingTableData && (
+                        <div className="flex justify-center items-center h-40">
+                            <p>Loading student data...</p>
+                        </div>
+                    )}
+
+                    {selectedClass && !isFetchingTableData && sortedStudentWorksheets.length > 0 && (
                         <>
                             {/* Scrollable Student Grid */}
                             <div className="max-h-[70vh] overflow-y-auto">

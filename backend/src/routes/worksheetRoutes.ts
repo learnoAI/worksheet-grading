@@ -125,10 +125,33 @@ router.post(
         authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
         body('classId').notEmpty().withMessage('Class ID is required'),
         body('studentId').notEmpty().withMessage('Student ID is required'),
-        body('worksheetNumber').isInt({ min: 1 }).withMessage('Worksheet number must be a positive integer'),
-        body('grade').isFloat({ min: 0, max: 40 }).withMessage('Grade must be between 0 and 40'),
+        body('worksheetNumber').custom((value, { req }) => {
+            // Allow worksheetNumber to be 0 for absent students
+            if (req.body.isAbsent) {
+                return true; // No validation for absent students
+            }
+            // For non-absent students, require positive integer
+            if (!Number.isInteger(value) || value <= 0) {
+                throw new Error('Worksheet number must be a positive integer for non-absent students');
+            }
+            return true;
+        }),
+        body('grade').custom((value, { req }) => {
+            // Allow grade to be 0 for absent students
+            if (req.body.isAbsent) {
+                return true; // No validation for absent students
+            }
+            // For non-absent students, validate range
+            const numValue = parseFloat(value);
+            if (isNaN(numValue) || numValue < 0 || numValue > 40) {
+                throw new Error('Grade must be between 0 and 40 for non-absent students');
+            }
+            return true;
+        }),
         body('notes').optional(),
-        body('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date')
+        body('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date'),
+        body('isAbsent').optional().isBoolean(),
+        body('isRepeated').optional().isBoolean()
     ],
     asHandler(createGradedWorksheet)
 );
@@ -141,10 +164,33 @@ router.put(
         authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
         body('classId').notEmpty().withMessage('Class ID is required'),
         body('studentId').notEmpty().withMessage('Student ID is required'),
-        body('worksheetNumber').optional().isInt({ min: 1 }).withMessage('Worksheet number must be a positive integer'),
-        body('grade').isFloat({ min: 0, max: 40 }).withMessage('Grade must be between 0 and 40'),
+        body('worksheetNumber').custom((value, { req }) => {
+            // Allow worksheetNumber to be 0 for absent students
+            if (req.body.isAbsent) {
+                return true; // No validation for absent students
+            }
+            // For non-absent students, require positive integer
+            if (!Number.isInteger(value) || value <= 0) {
+                throw new Error('Worksheet number must be a positive integer for non-absent students');
+            }
+            return true;
+        }),
+        body('grade').custom((value, { req }) => {
+            // Allow grade to be 0 for absent students
+            if (req.body.isAbsent) {
+                return true; // No validation for absent students
+            }
+            // For non-absent students, validate range
+            const numValue = parseFloat(value);
+            if (isNaN(numValue) || numValue < 0 || numValue > 40) {
+                throw new Error('Grade must be between 0 and 40 for non-absent students');
+            }
+            return true;
+        }),
         body('notes').optional(),
-        body('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date')
+        body('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date'),
+        body('isAbsent').optional().isBoolean(),
+        body('isRepeated').optional().isBoolean()
     ],
     asHandler(updateGradedWorksheet)
 );

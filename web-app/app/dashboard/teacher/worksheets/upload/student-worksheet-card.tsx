@@ -16,6 +16,11 @@ interface StudentWorksheet {
     isUploading: boolean;
     page1File?: File | null;
     page2File?: File | null;
+    isRepeated?: boolean;
+    // Additional fields from grade page
+    id?: string;
+    existing?: boolean;
+    isNew?: boolean;
 }
 
 interface StudentWorksheetCardProps {
@@ -53,6 +58,10 @@ export function StudentWorksheetCard({
         return colors[hash % colors.length];
     };    const handleAbsentChange = (checked: boolean) => {
         onUpdate(index, "isAbsent", checked);
+    };
+
+    const handleRepeatedChange = (checked: boolean) => {
+        onUpdate(index, "isRepeated", checked);
     };
 
     const handleWorksheetNumberChange = (value: string) => {
@@ -100,6 +109,25 @@ export function StudentWorksheetCard({
                 worksheet.grade ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'
             } p-3 md:p-4`}
         >
+            {/* Status indicators */}
+            <div className="absolute top-2 right-2 flex gap-1">
+                {worksheet.existing && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        Saved
+                    </span>
+                )}
+                {worksheet.isNew && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        New
+                    </span>
+                )}
+                {worksheet.isRepeated && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                        Repeat
+                    </span>
+                )}
+            </div>
+
             <div className="flex items-center space-x-3 mb-3">
                 <div className="flex-shrink-0">
                     <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full ${getInitialsBgColor(worksheet.name)} text-white flex items-center justify-center text-sm md:text-lg font-semibold`}>
@@ -248,15 +276,28 @@ export function StudentWorksheetCard({
                 </div>
 
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mt-3 space-y-2 md:space-y-0">
-                    <div className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            id={`absent-${worksheet.studentId}`}
-                            checked={worksheet.isAbsent}
-                            onChange={(e) => handleAbsentChange(e.target.checked)}
-                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <Label htmlFor={`absent-${worksheet.studentId}`} className="text-sm">Absent</Label>
+                    <div className="flex flex-col space-y-2">
+                        <div className="flex items-center space-x-2">
+                            <input
+                                type="checkbox"
+                                id={`absent-${worksheet.studentId}`}
+                                checked={worksheet.isAbsent}
+                                onChange={(e) => handleAbsentChange(e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <Label htmlFor={`absent-${worksheet.studentId}`} className="text-sm">Absent</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <input
+                                type="checkbox"
+                                id={`repeated-${worksheet.studentId}`}
+                                checked={worksheet.isRepeated || false}
+                                onChange={(e) => handleRepeatedChange(e.target.checked)}
+                                disabled={worksheet.isAbsent}
+                                className="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500 disabled:opacity-50"
+                            />
+                            <Label htmlFor={`repeated-${worksheet.studentId}`} className="text-sm">Repeated</Label>
+                        </div>
                     </div>
 
                     <div className="flex w-full md:w-auto space-x-2">

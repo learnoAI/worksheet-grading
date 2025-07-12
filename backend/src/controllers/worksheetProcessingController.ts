@@ -95,39 +95,74 @@ export const processWorksheets = async (req: Request, res: Response) => {
                 const { classId, studentId, worksheetNumber, submittedOn } = req.body;
                 const submittedById = req.user?.userId;
                 
-                if (!classId || !studentId || !worksheetNumber) {
+                if (!classId || !studentId || !worksheetNumber || !submittedById) {
                     console.warn('Missing database fields, worksheet processed but not saved to database');
+                    pythonResponse.databaseWarning = 'Worksheet processed successfully but missing required fields to save to database';
                 } else {
-                    // Find the template by worksheet number
-                    const template = await prisma.worksheetTemplate.findFirst({
+                    // Verify that the class and student exist before creating worksheet
+                    const classExists = await prisma.class.findUnique({
+                        where: { id: classId }
+                    });
+                    
+                    const studentExists = await prisma.user.findFirst({
                         where: {
-                            worksheetNumber: parseInt(worksheetNumber)
-                        }
-                    });
-                      // Create worksheet record with MongoDB ID and grade from Python API
-                    const worksheet = await prisma.worksheet.create({
-                        data: {
-                            classId,
-                            studentId,
-                            templateId: template?.id, // Optional if template not found
-                            grade: pythonResponse.grade || 0,
-                            notes: `Auto-graded worksheet ${worksheetNumber}`,
-                            submittedById: submittedById!,
-                            status: ProcessingStatus.COMPLETED,
-                            outOf: 40,
-                            submittedOn: submittedOn ? new Date(submittedOn) : new Date(),
-                            isAbsent: false,
-                            isRepeated: false,
-                            ...(pythonResponse.mongodb_id ? { 
-                                mongoDbId: pythonResponse.mongodb_id 
-                            } : {})
+                            id: studentId,
+                            role: 'STUDENT'
                         }
                     });
                     
-                    console.log(`Successfully created worksheet record: ${worksheet.id} with MongoDB ID: ${worksheet.mongoDbId || 'none'}`);
+                    if (!classExists) {
+                        console.warn(`Class ${classId} not found, cannot save worksheet to database`);
+                        pythonResponse.databaseWarning = 'Worksheet processed successfully but class not found in database';
+                    } else if (!studentExists) {
+                        console.warn(`Student ${studentId} not found, cannot save worksheet to database`);
+                        pythonResponse.databaseWarning = 'Worksheet processed successfully but student not found in database';
+                    } else {
+                        // Find the template by worksheet number
+                        const template = await prisma.worksheetTemplate.findFirst({
+                            where: {
+                                worksheetNumber: parseInt(worksheetNumber)
+                            }
+                        });
+                        
+                        if (!template) {
+                            console.warn(`No template found for worksheet number ${worksheetNumber}, creating without template`);
+                        }
+                          // Create worksheet record with MongoDB ID and grade from Python API
+                        const worksheet = await prisma.worksheet.create({
+                            data: {
+                                class: {
+                                    connect: { id: classId }
+                                },
+                                student: {
+                                    connect: { id: studentId }
+                                },
+                                submittedBy: {
+                                    connect: { id: submittedById }
+                                },
+                                ...(template ? {
+                                    template: {
+                                        connect: { id: template.id }
+                                    }
+                                } : {}),
+                                grade: pythonResponse.grade || 0,
+                                notes: `Auto-graded worksheet ${worksheetNumber}`,
+                                status: ProcessingStatus.COMPLETED,
+                                outOf: 40,
+                                submittedOn: submittedOn ? new Date(submittedOn) : new Date(),
+                                isAbsent: false,
+                                isRepeated: false,
+                                ...(pythonResponse.mongodb_id ? { 
+                                    mongoDbId: pythonResponse.mongodb_id 
+                                } : {})
+                            }
+                        });
                     
-                    // Add worksheet ID to response
-                    pythonResponse.worksheetId = worksheet.id;
+                        console.log(`Successfully created worksheet record: ${worksheet.id} with MongoDB ID: ${worksheet.mongoDbId || 'none'}`);
+                        
+                        // Add worksheet ID to response
+                        pythonResponse.worksheetId = worksheet.id;
+                    }
                 }
             } catch (dbError) {
                 console.error('Error creating worksheet record:', dbError);
@@ -172,11 +207,17 @@ export const createGradedWorksheetWithMongoId = async (req: Request, res: Respon
             console.log('Creating absent record for student');
             const worksheet = await prisma.worksheet.create({
                 data: {
-                    classId,
-                    studentId,
+                    class: {
+                        connect: { id: classId }
+                    },
+                    student: {
+                        connect: { id: studentId }
+                    },
+                    submittedBy: {
+                        connect: { id: submittedById! }
+                    },
                     grade: 0, // Default grade for absent student
                     notes: notes || 'Student absent',
-                    submittedById: submittedById!,
                     status: ProcessingStatus.COMPLETED,
                     outOf: 40,
                     submittedOn: submittedOn ? new Date(submittedOn) : undefined,
@@ -215,12 +256,20 @@ export const createGradedWorksheetWithMongoId = async (req: Request, res: Respon
 
         const worksheet = await prisma.worksheet.create({
             data: {
-                classId,
-                studentId,
-                templateId: template.id,
+                class: {
+                    connect: { id: classId }
+                },
+                student: {
+                    connect: { id: studentId }
+                },
+                submittedBy: {
+                    connect: { id: submittedById! }
+                },
+                template: {
+                    connect: { id: template.id }
+                },
                 grade: gradeValue,
                 notes,
-                submittedById: submittedById!,
                 status: ProcessingStatus.COMPLETED,
                 outOf: 40,
                 submittedOn: submittedOn ? new Date(submittedOn) : undefined,

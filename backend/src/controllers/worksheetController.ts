@@ -333,11 +333,17 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
             console.log('Creating absent record for student');
             const worksheet = await prisma.worksheet.create({
                 data: {
-                    classId,
-                    studentId,
+                    class: {
+                        connect: { id: classId }
+                    },
+                    student: {
+                        connect: { id: studentId }
+                    },
+                    submittedBy: {
+                        connect: { id: submittedById! }
+                    },
                     grade: 0, // Default grade for absent student
                     notes: notes || 'Student absent',
-                    submittedById: submittedById!,
                     status: ProcessingStatus.COMPLETED,
                     outOf: 40,
                     submittedOn: submittedOn ? new Date(submittedOn) : undefined,
@@ -370,17 +376,27 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
         });
 
         if (!template) {
-            return res.status(404).json({ message: `No template found for worksheet number ${worksheetNum}` });
+            console.log(`Warning: No template found for worksheet number ${worksheetNum}, creating without template`);
         }
 
         const worksheet = await prisma.worksheet.create({
             data: {
-                classId,
-                studentId,
-                templateId: template.id,
+                class: {
+                    connect: { id: classId }
+                },
+                student: {
+                    connect: { id: studentId }
+                },
+                submittedBy: {
+                    connect: { id: submittedById! }
+                },
+                ...(template ? {
+                    template: {
+                        connect: { id: template.id }
+                    }
+                } : {}),
                 grade: gradeValue,
                 notes,
-                submittedById: submittedById!,
                 status: ProcessingStatus.COMPLETED,
                 outOf: 40,
                 submittedOn: submittedOn ? new Date(submittedOn) : undefined,
@@ -465,14 +481,22 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
             const worksheet = await prisma.worksheet.update({
                 where: { id },
                 data: {
-                    classId,
-                    studentId,
+                    class: {
+                        connect: { id: classId }
+                    },
+                    student: {
+                        connect: { id: studentId }
+                    },
+                    submittedBy: {
+                        connect: { id: submittedById! }
+                    },
                     grade: 0, // Force zero grade for absent student
                     notes: notes || 'Student absent',
-                    submittedById: submittedById!,
                     status: ProcessingStatus.COMPLETED,
                     outOf: 40,
-                    templateId: null, // Explicitly remove template association
+                    template: {
+                        disconnect: true // Remove template association
+                    },
                     submittedOn: submittedOn ? new Date(submittedOn) : undefined,
                     isAbsent: true,
                     isRepeated: false, // Can't be repeated if absent
@@ -503,18 +527,28 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
         });
 
         if (!template) {
-            return res.status(404).json({ message: `No template found for worksheet number ${worksheetNumber}` });
+            console.log(`Warning: No template found for worksheet number ${worksheetNum}, updating without template`);
         }
 
         const data = {
-            classId,
-            studentId,
+            class: {
+                connect: { id: classId }
+            },
+            student: {
+                connect: { id: studentId }
+            },
+            submittedBy: {
+                connect: { id: submittedById! }
+            },
             grade: gradeValue,
             notes,
-            submittedById: submittedById!,
             status: ProcessingStatus.COMPLETED,
             outOf: 40,
-            templateId: template.id,
+            ...(template ? {
+                template: {
+                    connect: { id: template.id }
+                }
+            } : {}),
             submittedOn: submittedOn ? new Date(submittedOn) : undefined,
             isAbsent: false,
             isRepeated: isRepeated || false,
