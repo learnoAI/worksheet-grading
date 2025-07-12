@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -17,7 +16,6 @@ interface StudentWorksheet {
     page1File?: File | null;
     page2File?: File | null;
     isRepeated?: boolean;
-    // Additional fields from grade page
     id?: string;
     existing?: boolean;
     isNew?: boolean;
@@ -56,7 +54,9 @@ export function StudentWorksheetCard({
         ];
         const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
         return colors[hash % colors.length];
-    };    const handleAbsentChange = (checked: boolean) => {
+    };
+
+    const handleAbsentChange = (checked: boolean) => {
         onUpdate(index, "isAbsent", checked);
     };
 
@@ -67,15 +67,20 @@ export function StudentWorksheetCard({
     const handleWorksheetNumberChange = (value: string) => {
         const numValue = parseInt(value) || 0;
         onUpdate(index, "worksheetNumber", numValue);
-    };    const handleGradeChange = (value: string) => {
+    };
+
+    const handleGradeChange = (value: string) => {
         onUpdate(index, "grade", value);
-        // If entering a grade, automatically unmark as absent
         if (value && worksheet.isAbsent) {
             onUpdate(index, "isAbsent", false);
         }
-    };    const handleFileButtonClick = () => {
+    };
+
+    const handleFileButtonClick = () => {
         fileInputRefs.current[worksheet.studentId]?.click();
-    };    const handlePageFileUpload = (pageNumber: number) => {
+    };
+
+    const handlePageFileUpload = (pageNumber: number) => {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
@@ -93,7 +98,7 @@ export function StudentWorksheetCard({
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
-        input.capture = 'environment'; // Use back camera on mobile devices
+        input.capture = 'environment';
         input.multiple = false;
         input.onchange = (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
@@ -102,14 +107,15 @@ export function StudentWorksheetCard({
             }
         };
         input.click();
-    };    return (
+    };
+
+    return (
         <div 
             className={`rounded-lg border transition-colors relative ${
                 worksheet.isAbsent ? 'bg-gray-50 border-gray-200' : 
                 worksheet.grade ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'
             } p-3 md:p-4`}
         >
-            {/* Status indicators */}
             <div className="absolute top-2 right-2 flex gap-1">
                 {worksheet.existing && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
@@ -168,7 +174,6 @@ export function StudentWorksheetCard({
                         value={worksheet.grade || ''}
                         onChange={(e) => handleGradeChange(e.target.value)}
                         onClick={() => {
-                            // If absent is checked, uncheck it when user attempts to enter grade
                             if (worksheet.isAbsent) {
                                 onUpdate(index, "isAbsent", false);
                             }
@@ -181,7 +186,7 @@ export function StudentWorksheetCard({
             </div>                <div className="space-y-2 mb-3">
                     <div className="space-y-1">
                         <Label className="text-xs md:text-sm font-medium">Worksheet Pages</Label>
-                        <div className="grid grid-cols-2 gap-2 md:gap-3">                            {/* Page 1 */}
+                        <div className="grid grid-cols-2 gap-2 md:gap-3">
                             <div className={`border border-dashed rounded-lg p-2 md:p-3 text-center transition-colors ${
                                 worksheet.page1File ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-gray-50'
                             } ${worksheet.isAbsent ? 'opacity-50' : ''}`}>
@@ -226,7 +231,8 @@ export function StudentWorksheetCard({
                                         </Button>
                                     </div>
                                 </div>
-                            </div>                            {/* Page 2 */}
+                            </div>
+
                             <div className={`border border-dashed rounded-lg p-2 md:p-3 text-center transition-colors ${
                                 worksheet.page2File ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-gray-50'
                             } ${worksheet.isAbsent ? 'opacity-50' : ''}`}>

@@ -1,6 +1,5 @@
 'use client';
 
-import * as React from "react";
 import {
     ColumnDef,
     ColumnFiltersState,
@@ -10,7 +9,7 @@ import {
     getFilteredRowModel,
     getSortedRowModel,
 } from "@tanstack/react-table";
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useState, useEffect } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -37,25 +36,8 @@ import {
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StudentCard } from "./student-card";
+import { useDebounce } from "@/lib/hooks";
 
-// Custom debounce hook for better performance
-function useDebounce<T>(value: T, delay: number): T {
-    const [debouncedValue, setDebouncedValue] = React.useState<T>(value);
-
-    React.useEffect(() => {
-        const handler = setTimeout(() => {
-            setDebouncedValue(value);
-        }, delay);
-
-        return () => {
-            clearTimeout(handler);
-        };
-    }, [value, delay]);
-
-    return debouncedValue;
-}
-
-// Optimized deep copy function
 function deepCopy<T>(obj: T): T {
     if (obj === null || typeof obj !== "object") return obj;
     if (obj instanceof Date) return new Date(obj.getTime()) as unknown as T;
@@ -83,15 +65,15 @@ export function DataTable<TData, TValue>({
     onDataChange,
     onSaveStudent,
 }: DataTableProps<TData, TValue>) {
-    const [sorting, setSorting] = React.useState<SortingState>([
+    const [sorting, setSorting] = useState<SortingState>([
         { id: "tokenNumber", desc: false }
     ]);
-    const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-    const [bulkWorksheetNumber, setBulkWorksheetNumber] = React.useState<string>('');
-    const [bulkGrade, setBulkGrade] = React.useState<string>('');
-    const [searchTerm, setSearchTerm] = React.useState<string>('');
-    const [dropdownOpen, setDropdownOpen] = React.useState(false);
-    const [selectedStudentIds, setSelectedStudentIds] = React.useState<string[]>([]);
+    const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+    const [bulkWorksheetNumber, setBulkWorksheetNumber] = useState<string>('');
+    const [bulkGrade, setBulkGrade] = useState<string>('');
+    const [searchTerm, setSearchTerm] = useState<string>('');
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+    const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
 
     // Debounce search term for better performance
     const debouncedSearchTerm = useDebounce(searchTerm, 300);

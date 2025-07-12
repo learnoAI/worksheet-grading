@@ -4,7 +4,6 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Input } from "@/components/ui/input";
 import { DataTableColumnHeader } from "./data-table-column-header";
 import { useState, useEffect } from "react";
-import React from "react";
 import { useDebounceFunction } from "@/lib/hooks";
 
 // Custom checkbox component that forces re-render
