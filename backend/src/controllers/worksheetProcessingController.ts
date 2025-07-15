@@ -10,6 +10,17 @@ interface PythonApiResponse {
     worksheet_name?: string;
     mongodb_id?: string;
     grade?: number;
+    total_possible?: number;
+    grade_percentage?: number;
+    total_questions?: number;
+    correct_answers?: number;
+    wrong_answers?: number;
+    unanswered?: number;
+    question_scores?: any[];
+    wrong_questions?: any[];
+    correct_questions?: any[];
+    unanswered_questions?: any[];
+    overall_feedback?: string;
     error?: string;
     // Fields we add in our backend
     worksheetId?: string;
@@ -148,13 +159,28 @@ export const processWorksheets = async (req: Request, res: Response) => {
                                 grade: pythonResponse.grade || 0,
                                 notes: `Auto-graded worksheet ${worksheetNumber}`,
                                 status: ProcessingStatus.COMPLETED,
-                                outOf: 40,
+                                outOf: pythonResponse.total_possible || 40,
                                 submittedOn: submittedOn ? new Date(submittedOn) : new Date(),
                                 isAbsent: false,
                                 isRepeated: false,
+                                isCorrectGrade: false,
                                 ...(pythonResponse.mongodb_id ? { 
                                     mongoDbId: pythonResponse.mongodb_id 
-                                } : {})
+                                } : {}),
+                                // Store the complete grading details
+                                gradingDetails: {
+                                    total_possible: pythonResponse.total_possible,
+                                    grade_percentage: pythonResponse.grade_percentage,
+                                    total_questions: pythonResponse.total_questions,
+                                    correct_answers: pythonResponse.correct_answers,
+                                    wrong_answers: pythonResponse.wrong_answers,
+                                    unanswered: pythonResponse.unanswered,
+                                    question_scores: pythonResponse.question_scores,
+                                    wrong_questions: pythonResponse.wrong_questions,
+                                    correct_questions: pythonResponse.correct_questions,
+                                    unanswered_questions: pythonResponse.unanswered_questions,
+                                    overall_feedback: pythonResponse.overall_feedback
+                                }
                             }
                         });
                     
@@ -186,7 +212,7 @@ export const processWorksheets = async (req: Request, res: Response) => {
  * Create a graded worksheet with MongoDbId
  */
 export const createGradedWorksheetWithMongoId = async (req: Request, res: Response) => {
-    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, mongoDbId } = req.body;
+    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isCorrectGrade, mongoDbId, gradingDetails } = req.body;
     const submittedById = req.user?.userId;
 
     // Add logging to track the incoming requests
@@ -197,6 +223,7 @@ export const createGradedWorksheetWithMongoId = async (req: Request, res: Respon
         grade, 
         isAbsent, 
         isRepeated, 
+        isCorrectGrade,
         submittedOn,
         mongoDbId 
     });
@@ -223,6 +250,7 @@ export const createGradedWorksheetWithMongoId = async (req: Request, res: Respon
                     submittedOn: submittedOn ? new Date(submittedOn) : undefined,
                     isAbsent: true,
                     isRepeated: false,
+                    isCorrectGrade: false,
                     // No MongoDB ID for absent students
                 }
             });
@@ -275,7 +303,9 @@ export const createGradedWorksheetWithMongoId = async (req: Request, res: Respon
                 submittedOn: submittedOn ? new Date(submittedOn) : undefined,
                 isAbsent: false,
                 isRepeated: isRepeated || false,
-                ...(mongoDbId ? { mongoDbId } : {}) // Store the MongoDB ID if provided
+                isCorrectGrade: isCorrectGrade || false,
+                ...(mongoDbId ? { mongoDbId } : {}), // Store the MongoDB ID if provided
+                ...(gradingDetails ? { gradingDetails } : {}) // Store grading details if provided
             }
         });
 

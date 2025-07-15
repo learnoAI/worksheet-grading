@@ -180,7 +180,9 @@ model Worksheet {
   worksheetQuestions WorksheetQuestion[]
   isAbsent           Boolean             @default(false)
   isRepeated         Boolean             @default(false)
+  isCorrectGrade     Boolean             @default(false)
   mongoDbId          String?             @unique
+  gradingDetails     Json?               // Store the detailed grading information from AI
 }
 
 model WorksheetImage {

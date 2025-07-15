@@ -160,6 +160,9 @@ export interface Worksheet {
     submittedOn?: string;
     isAbsent?: boolean;
     isRepeated?: boolean;
+    isCorrectGrade?: boolean;
+    mongoDbId?: string;
+    gradingDetails?: any; // JSON field for detailed grading information
 }
 
 export interface WorksheetImage {

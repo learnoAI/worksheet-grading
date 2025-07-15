@@ -449,6 +449,14 @@ export const findWorksheetByClassStudentDate = async (req: Request, res: Respons
             }
         });
 
+        // Debug logging to check if gradingDetails is present
+        if (worksheet) {
+            console.log(`Found worksheet ${worksheet.id}, gradingDetails present: ${!!worksheet.gradingDetails}`);
+            if (worksheet.gradingDetails) {
+                console.log('GradingDetails keys:', Object.keys(worksheet.gradingDetails));
+            }
+        }
+
         return res.status(200).json(worksheet);
     } catch (error) {
         console.error('Find worksheet error:', error);

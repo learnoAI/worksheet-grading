@@ -13,6 +13,9 @@ interface GradedWorksheetData {
     submittedOn: string;
     isAbsent?: boolean;
     isRepeated?: boolean;
+    isCorrectGrade?: boolean;
+    mongoDbId?: string;
+    gradingDetails?: any;
 }
 
 interface CreateGradedWorksheetData {
@@ -25,7 +28,9 @@ interface CreateGradedWorksheetData {
     submittedOn: string;
     isAbsent?: boolean;
     isRepeated?: boolean;
+    isCorrectGrade?: boolean;
     mongoDbId?: string; // Add MongoDB ID field
+    gradingDetails?: any; // Add grading details field
 }
 export const worksheetAPI = {
     uploadWorksheet: async (formData: FormData): Promise<Worksheet> => {
@@ -115,6 +120,16 @@ export const worksheetAPI = {
             const response = await fetchAPI<GradedWorksheetData | null>(
                 `/worksheets/find?classId=${encodeURIComponent(classId)}&studentId=${encodeURIComponent(studentId)}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}&_t=${timestamp}`
             );
+            
+            // Debug logging to check if gradingDetails is present in the response
+            if (response) {
+                console.log(`Received worksheet data for student:`, {
+                    id: response.id,
+                    grade: response.grade,
+                    hasGradingDetails: !!response.gradingDetails,
+                    gradingDetailsKeys: response.gradingDetails ? Object.keys(response.gradingDetails) : null
+                });
+            }
             
             // Explicitly handle the isAbsent property to ensure it's the correct boolean type
             if (response) {

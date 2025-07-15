@@ -3,7 +3,34 @@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { UploadIcon, Camera } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { UploadIcon, Camera, Info, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+
+interface QuestionScore {
+    question_number: number;
+    question: string;
+    student_answer: string;
+    correct_answer: string;
+    points_earned: number;
+    max_points: number;
+    is_correct: boolean;
+    feedback: string;
+}
+
+interface GradingDetails {
+    total_possible: number;
+    grade_percentage: number;
+    total_questions: number;
+    correct_answers: number;
+    wrong_answers: number;
+    unanswered: number;
+    question_scores: QuestionScore[];
+    wrong_questions: QuestionScore[];
+    correct_questions: QuestionScore[];
+    unanswered_questions: QuestionScore[];
+    overall_feedback: string;
+}
 
 interface StudentWorksheet {
     studentId: string;
@@ -16,6 +43,8 @@ interface StudentWorksheet {
     page1File?: File | null;
     page2File?: File | null;
     isRepeated?: boolean;
+    isCorrectGrade?: boolean;
+    gradingDetails?: GradingDetails;
     id?: string;
     existing?: boolean;
     isNew?: boolean;
@@ -40,6 +69,18 @@ export function StudentWorksheetCard({
     onSave,
     fileInputRefs
 }: StudentWorksheetCardProps) {
+    const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+    
+    // Debug logging for grading details
+    useEffect(() => {
+        console.log(`[StudentWorksheetCard] ${worksheet.name} - gradingDetails:`, {
+            hasGradingDetails: !!worksheet.gradingDetails,
+            gradingDetails: worksheet.gradingDetails,
+            existing: worksheet.existing,
+            grade: worksheet.grade
+        });
+    }, [worksheet.gradingDetails, worksheet.name, worksheet.existing, worksheet.grade]);
+    
     const avatarLetters = worksheet.name
         .split(' ')
         .slice(0, 2)
@@ -60,8 +101,8 @@ export function StudentWorksheetCard({
         onUpdate(index, "isAbsent", checked);
     };
 
-    const handleRepeatedChange = (checked: boolean) => {
-        onUpdate(index, "isRepeated", checked);
+    const handleCorrectGradeChange = (checked: boolean) => {
+        onUpdate(index, "isCorrectGrade", checked);
     };
 
     const handleWorksheetNumberChange = (value: string) => {
@@ -165,23 +206,41 @@ export function StudentWorksheetCard({
                 </div>
                 <div className="space-y-1">
                     <Label htmlFor={`grade-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">Grade</Label>
-                    <Input
-                        id={`grade-${worksheet.studentId}`}
-                        type="number"
-                        min="0"
-                        max="10"
-                        step="0.1"
-                        value={worksheet.grade || ''}
-                        onChange={(e) => handleGradeChange(e.target.value)}
-                        onClick={() => {
-                            if (worksheet.isAbsent) {
-                                onUpdate(index, "isAbsent", false);
-                            }
-                        }}
-                        disabled={worksheet.isAbsent || worksheet.isUploading}
-                        placeholder={worksheet.isAbsent ? "N/A" : (worksheet.isUploading ? "Processing..." : "Grade")}
-                        className="h-8 md:h-10 text-sm"
-                    />
+                    <div className="flex items-center space-x-1">
+                        <Input
+                            id={`grade-${worksheet.studentId}`}
+                            type="number"
+                            min="0"
+                            max="10"
+                            step="0.1"
+                            value={worksheet.grade || ''}
+                            onChange={(e) => handleGradeChange(e.target.value)}
+                            onClick={() => {
+                                if (worksheet.isAbsent) {
+                                    onUpdate(index, "isAbsent", false);
+                                }
+                            }}
+                            disabled={worksheet.isAbsent || worksheet.isUploading}
+                            placeholder={worksheet.isAbsent ? "N/A" : (worksheet.isUploading ? "Processing" : "Grade")}
+                            className="h-8 md:h-10 text-sm flex-1"
+                        />
+                        {worksheet.gradingDetails && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 relative"
+                                title="View grading details"
+                                onClick={() => setIsDetailsOpen(true)}
+                            >
+                                <Info size={14} />
+                                {(worksheet.gradingDetails.wrong_answers > 0 || worksheet.gradingDetails.unanswered > 0) && (
+                                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                                        {worksheet.gradingDetails.wrong_answers + worksheet.gradingDetails.unanswered}
+                                    </span>
+                                )}
+                            </Button>
+                        )}
+                    </div>
                 </div>
             </div>                <div className="space-y-2 mb-3">
                     <div className="space-y-1">
@@ -296,14 +355,19 @@ export function StudentWorksheetCard({
                         <div className="flex items-center space-x-2">
                             <input
                                 type="checkbox"
-                                id={`repeated-${worksheet.studentId}`}
-                                checked={worksheet.isRepeated || false}
-                                onChange={(e) => handleRepeatedChange(e.target.checked)}
+                                id={`correctGrade-${worksheet.studentId}`}
+                                checked={worksheet.isCorrectGrade || false}
+                                onChange={(e) => handleCorrectGradeChange(e.target.checked)}
                                 disabled={worksheet.isAbsent}
-                                className="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500 disabled:opacity-50"
+                                className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-50"
                             />
-                            <Label htmlFor={`repeated-${worksheet.studentId}`} className="text-sm">Repeated</Label>
+                            <Label htmlFor={`correctGrade-${worksheet.studentId}`} className="text-sm">Correct Grade</Label>
                         </div>
+                        {worksheet.isRepeated && (
+                            <div className="text-xs text-orange-600 font-medium">
+                                🔄 Repeated Worksheet
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex w-full md:w-auto space-x-2">
@@ -317,7 +381,7 @@ export function StudentWorksheetCard({
                         </Button>
                         <Button
                             onClick={() => onSave(worksheet)}
-                            disabled={worksheet.isAbsent || worksheet.isUploading || !worksheet.worksheetNumber}
+                            disabled={worksheet.isUploading}
                             variant="outline"
                             size="sm"
                             className="flex-1 md:flex-none"
@@ -326,6 +390,120 @@ export function StudentWorksheetCard({
                         </Button>
                     </div>
                 </div>
+
+            {/* Grading Details Dialog */}
+            {worksheet.gradingDetails && (
+                <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+                    <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+                        <DialogHeader>
+                            <DialogTitle>Grading Details - {worksheet.name}</DialogTitle>
+                        </DialogHeader>
+                        
+                        <div className="space-y-6">
+                            {/* Summary */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-green-600">{worksheet.gradingDetails.correct_answers}</div>
+                                    <div className="text-sm text-gray-600">Correct</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-red-600">{worksheet.gradingDetails.wrong_answers}</div>
+                                    <div className="text-sm text-gray-600">Wrong</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-yellow-600">{worksheet.gradingDetails.unanswered}</div>
+                                    <div className="text-sm text-gray-600">Unanswered</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-blue-600">{worksheet.gradingDetails.grade_percentage}%</div>
+                                    <div className="text-sm text-gray-600">Score</div>
+                                </div>
+                            </div>
+
+                            {/* Overall Feedback */}
+                            {worksheet.gradingDetails.overall_feedback && (
+                                <div className="p-4 bg-blue-50 rounded-lg">
+                                    <h3 className="font-semibold text-blue-800 mb-2">Overall Feedback</h3>
+                                    <p className="text-blue-700">{worksheet.gradingDetails.overall_feedback}</p>
+                                </div>
+                            )}
+
+                            {/* Wrong Questions */}
+                            {worksheet.gradingDetails.wrong_questions.length > 0 && (
+                                <div>
+                                    <h3 className="text-lg font-semibold text-red-600 mb-3 flex items-center">
+                                        <XCircle className="mr-2" size={20} />
+                                        Wrong Answers ({worksheet.gradingDetails.wrong_questions.length})
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {worksheet.gradingDetails.wrong_questions.map((question, idx) => (
+                                            <div key={idx} className="p-3 border border-red-200 rounded-lg bg-red-50">
+                                                <div className="font-medium text-red-800">Question {question.question_number}: {question.question}</div>
+                                                <div className="mt-2 text-sm">
+                                                    <div className="text-red-600"><strong>Student Answer:</strong> {question.student_answer}</div>
+                                                    <div className="text-green-600"><strong>Correct Answer:</strong> {question.correct_answer}</div>
+                                                    <div className="text-gray-600"><strong>Points:</strong> {question.points_earned}/{question.max_points}</div>
+                                                    {question.feedback && (
+                                                        <div className="text-red-700 mt-1"><strong>Feedback:</strong> {question.feedback}</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Unanswered Questions */}
+                            {worksheet.gradingDetails.unanswered_questions.length > 0 && (
+                                <div>
+                                    <h3 className="text-lg font-semibold text-yellow-600 mb-3 flex items-center">
+                                        <AlertCircle className="mr-2" size={20} />
+                                        Unanswered Questions ({worksheet.gradingDetails.unanswered_questions.length})
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {worksheet.gradingDetails.unanswered_questions.map((question, idx) => (
+                                            <div key={idx} className="p-3 border border-yellow-200 rounded-lg bg-yellow-50">
+                                                <div className="font-medium text-yellow-800">Question {question.question_number}: {question.question}</div>
+                                                <div className="mt-2 text-sm">
+                                                    <div className="text-gray-600"><strong>Expected Answer:</strong> {question.correct_answer}</div>
+                                                    <div className="text-gray-600"><strong>Points:</strong> {question.points_earned}/{question.max_points}</div>
+                                                    {question.feedback && (
+                                                        <div className="text-yellow-700 mt-1"><strong>Feedback:</strong> {question.feedback}</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Correct Questions */}
+                            {worksheet.gradingDetails.correct_questions.length > 0 && (
+                                <div>
+                                    <h3 className="text-lg font-semibold text-green-600 mb-3 flex items-center">
+                                        <CheckCircle className="mr-2" size={20} />
+                                        Correct Answers ({worksheet.gradingDetails.correct_questions.length})
+                                    </h3>
+                                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                                        {worksheet.gradingDetails.correct_questions.map((question, idx) => (
+                                            <div key={idx} className="p-3 border border-green-200 rounded-lg bg-green-50">
+                                                <div className="font-medium text-green-800">Question {question.question_number}: {question.question}</div>
+                                                <div className="mt-2 text-sm">
+                                                    <div className="text-green-600"><strong>Student Answer:</strong> {question.student_answer}</div>
+                                                    <div className="text-gray-600"><strong>Points:</strong> {question.points_earned}/{question.max_points}</div>
+                                                    {question.feedback && (
+                                                        <div className="text-green-700 mt-1"><strong>Feedback:</strong> {question.feedback}</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            )}
                       
         </div>
     );
