@@ -607,90 +607,162 @@ export default function UploadWorksheetPage() {
             return;
         }
 
-        
-        setStudentWorksheets(prev => 
-            prev.map(w => w.studentId === worksheet.studentId 
-                ? { ...w, isUploading: true } 
-                : w
-            )
-        );
-
         try {
-            if (worksheet.isAbsent) {
-                
-                const data = {
-                    classId: selectedClass,
-                    studentId: worksheet.studentId,
-                    worksheetNumber: 0, 
-                    grade: 0, 
-                    submittedOn: new Date(submittedOn).toISOString(),
-                    isAbsent: true,
-                    isRepeated: false,
-                    isCorrectGrade: false,
-                    notes: 'Student absent'
-                };
+            // Get the most up-to-date data for this student from the main state
+            const currentStudentData = studentWorksheets.find(w => w.studentId === worksheet.studentId);
+            if (!currentStudentData) {
+                toast.error('Student data not found');
+                return;
+            }
 
+            // Use the current state data instead of the passed worksheet parameter
+            const worksheetNumber = currentStudentData.worksheetNumber;
+            const gradeValue = typeof currentStudentData.grade === 'string' ? currentStudentData.grade.trim() : '';
+            
+            const isValidWorksheetNumber = worksheetNumber && worksheetNumber > 0;
+            const isValidGrade = gradeValue !== '' && !isNaN(parseFloat(gradeValue));
+            
+            // Only use explicitly set absent status, never auto-mark as absent
+            const isAbsent = currentStudentData.isAbsent;
+            
+            let shouldSave = false;
+            let shouldDelete = false;
+            
+            // Determine what action to take based on the data state - using same logic as bulk save
+            if (isAbsent) {
+                // Student is marked as absent - always save this state
+                shouldSave = true;
+            } else if (isValidWorksheetNumber) {
+                // For non-absent students, only require worksheet number (grade is optional)
+                shouldSave = true;
+            } else if (!isValidWorksheetNumber && !isValidGrade) {
+                // Both fields are empty/invalid
                 const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                    selectedClass, 
-                    worksheet.studentId, 
+                    selectedClass,
+                    currentStudentData.studentId,
                     submittedOn
                 );
-
-                if (existingWorksheet && existingWorksheet.id) {
-                    await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
-                } else {
-                    await worksheetAPI.createGradedWorksheet(data);
-                }
-
-                toast.success(`${worksheet.name} marked as absent and saved`);
-            } else {
                 
-                // Worksheet number is required for non-absent students
-                if (!worksheet.worksheetNumber || worksheet.worksheetNumber <= 0) {
-                    toast.error('Please enter a worksheet number');
+                if (existingWorksheet && existingWorksheet.id) {
+                    // Delete existing record if both fields are cleared
+                    shouldDelete = true;
+                } else {
+                    // For new records with no data, just inform and return
+                    toast.info(`No changes to save for ${currentStudentData.name}.`);
                     return;
                 }
+            } else {
+                // Incomplete data (no worksheet number but has grade) - warn but don't block
+                toast.warning(`${currentStudentData.name} needs a worksheet number to save.`);
+                return;
+            }
 
-                // Allow saving without grade - it's optional
-                let gradeValue = 0;
-                if (worksheet.grade && worksheet.grade.trim() !== '') {
-                    gradeValue = parseFloat(worksheet.grade);
-                    if (isNaN(gradeValue) || gradeValue < 0 || gradeValue > 40) {
-                        toast.error('Please enter a valid grade between 0 and 40');
-                        return;
-                    }
-                }
-
-                
-                const data = {
-                    classId: selectedClass,
-                    studentId: worksheet.studentId,
-                    worksheetNumber: worksheet.worksheetNumber,
-                    grade: gradeValue,
-                    submittedOn: new Date(submittedOn).toISOString(),
-                    isAbsent: false,
-                    isRepeated: worksheet.isRepeated || false,
-                    isCorrectGrade: worksheet.isCorrectGrade || false,
-                    gradingDetails: worksheet.gradingDetails || undefined
-                };
-
+            // Handle deletion case
+            if (shouldDelete) {
                 const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                    selectedClass, 
-                    worksheet.studentId, 
+                    selectedClass,
+                    currentStudentData.studentId,
                     submittedOn
                 );
-
+                
                 if (existingWorksheet && existingWorksheet.id) {
-                    await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                    await worksheetAPI.deleteGradedWorksheet(existingWorksheet.id);
+                    toast.success(`Record for ${currentStudentData.name} removed successfully`);
+                    
+                    // Update local state to reflect deletion
+                    setStudentWorksheets(prevWorksheets => prevWorksheets.map(w => {
+                        if (w.studentId === currentStudentData.studentId) {
+                            return {
+                                ...w,
+                                id: '',
+                                worksheetNumber: 0,
+                                grade: '',
+                                existing: false,
+                                isAbsent: false,
+                                isRepeated: false
+                            };
+                        }
+                        return w;
+                    }));
+                }
+                return;
+            }
+
+            // Handle save case
+            if (shouldSave) {
+                if (isAbsent) {
+                    // Save absent student
+                    const data = {
+                        classId: selectedClass,
+                        studentId: currentStudentData.studentId,
+                        worksheetNumber: 0, 
+                        grade: 0, 
+                        submittedOn: new Date(submittedOn).toISOString(),
+                        isAbsent: true,
+                        isRepeated: false,
+                        isCorrectGrade: false,
+                        notes: 'Student absent'
+                    };
+
+                    const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
+                        selectedClass, 
+                        currentStudentData.studentId, 
+                        submittedOn
+                    );
+
+                    if (existingWorksheet && existingWorksheet.id) {
+                        await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                    } else {
+                        await worksheetAPI.createGradedWorksheet(data);
+                    }
+
+                    toast.success(`${currentStudentData.name} marked as absent and saved`);
                 } else {
-                    await worksheetAPI.createGradedWorksheet(data);
+                    // Save non-absent student with worksheet number (grade is optional)
+                    let gradeNumeric = 0;
+                    if (isValidGrade) {
+                        gradeNumeric = parseFloat(gradeValue);
+                        if (gradeNumeric < 0 || gradeNumeric > 40) {
+                            toast.error(`Grade for ${currentStudentData.name} must be between 0 and 40`);
+                            return;
+                        }
+                    }
+
+                    const data = {
+                        classId: selectedClass,
+                        studentId: currentStudentData.studentId,
+                        worksheetNumber: currentStudentData.worksheetNumber,
+                        grade: gradeNumeric,
+                        submittedOn: new Date(submittedOn).toISOString(),
+                        isAbsent: false,
+                        isRepeated: currentStudentData.isRepeated || false,
+                        isCorrectGrade: currentStudentData.isCorrectGrade || false,
+                        gradingDetails: currentStudentData.gradingDetails || undefined
+                    };
+
+                    const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
+                        selectedClass, 
+                        currentStudentData.studentId, 
+                        submittedOn
+                    );
+
+                    if (existingWorksheet && existingWorksheet.id) {
+                        await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                    } else {
+                        await worksheetAPI.createGradedWorksheet(data);
+                    }
+
+                    toast.success(`${currentStudentData.name}'s worksheet saved successfully`);
                 }
 
-                toast.success(`${worksheet.name}'s worksheet saved successfully`);
+                // Update local state to reflect the saved data
+                setStudentWorksheets(prevWorksheets => prevWorksheets.map(w =>
+                    w.studentId === currentStudentData.studentId ? { ...currentStudentData, existing: true } : w
+                ));
             }
+
         } catch (error) {
             console.error('Error saving student worksheet:', error);
-            
             
             if (error instanceof Error) {
                 if (error.message.includes('template')) {
@@ -703,14 +775,6 @@ export default function UploadWorksheetPage() {
             } else {
                 toast.error(`Failed to save ${worksheet.name}'s worksheet`);
             }
-        } finally {
-            
-            setStudentWorksheets(prev => 
-                prev.map(w => w.studentId === worksheet.studentId 
-                    ? { ...w, isUploading: false } 
-                    : w
-                )
-            );
         }
     };
 
