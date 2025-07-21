@@ -11,15 +11,7 @@ import { toast } from 'sonner';
 import { classAPI, worksheetAPI } from '@/lib/api';
 import { DataTable } from './data-table';
 import { columns, StudentGrade } from './columns';
-import { 
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { InfoIcon } from 'lucide-react';
 
-// Threshold for worksheet progression (80% of 40)
 const PROGRESSION_THRESHOLD = 32;
 
 interface Class {
