@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { userAPI } from '@/lib/api/user';
-import { User, UserRole } from '@/lib/api/types';
+import { analyticsAPI, Class as AnalyticsClass, School as AnalyticsSchool } from '@/lib/api/analyticsAPI';
+import { User, UserRole} from '@/lib/api/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -190,6 +191,14 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
     const [role, setRole] = useState('');
     const [tokenNumber, setTokenNumber] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    
+    // New state for school and class management
+    const [schools, setSchools] = useState<AnalyticsSchool[]>([]);
+    const [classes, setClasses] = useState<AnalyticsClass[]>([]);
+    const [selectedSchool, setSelectedSchool] = useState('');
+    const [selectedClass, setSelectedClass] = useState('');
+    const [loadingSchools, setLoadingSchools] = useState(false);
+    const [loadingClasses, setLoadingClasses] = useState(false);
 
     useEffect(() => {
         if (user) {
@@ -197,8 +206,74 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
             setUsername(user.username || '');
             setRole(user.role || '');
             setTokenNumber(user.tokenNumber || '');
+            
+            // Set current school and class for students
+            if (user.role === UserRole.STUDENT && user.studentClasses && user.studentClasses.length > 0) {
+                const currentClass = user.studentClasses[0].class;
+                setSelectedSchool(currentClass.school.id);
+                setSelectedClass(currentClass.id);
+            } else {
+                setSelectedSchool('');
+                setSelectedClass('');
+            }
         }
     }, [user]);
+
+    // Load schools when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            loadSchools();
+        }
+    }, [isOpen]);
+
+    // Load classes when school is selected
+    useEffect(() => {
+        if (selectedSchool) {
+            loadClasses(selectedSchool);
+        } else {
+            setClasses([]);
+            setSelectedClass('');
+        }
+    }, [selectedSchool]);
+
+    const loadSchools = async () => {
+        try {
+            setLoadingSchools(true);
+            console.log('Loading schools...');
+            const schoolsData = await analyticsAPI.getAllSchools();
+            console.log('Schools loaded:', schoolsData);
+            setSchools(schoolsData);
+        } catch (error) {
+            console.error('Error loading schools:', error);
+            toast.error('Failed to load schools: ' + (error instanceof Error ? error.message : 'Unknown error'));
+        } finally {
+            setLoadingSchools(false);
+        }
+    };
+
+    const loadClasses = async (schoolId: string) => {
+        try {
+            setLoadingClasses(true);
+            console.log('Loading classes for school:', schoolId);
+            const classesData = await analyticsAPI.getClassesBySchool(schoolId);
+            console.log('Classes loaded:', classesData);
+            setClasses(classesData);
+        } catch (error) {
+            console.error('Error loading classes:', error);
+            toast.error('Failed to load classes: ' + (error instanceof Error ? error.message : 'Unknown error'));
+        } finally {
+            setLoadingClasses(false);
+        }
+    };
+
+    const handleRoleChange = (newRole: string) => {
+        setRole(newRole);
+        // Reset school/class selection when role changes
+        if (newRole !== UserRole.STUDENT) {
+            setSelectedSchool('');
+            setSelectedClass('');
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -206,6 +281,12 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
 
         if (!name || !username) {
             toast.error('Name and username are required');
+            return;
+        }
+
+        // Validate student-specific requirements
+        if (role === UserRole.STUDENT && !selectedClass) {
+            toast.error('Class selection is required for students');
             return;
         }
 
@@ -218,11 +299,40 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                 role
             };
 
-            if (role === UserRole.STUDENT && tokenNumber) {
-                updateData.tokenNumber = tokenNumber;
+            if (role === UserRole.STUDENT) {
+                if (tokenNumber) {
+                    updateData.tokenNumber = tokenNumber;
+                }
+                updateData.classId = selectedClass;
             }
 
             await userAPI.updateUser(user.id, updateData);
+            
+            // If user is a student and class changed, handle class assignment
+            if (role === UserRole.STUDENT && selectedClass) {
+                // Remove from old class if it exists and is different
+                if (user.studentClasses && user.studentClasses.length > 0) {
+                    const oldClassId = user.studentClasses[0].class.id;
+                    if (oldClassId !== selectedClass) {
+                        try {
+                            await analyticsAPI.removeStudentFromClass(user.id, oldClassId);
+                        } catch (error) {
+                            console.warn('Could not remove from old class:', error);
+                        }
+                    }
+                }
+                
+                // Add to new class (if not already in it)
+                if (!user.studentClasses || user.studentClasses.length === 0 || 
+                    user.studentClasses[0].class.id !== selectedClass) {
+                    try {
+                        await analyticsAPI.addStudentToClass(user.id, selectedClass);
+                    } catch (error) {
+                        console.warn('Could not add to new class:', error);
+                    }
+                }
+            }
+            
             toast.success('User updated successfully');
             onSuccess();
             onClose();
@@ -234,13 +344,31 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
         }
     };
 
+    const handleClose = () => {
+        // Reset form state when closing
+        setName('');
+        setUsername('');
+        setRole('');
+        setTokenNumber('');
+        setSelectedSchool('');
+        setSelectedClass('');
+        setSchools([]);
+        setClasses([]);
+        onClose();
+    };
+
     return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-md">
+        <Dialog open={isOpen} onOpenChange={handleClose}>
+            <DialogContent className="max-w-lg">
                 <DialogHeader>
                     <DialogTitle>Edit User</DialogTitle>
                     <DialogDescription>
                         Update user information and settings
+                        {user?.role === UserRole.STUDENT && user.studentClasses && user.studentClasses.length > 0 && (
+                            <span className="block mt-1 text-sm text-blue-600">
+                                Current: {user.studentClasses[0].class.name} ({user.studentClasses[0].class.school.name})
+                            </span>
+                        )}
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -268,7 +396,7 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                     
                     <div>
                         <Label htmlFor="role">Role</Label>
-                        <Select value={role} onValueChange={setRole}>
+                        <Select value={role} onValueChange={handleRoleChange}>
                             <SelectTrigger>
                                 <SelectValue placeholder="Select role" />
                             </SelectTrigger>
@@ -282,23 +410,85 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                     </div>
                     
                     {role === UserRole.STUDENT && (
-                        <div>
-                            <Label htmlFor="tokenNumber">Token Number</Label>
-                            <Input
-                                id="tokenNumber"
-                                value={tokenNumber}
-                                onChange={(e) => setTokenNumber(e.target.value)}
-                                placeholder="Enter token number"
-                            />
-                        </div>
+                        <>
+                            <div>
+                                <Label htmlFor="tokenNumber">Token Number</Label>
+                                <Input
+                                    id="tokenNumber"
+                                    value={tokenNumber}
+                                    onChange={(e) => setTokenNumber(e.target.value)}
+                                    placeholder="Enter token number"
+                                />
+                            </div>
+                            
+                            <div>
+                                <Label htmlFor="school">School</Label>
+                                <Select 
+                                    value={selectedSchool} 
+                                    onValueChange={setSelectedSchool}
+                                    disabled={loadingSchools}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder={loadingSchools ? "Loading schools..." : "Select school"} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {schools.length === 0 && !loadingSchools ? (
+                                            <SelectItem value="" disabled>No schools available</SelectItem>
+                                        ) : (
+                                            schools.map((school) => (
+                                                <SelectItem key={school.id} value={school.id}>
+                                                    {school.name}
+                                                </SelectItem>
+                                            ))
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            
+                            {selectedSchool && (
+                                <div>
+                                    <Label htmlFor="class">Class</Label>
+                                    <Select 
+                                        value={selectedClass} 
+                                        onValueChange={setSelectedClass}
+                                        disabled={loadingClasses}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder={loadingClasses ? "Loading classes..." : "Select class"} />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {classes.length === 0 && !loadingClasses ? (
+                                                <SelectItem value="" disabled>No classes available for this school</SelectItem>
+                                            ) : (
+                                                classes.map((classItem) => (
+                                                    <SelectItem key={classItem.id} value={classItem.id}>
+                                                        {classItem.name}
+                                                    </SelectItem>
+                                                ))
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            )}
+                        </>
                     )}
                     
                     <DialogFooter>
-                        <Button type="button" variant="outline" onClick={onClose}>
+                        <Button type="button" variant="outline" onClick={handleClose}>
                             Cancel
                         </Button>
-                        <Button type="submit" disabled={submitting}>
-                            {submitting ? 'Updating...' : 'Update User'}
+                        <Button 
+                            type="submit" 
+                            disabled={submitting || loadingSchools || loadingClasses || (role === UserRole.STUDENT && !selectedClass)}
+                        >
+                            {submitting ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Updating...
+                                </>
+                            ) : (
+                                'Update User'
+                            )}
                         </Button>
                     </DialogFooter>
                 </form>
