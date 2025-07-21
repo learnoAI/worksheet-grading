@@ -905,7 +905,7 @@ export default function UsersPage() {
                                                     </div>
                                                 </td>
                                                 <td className="py-3 px-4">
-                                                    <Badge variant={u.isArchived ? "destructive" : "default"}>
+                                                    <Badge variant={u.isArchived ? "secondary" : "default"}>
                                                         {u.isArchived ? 'Archived' : 'Active'}
                                                     </Badge>
                                                 </td>
