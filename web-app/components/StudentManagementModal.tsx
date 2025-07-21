@@ -169,7 +169,7 @@ export function StudentManagementModal({
                         />
                     </div>
                 ) : (
-                    <div className="space-y-4">
+                    <div className="space-y-4 overflow-hidden">
                         <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
                                 <Users className="h-5 w-5" />
@@ -191,11 +191,11 @@ export function StudentManagementModal({
                                     Current Students ({currentStudents.length})
                                 </Button>
                                 <Button
-                                    variant={activeTab === 'available' ? 'default' : 'outline'}
+                                    variant={activeTab === 'available' ? 'default' : 'secondary'}
                                     size="sm"
                                     onClick={() => setActiveTab('available')}
                                 >
-                                    Available Students ({availableStudents.length})
+                                    Available ({availableStudents.length})
                                 </Button>
                             </div>
                             <Button
@@ -271,10 +271,10 @@ export function StudentManagementModal({
                                                             </Button>
                                                             <Button
                                                                 size="sm"
-                                                                variant="destructive"
+                                                                variant="outline"
                                                                 onClick={() => handleRemoveStudent(student.id)}
                                                                 disabled={actionLoading === student.id}
-                                                                className="flex items-center gap-1"
+                                                                className="flex items-center gap-1 hover:bg-amber-300"
                                                             >
                                                                 <Trash2 className="h-3 w-3" />
                                                                 Remove

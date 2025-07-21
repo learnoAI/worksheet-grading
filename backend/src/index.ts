@@ -9,6 +9,7 @@ import worksheetTemplateRoutes from './routes/worksheetTemplateRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
 import worksheetProcessingRoutes from './routes/worksheetProcessingRoutes';
 import classRoutes from './routes/classRoutes';
+import schoolRoutes from './routes/schoolRoutes';
 import config from './config/env';
 import './services/queueService'; // Initialize queue
 
@@ -31,6 +32,7 @@ app.use('/api', worksheetTemplateRoutes); // Add worksheet template routes
 app.use('/api/analytics', analyticsRoutes); // Add analytics routes
 app.use('/api/worksheet-processing', worksheetProcessingRoutes); // Add worksheet processing routes
 app.use('/api/classes', classRoutes); // Add class management routes
+app.use('/api/schools', schoolRoutes); // Add school management routes
 
 // Health check route
 app.get('/health', (req: Request, res: Response) => {

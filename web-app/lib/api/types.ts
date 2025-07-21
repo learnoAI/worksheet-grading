@@ -41,6 +41,7 @@ export interface School {
     name: string;
     createdAt: string;
     updatedAt: string;
+    isArchived?: boolean;
     clusterId?: string;
     adminSchools?: AdminSchool[];
     classes?: Class[];
