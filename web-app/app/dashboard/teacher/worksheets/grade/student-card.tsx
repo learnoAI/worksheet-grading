@@ -13,6 +13,7 @@ import {
     SelectValue
 } from "@/components/ui/select";
 import { StudentGrade } from "./columns";
+import { usePostHog } from 'posthog-js/react';
 import { TrendingUp } from "lucide-react";
 import { 
     Tooltip,
@@ -37,6 +38,7 @@ export function StudentCard({
         isAbsent ? '' : (student.worksheetNumber ? student.worksheetNumber.toString() : '')
     );
     const [grade, setGrade] = useState<string>(student.grade || '');
+    const posthog = usePostHog();
     
     const avatarLetters = student.name
         .split(' ')
@@ -93,6 +95,16 @@ export function StudentCard({
 
     const handleIncorrectGradeChange = (checked: boolean) => {
         updateData(student.studentId, "isIncorrectGrade", checked);
+        
+        // Track incorrect grade checkbox interaction
+        posthog.capture('incorrect_grade_checkbox_changed', {
+            student_name: student.name,
+            student_token: student.tokenNumber,
+            worksheet_number: student.worksheetNumber,
+            current_grade: student.grade,
+            is_checked: checked,
+            page: 'grade_worksheet'
+        });
     };
 
     const handleWorksheetNumberChange = (value: string) => {

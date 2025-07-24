@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { UploadIcon, Camera, Info, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
+import { usePostHog } from 'posthog-js/react';
 
 interface QuestionScore {
     question_number: number;
@@ -68,6 +69,7 @@ export function StudentWorksheetCard({
     onSave
 }: StudentWorksheetCardProps) {
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+    const posthog = usePostHog();
     
     // Debug logging for grading details
     useEffect(() => {
@@ -101,6 +103,15 @@ export function StudentWorksheetCard({
 
     const handleIncorrectGradeChange = (checked: boolean) => {
         onUpdate(index, "isIncorrectGrade", checked);
+        
+        posthog.capture('incorrect_grade_checkbox_changed', {
+            student_name: worksheet.name,
+            student_token: worksheet.tokenNumber,
+            worksheet_number: worksheet.worksheetNumber,
+            current_grade: worksheet.grade,
+            is_checked: checked,
+            page: 'upload_worksheet'
+        });
     };
 
     const handleWorksheetNumberChange = (value: string) => {

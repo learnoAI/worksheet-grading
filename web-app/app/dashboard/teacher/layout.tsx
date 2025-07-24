@@ -106,7 +106,6 @@ export default function TeacherLayout({
                         </nav>
                     </aside>
 
-                    {/* Main content */}
                     <main className="flex-1 bg-white p-3 md:p-6 rounded-lg shadow">
                         {children}
                     </main>

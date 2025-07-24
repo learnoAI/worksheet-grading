@@ -1,7 +1,6 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
-import { PostHogProvider } from '@/components/providers';
 
 export default function DashboardLayout({
     children,
@@ -14,9 +13,5 @@ export default function DashboardLayout({
         return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
     }
 
-    return (
-        <PostHogProvider>
-            {children}
-        </PostHogProvider>
-    );
+    return children;
 } 
