@@ -321,11 +321,11 @@ export const getWorksheetTemplates = async (req: Request, res: Response) => {
 
 // Create a graded worksheet
 export const createGradedWorksheet = async (req: Request, res: Response) => {
-    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated } = req.body;
+    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, gradingDetails, wrongQuestionNumbers } = req.body;
     const submittedById = req.user?.userId;
 
     // Add logging to track the incoming requests
-    console.log('Create worksheet request:', { classId, studentId, worksheetNumber, grade, isAbsent, isRepeated, submittedOn });
+    console.log('Create worksheet request:', { classId, studentId, worksheetNumber, grade, isAbsent, isRepeated, submittedOn, hasGradingDetails: !!gradingDetails });
 
     try {
         // If student is absent, create a record marking them as absent
@@ -402,6 +402,8 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
                 submittedOn: submittedOn ? new Date(submittedOn) : undefined,
                 isAbsent: false,
                 isRepeated: isRepeated || false,
+                gradingDetails: gradingDetails || null,
+                wrongQuestionNumbers: wrongQuestionNumbers || null,
             }
         });
 
@@ -467,11 +469,11 @@ export const findWorksheetByClassStudentDate = async (req: Request, res: Respons
 // Update a graded worksheet
 export const updateGradedWorksheet = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated } = req.body;
+    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, gradingDetails } = req.body;
     const submittedById = req.user?.userId;
 
     // Add logging to track the incoming requests
-    console.log('Update worksheet request:', { id, classId, studentId, worksheetNumber, grade, isAbsent, isRepeated, submittedOn });
+    console.log('Update worksheet request:', { id, classId, studentId, worksheetNumber, grade, isAbsent, isRepeated, submittedOn, hasGradingDetails: !!gradingDetails });
 
     try {
         // Find the existing worksheet
@@ -560,6 +562,7 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
             submittedOn: submittedOn ? new Date(submittedOn) : undefined,
             isAbsent: false,
             isRepeated: isRepeated || false,
+            gradingDetails: gradingDetails || null,
         }
 
         const worksheet = await prisma.worksheet.update({

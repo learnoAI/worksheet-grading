@@ -59,6 +59,7 @@ interface StudentWorksheet {
     page1File?: File | null;
     page2File?: File | null;
     gradingDetails?: GradingDetails;
+    wrongQuestionNumbers?: string; // Comma-separated wrong question numbers
     
     id?: string;
     existing?: boolean;
@@ -430,6 +431,12 @@ export default function UploadWorksheetPage() {
                 overall_feedback: result.overall_feedback || ''
             };
             
+            // Auto-populate wrong question numbers from grading details
+            const wrongNumbers = [...(result.wrong_questions || []).map((q: any) => q.question_number), 
+                                  ...(result.unanswered_questions || []).map((q: any) => q.question_number)]
+                                  .sort((a, b) => a - b);
+            const wrongQuestionNumbers = wrongNumbers.length > 0 ? wrongNumbers.join(', ') : '';
+            
             setStudentWorksheets(prev => prev.map(sw => 
                 sw.studentId === worksheet.studentId 
                     ? { 
@@ -437,7 +444,8 @@ export default function UploadWorksheetPage() {
                         grade: grade.toString(), 
                         isUploading: false,
                         gradingDetails: gradingDetails,
-                        
+                        wrongQuestionNumbers: wrongQuestionNumbers, // Auto-populate from AI grading
+                        // Clear uploaded files after processing
                         page1File: null,
                         page2File: null
                     } 
@@ -655,7 +663,8 @@ export default function UploadWorksheetPage() {
                         submittedOn: new Date(submittedOn).toISOString(),
                         isAbsent: false,
                         isRepeated: currentStudentData.isRepeated || false,
-                        gradingDetails: currentStudentData.gradingDetails || undefined
+                        gradingDetails: currentStudentData.gradingDetails || undefined,
+                        wrongQuestionNumbers: currentStudentData.wrongQuestionNumbers || ''
                     };
 
                     const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(

@@ -160,29 +160,30 @@ model WorksheetQuestion {
 }
 
 model Worksheet {
-  id                 String              @id @default(uuid())
-  notes              String?
-  status             ProcessingStatus    @default(PENDING)
-  grade              Float?
-  outOf              Float?              @default(40)
-  submittedById      String
-  submittedOn        DateTime?
-  classId            String
-  studentId          String?
-  student            User?               @relation("StudentWorksheets", fields: [studentId], references: [id])
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  class              Class               @relation(fields: [classId], references: [id])
-  submittedBy        User                @relation("SubmittedBy", fields: [submittedById], references: [id])
-  images             WorksheetImage[]
-  templateId         String?
-  template           WorksheetTemplate?  @relation(fields: [templateId], references: [id])
-  worksheetQuestions WorksheetQuestion[]
-  isAbsent           Boolean             @default(false)
-  isRepeated         Boolean             @default(false)
-  isCorrectGrade     Boolean             @default(false)
-  mongoDbId          String?             @unique
-  gradingDetails     Json?               // Store the detailed grading information from AI
+  id                   String              @id @default(uuid())
+  notes                String?
+  status               ProcessingStatus    @default(PENDING)
+  grade                Float?
+  outOf                Float?              @default(40)
+  submittedById        String
+  submittedOn          DateTime?
+  classId              String
+  studentId            String?
+  student              User?               @relation("StudentWorksheets", fields: [studentId], references: [id])
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  class                Class               @relation(fields: [classId], references: [id])
+  submittedBy          User                @relation("SubmittedBy", fields: [submittedById], references: [id])
+  images               WorksheetImage[]
+  templateId           String?
+  template             WorksheetTemplate?  @relation(fields: [templateId], references: [id])
+  worksheetQuestions   WorksheetQuestion[]
+  isAbsent             Boolean             @default(false)
+  isRepeated           Boolean             @default(false)
+  isCorrectGrade       Boolean             @default(false)
+  mongoDbId            String?             @unique
+  gradingDetails       Json?               // Store the detailed grading information from AI
+  wrongQuestionNumbers String?             // Comma-separated wrong question numbers
 }
 
 model WorksheetImage {
