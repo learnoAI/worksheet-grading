@@ -114,7 +114,8 @@ export function DataTable<TData, TValue>({
                             isAbsent: true,
                             worksheetNumber: 0,
                             grade: "",
-                            isRepeated: false
+                            isRepeated: false,
+                            isIncorrectGrade: false
                         };
                     } else {
                         // When unmarking as absent, only update the isAbsent status

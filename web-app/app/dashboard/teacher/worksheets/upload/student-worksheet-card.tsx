@@ -38,6 +38,7 @@ interface StudentWorksheet {
     tokenNumber: string;
     worksheetNumber: number;
     isAbsent: boolean;
+    isIncorrectGrade?: boolean;
     grade: string;
     isUploading: boolean;
     page1File?: File | null;
@@ -96,6 +97,10 @@ export function StudentWorksheetCard({
 
     const handleAbsentChange = (checked: boolean) => {
         onUpdate(index, "isAbsent", checked);
+    };
+
+    const handleIncorrectGradeChange = (checked: boolean) => {
+        onUpdate(index, "isIncorrectGrade", checked);
     };
 
     const handleWorksheetNumberChange = (value: string) => {
@@ -395,6 +400,17 @@ export function StudentWorksheetCard({
                                 className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                             />
                             <Label htmlFor={`absent-${worksheet.studentId}`} className="text-sm">Absent</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <input
+                                type="checkbox"
+                                id={`incorrect-grade-${worksheet.studentId}`}
+                                checked={worksheet.isIncorrectGrade || false}
+                                onChange={(e) => handleIncorrectGradeChange(e.target.checked)}
+                                disabled={worksheet.isAbsent || worksheet.isUploading}
+                                className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                            />
+                            <Label htmlFor={`incorrect-grade-${worksheet.studentId}`} className="text-sm">Incorrect Grade</Label>
                         </div>
                         {worksheet.isRepeated && (
                             <div className="text-xs text-orange-600 font-medium">

@@ -151,7 +151,8 @@ router.post(
         body('notes').optional(),
         body('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date'),
         body('isAbsent').optional().isBoolean(),
-        body('isRepeated').optional().isBoolean()
+        body('isRepeated').optional().isBoolean(),
+        body('isIncorrectGrade').optional().isBoolean()
     ],
     asHandler(createGradedWorksheet)
 );
@@ -190,7 +191,8 @@ router.put(
         body('notes').optional(),
         body('submittedOn').optional().isISO8601().withMessage('Submitted date must be a valid ISO date'),
         body('isAbsent').optional().isBoolean(),
-        body('isRepeated').optional().isBoolean()
+        body('isRepeated').optional().isBoolean(),
+        body('isIncorrectGrade').optional().isBoolean()
     ],
     asHandler(updateGradedWorksheet)
 );

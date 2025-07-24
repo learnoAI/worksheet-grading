@@ -181,6 +181,7 @@ model Worksheet {
   isAbsent             Boolean             @default(false)
   isRepeated           Boolean             @default(false)
   isCorrectGrade       Boolean             @default(false)
+  isIncorrectGrade     Boolean             @default(false)  // Flag to mark if teacher thinks grade is incorrect
   mongoDbId            String?             @unique
   gradingDetails       Json?               // Store the detailed grading information from AI
   wrongQuestionNumbers String?             // Comma-separated wrong question numbers

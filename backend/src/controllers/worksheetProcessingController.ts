@@ -164,6 +164,7 @@ export const processWorksheets = async (req: Request, res: Response) => {
                                 isAbsent: false,
                                 isRepeated: false,
                                 isCorrectGrade: false,
+                                isIncorrectGrade: false,
                                 ...(pythonResponse.mongodb_id ? { 
                                     mongoDbId: pythonResponse.mongodb_id 
                                 } : {}),
@@ -212,7 +213,7 @@ export const processWorksheets = async (req: Request, res: Response) => {
  * Create a graded worksheet with MongoDbId
  */
 export const createGradedWorksheetWithMongoId = async (req: Request, res: Response) => {
-    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isCorrectGrade, mongoDbId, gradingDetails } = req.body;
+    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isCorrectGrade, isIncorrectGrade, mongoDbId, gradingDetails } = req.body;
     const submittedById = req.user?.userId;
 
     // Add logging to track the incoming requests
@@ -224,6 +225,7 @@ export const createGradedWorksheetWithMongoId = async (req: Request, res: Respon
         isAbsent, 
         isRepeated, 
         isCorrectGrade,
+        isIncorrectGrade,
         submittedOn,
         mongoDbId 
     });
@@ -251,6 +253,7 @@ export const createGradedWorksheetWithMongoId = async (req: Request, res: Respon
                     isAbsent: true,
                     isRepeated: false,
                     isCorrectGrade: false,
+                    isIncorrectGrade: false,
                     // No MongoDB ID for absent students
                 }
             });
@@ -304,6 +307,7 @@ export const createGradedWorksheetWithMongoId = async (req: Request, res: Respon
                 isAbsent: false,
                 isRepeated: isRepeated || false,
                 isCorrectGrade: isCorrectGrade || false,
+                isIncorrectGrade: isIncorrectGrade || false,
                 ...(mongoDbId ? { mongoDbId } : {}), // Store the MongoDB ID if provided
                 ...(gradingDetails ? { gradingDetails } : {}) // Store grading details if provided
             }

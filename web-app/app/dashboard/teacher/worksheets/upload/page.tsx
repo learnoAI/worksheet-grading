@@ -55,6 +55,8 @@ interface StudentWorksheet {
     tokenNumber: string;
     worksheetNumber: number;
     isAbsent: boolean;
+    isCorrectGrade?: boolean;
+    isIncorrectGrade?: boolean;
     grade: string;
     isUploading: boolean;
     isRepeated?: boolean;
@@ -205,6 +207,7 @@ export default function UploadWorksheetPage() {
                                 isAbsent: !!worksheet.isAbsent,
                                 isRepeated: worksheet.isAbsent ? false : (worksheet.isRepeated || false),
                                 isCorrectGrade: worksheet.isCorrectGrade || false,
+                                isIncorrectGrade: worksheet.isIncorrectGrade || false,
                                 isNew: false,
                                 isUploading: false,
                                 page1File: null,
@@ -274,6 +277,7 @@ export default function UploadWorksheetPage() {
                             isAbsent: false,
                             isRepeated: !!isRepeatedWorksheet,
                             isCorrectGrade: false,
+                            isIncorrectGrade: false,
                             isNew: !hasHistory,
                             isUploading: false,
                             page1File: null,
@@ -291,6 +295,7 @@ export default function UploadWorksheetPage() {
                             isAbsent: false,
                             isRepeated: false,
                             isCorrectGrade: false,
+                            isIncorrectGrade: false,
                             isNew: !studentsWithHistory.get(student.id),
                             isUploading: false,
                             page1File: null,
@@ -340,7 +345,8 @@ export default function UploadWorksheetPage() {
                 grade: '',           
                 page1File: null,     
                 page2File: null,     
-                isRepeated: false
+                isRepeated: false,
+                isIncorrectGrade: false
             };
         } else if (field === "worksheetNumber") {
             // When worksheet number changes, check if it's a repeat
@@ -659,6 +665,7 @@ export default function UploadWorksheetPage() {
                         isAbsent: true,
                         isRepeated: false,
                         isCorrectGrade: false,
+                        isIncorrectGrade: false,
                         notes: 'Student absent'
                     };
 
@@ -694,6 +701,8 @@ export default function UploadWorksheetPage() {
                         submittedOn: new Date(submittedOn).toISOString(),
                         isAbsent: false,
                         isRepeated: currentStudentData.isRepeated || false,
+                        isCorrectGrade: currentStudentData.isCorrectGrade || false,
+                        isIncorrectGrade: currentStudentData.isIncorrectGrade || false,
                         gradingDetails: currentStudentData.gradingDetails || undefined,
                         wrongQuestionNumbers: currentStudentData.wrongQuestionNumbers || ''
                     };
@@ -775,6 +784,7 @@ export default function UploadWorksheetPage() {
                             isAbsent: true,
                             isRepeated: false,
                             isCorrectGrade: false,
+                            isIncorrectGrade: false,
                             notes: 'Student absent'
                         };
                         
@@ -806,7 +816,9 @@ export default function UploadWorksheetPage() {
                             grade: gradeValue,
                             submittedOn: new Date(submittedOn).toISOString(),
                             isAbsent: false,
-                            isRepeated: worksheet.isRepeated || false
+                            isRepeated: worksheet.isRepeated || false,
+                            isCorrectGrade: worksheet.isCorrectGrade || false,
+                            isIncorrectGrade: worksheet.isIncorrectGrade || false
                         };
                         
                         const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
@@ -878,7 +890,8 @@ export default function UploadWorksheetPage() {
                     page1File: null,
                     page2File: null,
                     isRepeated: false,
-                    isCorrectGrade: false
+                    isCorrectGrade: false,
+                    isIncorrectGrade: false
                 };
             }
             return worksheet;

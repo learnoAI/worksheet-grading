@@ -14,6 +14,7 @@ interface GradedWorksheetData {
     isAbsent?: boolean;
     isRepeated?: boolean;
     isCorrectGrade?: boolean;
+    isIncorrectGrade?: boolean;
     mongoDbId?: string;
     gradingDetails?: any;
 }
@@ -29,6 +30,7 @@ interface CreateGradedWorksheetData {
     isAbsent?: boolean;
     isRepeated?: boolean;
     isCorrectGrade?: boolean;
+    isIncorrectGrade?: boolean;
     mongoDbId?: string; // Add MongoDB ID field
     gradingDetails?: any; // Add grading details field
 }

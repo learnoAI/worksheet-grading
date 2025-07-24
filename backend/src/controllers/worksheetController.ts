@@ -321,7 +321,7 @@ export const getWorksheetTemplates = async (req: Request, res: Response) => {
 
 // Create a graded worksheet
 export const createGradedWorksheet = async (req: Request, res: Response) => {
-    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, gradingDetails, wrongQuestionNumbers } = req.body;
+    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isIncorrectGrade, gradingDetails, wrongQuestionNumbers } = req.body;
     const submittedById = req.user?.userId;
 
     // Add logging to track the incoming requests
@@ -349,6 +349,7 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
                     submittedOn: submittedOn ? new Date(submittedOn) : undefined,
                     isAbsent: true,
                     isRepeated: false,
+                    isIncorrectGrade: false, // Absent students can't have incorrect grades
                 }
             });
 
@@ -402,6 +403,7 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
                 submittedOn: submittedOn ? new Date(submittedOn) : undefined,
                 isAbsent: false,
                 isRepeated: isRepeated || false,
+                isIncorrectGrade: isIncorrectGrade || false,
                 gradingDetails: gradingDetails || null,
                 wrongQuestionNumbers: wrongQuestionNumbers || null,
             }
@@ -469,7 +471,7 @@ export const findWorksheetByClassStudentDate = async (req: Request, res: Respons
 // Update a graded worksheet
 export const updateGradedWorksheet = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, gradingDetails } = req.body;
+    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isIncorrectGrade, gradingDetails } = req.body;
     const submittedById = req.user?.userId;
 
     // Add logging to track the incoming requests
@@ -510,6 +512,7 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
                     submittedOn: submittedOn ? new Date(submittedOn) : undefined,
                     isAbsent: true,
                     isRepeated: false, // Can't be repeated if absent
+                    isIncorrectGrade: false, // Absent students can't have incorrect grades
                 }
             });
 
@@ -562,6 +565,7 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
             submittedOn: submittedOn ? new Date(submittedOn) : undefined,
             isAbsent: false,
             isRepeated: isRepeated || false,
+            isIncorrectGrade: isIncorrectGrade || false,
             gradingDetails: gradingDetails || null,
         }
 

@@ -53,6 +53,7 @@ export type StudentGrade = {
     existing: boolean;
     isAbsent: boolean;
     isRepeated: boolean;
+    isIncorrectGrade?: boolean;
     isNew?: boolean;
 };
 
@@ -220,6 +221,27 @@ export const columns: ColumnDef<StudentGrade>[] = [
                     }}
                     disabled={isAbsent}
                     label="Repeated"
+                />
+            );
+        },
+    },
+    {
+        id: "isIncorrectGrade",
+        accessorKey: "isIncorrectGrade",
+        header: "Incorrect Grade",
+        cell: ({ row, table }) => {
+            const updateData = (table as any).options.meta?.updateData;
+            const isAbsent = !!row.original.isAbsent;
+            const isIncorrectGrade = !!row.original.isIncorrectGrade;
+
+            return (
+                <ControlledCheckbox
+                    checked={isIncorrectGrade}
+                    onChange={(checked) => {
+                        updateData(row.index, "isIncorrectGrade", checked);
+                    }}
+                    disabled={isAbsent}
+                    label="Incorrect"
                 />
             );
         },

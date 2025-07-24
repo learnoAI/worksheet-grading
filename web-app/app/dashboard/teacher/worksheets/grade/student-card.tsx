@@ -91,6 +91,10 @@ export function StudentCard({
         }
     };
 
+    const handleIncorrectGradeChange = (checked: boolean) => {
+        updateData(student.studentId, "isIncorrectGrade", checked);
+    };
+
     const handleWorksheetNumberChange = (value: string) => {
         console.log(`${student.name}: Setting worksheet number to ${value}`);
         setWorksheetNumber(value);
@@ -219,7 +223,7 @@ export function StudentCard({
                 </div>
 
                 <div className="flex flex-wrap justify-between items-center mt-4">
-                    <div className="space-x-4 flex items-center">
+                    <div className="space-x-4 flex items-center flex-wrap">
                         <div className="flex items-center space-x-2">
                             <input
                                 type="checkbox"
@@ -229,6 +233,17 @@ export function StudentCard({
                                 className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                             />
                             <Label htmlFor={`absent-${student.id}`} className="text-sm">Absent</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <input
+                                type="checkbox"
+                                id={`incorrect-grade-${student.id}`}
+                                checked={student.isIncorrectGrade || false}
+                                onChange={(e) => handleIncorrectGradeChange(e.target.checked)}
+                                disabled={isAbsent}
+                                className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                            />
+                            <Label htmlFor={`incorrect-grade-${student.id}`} className="text-sm">Incorrect Grade</Label>
                         </div>
                     </div>
 

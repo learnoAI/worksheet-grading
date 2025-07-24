@@ -162,6 +162,7 @@ export interface Worksheet {
     isAbsent?: boolean;
     isRepeated?: boolean;
     isCorrectGrade?: boolean;
+    isIncorrectGrade?: boolean;
     mongoDbId?: string;
     gradingDetails?: any; // JSON field for detailed grading information
 }

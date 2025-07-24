@@ -109,6 +109,7 @@ export default function GradeWorksheetPage() {
                             existing: true,
                             isAbsent: !!worksheet.isAbsent,
                             isRepeated: worksheet.isAbsent ? false : (worksheet.isRepeated || false),
+                            isIncorrectGrade: worksheet.isAbsent ? false : (worksheet.isIncorrectGrade || false),
                             isNew: false
                         };
                     }
@@ -141,6 +142,7 @@ export default function GradeWorksheetPage() {
                         existing: false,
                         isAbsent: false,
                         isRepeated: false,
+                        isIncorrectGrade: false,
                         isNew: !hasHistory
                     };
                 } catch (error) {
@@ -154,6 +156,7 @@ export default function GradeWorksheetPage() {
                         existing: false,
                         isAbsent: false,
                         isRepeated: false,
+                        isIncorrectGrade: false,
                         isNew: !studentsWithHistory.get(student.id)
                     };
                 }
@@ -316,6 +319,7 @@ export default function GradeWorksheetPage() {
                     submittedOn: new Date(submittedOn).toISOString(),
                     isAbsent: updatedGrade.isAbsent,
                     isRepeated: updatedGrade.isAbsent ? false : (updatedGrade.isRepeated || false),
+                    isIncorrectGrade: updatedGrade.isAbsent ? false : (updatedGrade.isIncorrectGrade || false),
                     notes: updatedGrade.isAbsent ? 'Student absent' : undefined
                 };
 
@@ -358,7 +362,8 @@ export default function GradeWorksheetPage() {
                         grade: isAbsent ? '' : (worksheet?.grade?.toString() || ''),
                         existing: !!worksheet,
                         isAbsent: isAbsent,
-                        isRepeated: isAbsent ? false : (worksheet?.isRepeated || false)
+                        isRepeated: isAbsent ? false : (worksheet?.isRepeated || false),
+                        isIncorrectGrade: isAbsent ? false : (worksheet?.isIncorrectGrade || false)
                     };
                 }
                 return g;
@@ -400,6 +405,7 @@ export default function GradeWorksheetPage() {
                         submittedOn: new Date(submittedOn).toISOString(),
                         isAbsent: true,
                         isRepeated: false,
+                        isIncorrectGrade: false,
                         notes: 'Student absent'
                     };
                     
@@ -425,6 +431,7 @@ export default function GradeWorksheetPage() {
                         submittedOn: new Date(submittedOn).toISOString(),
                         isAbsent: false,
                         isRepeated: grade.isRepeated || false,
+                        isIncorrectGrade: grade.isIncorrectGrade || false,
                         notes: undefined
                     };
                     
