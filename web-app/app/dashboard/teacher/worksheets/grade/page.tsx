@@ -178,35 +178,35 @@ export default function GradeWorksheetPage() {
                 return currentWorksheetNumber;
             }
             
-            const selectedDate = new Date(currentDate);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            selectedDate.setHours(0, 0, 0, 0);
+            const futureDate = new Date();
+            futureDate.setFullYear(futureDate.getFullYear() + 1); // One year in the future
             
-            const previousWorksheets = await worksheetAPI.getPreviousWorksheets(
+            const allWorksheets = await worksheetAPI.getPreviousWorksheets(
                 classId,
                 studentId, 
-                currentDate
+                futureDate.toISOString().split('T')[0] // This will get ALL worksheets
             );
             
-            if (!previousWorksheets || previousWorksheets.length === 0) {
+            if (!allWorksheets || allWorksheets.length === 0) {
                 return 0;
             }
             
-            const sortedWorksheets = previousWorksheets.sort((a, b) => {
+            // Sort worksheets by date (most recent first)
+            const sortedWorksheets = allWorksheets.sort((a, b) => {
                 const dateA = new Date(a.submittedOn || '').getTime();
                 const dateB = new Date(b.submittedOn || '').getTime();
                 return dateB - dateA;
             });
             
-            const allPreviousAreAbsent = sortedWorksheets.every(ws => !!ws.isAbsent);
+            // Find the most recent worksheet that is not absent and has a grade
+            const latestValidWorksheet = sortedWorksheets.find(ws => 
+                !ws.isAbsent && 
+                ws.grade !== null && 
+                ws.grade !== undefined && 
+                ws.grade !== 0
+            );
             
-            const latestValidWorksheet = sortedWorksheets.find(ws => !ws.isAbsent);
-            
-            if (allPreviousAreAbsent) {
-                return 0;
-            }
-            
+            // If no valid worksheets found, start with worksheet 0
             if (!latestValidWorksheet) {
                 return 0;
             }
@@ -214,13 +214,16 @@ export default function GradeWorksheetPage() {
             const score = latestValidWorksheet.grade || 0;
             const worksheetNumber = latestValidWorksheet.template?.worksheetNumber || 0;
             
+            // If the most recent worksheet has a score >= 32, increment the worksheet number
             if (score >= PROGRESSION_THRESHOLD) {
                 const newWorksheetNumber = worksheetNumber + 1;
                 return newWorksheetNumber;
             } else {
+                // If the most recent worksheet has a score < 32, repeat the same worksheet
                 return worksheetNumber;
             }
         } catch (error) {
+            console.error('Error getting recommended worksheet number:', error);
             return 0;
         }
     };

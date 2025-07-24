@@ -10,6 +10,8 @@ import { toast } from 'sonner';
 import { classAPI, worksheetAPI } from '@/lib/api';
 import { StudentWorksheetCard } from './student-worksheet-card';
 
+const PROGRESSION_THRESHOLD = 32;
+
 interface Class {
     id: string;
     name: string;
@@ -212,28 +214,52 @@ export default function UploadWorksheetPage() {
                         }
                         
                         
-                        const previousWorksheets = await worksheetAPI.getPreviousWorksheets(
+                        // Get ALL worksheets for this student to find the most recent one with a grade >= 32
+                        // We use a future date to ensure we get all worksheets including today's and future ones
+                        const futureDate = new Date();
+                        futureDate.setFullYear(futureDate.getFullYear() + 1); // One year in the future
+                        
+                        const allWorksheets = await worksheetAPI.getPreviousWorksheets(
                             selectedClass,
                             student.id, 
-                            submittedOn
+                            futureDate.toISOString().split('T')[0] // This will get ALL worksheets
                         );
                         
-                        const hasHistory = previousWorksheets && previousWorksheets.length > 0;
+                        const hasHistory = allWorksheets && allWorksheets.length > 0;
                         studentsWithHistory.set(student.id, hasHistory);
                         
-                        // Get last worksheet number or default to 0
-                        const sortedWorksheets = previousWorksheets?.sort((a, b) => {
+                        // Sort worksheets by date (most recent first)
+                        const sortedWorksheets = allWorksheets?.sort((a, b) => {
                             const dateA = new Date(a.submittedOn || '').getTime();
                             const dateB = new Date(b.submittedOn || '').getTime();
                             return dateB - dateA;
                         }) || [];
                         
-                        const latestValidWorksheet = sortedWorksheets.find(ws => !ws.isAbsent);
-                        const lastWorksheetNumber = latestValidWorksheet?.template?.worksheetNumber || 0;
-                        const recommendedWorksheetNumber = lastWorksheetNumber;
+                        // Find the most recent worksheet that is not absent and has a grade
+                        const latestValidWorksheet = sortedWorksheets.find(ws => 
+                            !ws.isAbsent && 
+                            ws.grade !== null && 
+                            ws.grade !== undefined && 
+                            ws.grade !== 0
+                        );
+                        
+                        let recommendedWorksheetNumber = 0;
+                        
+                        if (latestValidWorksheet) {
+                            const score = latestValidWorksheet.grade || 0;
+                            const worksheetNumber = latestValidWorksheet.template?.worksheetNumber || 0;
+                            
+                            // If the most recent worksheet has a score >= PROGRESSION_THRESHOLD, increment the worksheet number
+                            if (score >= PROGRESSION_THRESHOLD) {
+                                recommendedWorksheetNumber = worksheetNumber + 1;
+                            } else {
+                                // If the most recent worksheet has a score < 32, repeat the same worksheet
+                                recommendedWorksheetNumber = worksheetNumber;
+                            }
+                        }
                         
                         // Check if this worksheet number has been done before to determine if it's repeated
-                        const isRepeatedWorksheet = previousWorksheets && previousWorksheets.some(pw => 
+                        const isRepeatedWorksheet = allWorksheets && allWorksheets.some(pw => 
                             !pw.isAbsent && pw.template?.worksheetNumber === recommendedWorksheetNumber
                         );
                         
@@ -323,16 +349,21 @@ export default function UploadWorksheetPage() {
             
             if (newWorksheetNumber > 0) {
                 try {
-                    const previousWorksheets = await worksheetAPI.getPreviousWorksheets(
+                    // Get ALL worksheets for this student to check if this worksheet number was done before
+                    const futureDate = new Date();
+                    futureDate.setFullYear(futureDate.getFullYear() + 1); // One year in the future
+                    
+                    const allWorksheets = await worksheetAPI.getPreviousWorksheets(
                         selectedClass,
                         sortedWorksheet.studentId, 
-                        submittedOn
+                        futureDate.toISOString().split('T')[0] // This will get ALL worksheets
                     );
                     
-                    isRepeated = previousWorksheets && previousWorksheets.some(pw => 
+                    isRepeated = allWorksheets && allWorksheets.some(pw => 
                         !pw.isAbsent && pw.template?.worksheetNumber === newWorksheetNumber
                     );
                 } catch (error) {
+                    console.error('Error checking if worksheet is repeated:', error);
                 }
             }
             

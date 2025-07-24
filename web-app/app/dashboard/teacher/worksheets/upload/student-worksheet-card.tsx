@@ -262,7 +262,6 @@ export function StudentWorksheetCard({
                 </div>
             </div>
 
-            {/* Wrong Question Numbers Input */}
             <div className="space-y-1 mb-3">
                 <Label htmlFor={`wrong-questions-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">
                     Wrong Questions
