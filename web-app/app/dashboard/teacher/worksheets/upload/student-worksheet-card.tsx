@@ -286,7 +286,8 @@ export function StudentWorksheetCard({
                         )}
                     </div>
                 )}
-            </div>                <div className="space-y-2 mb-3">
+            </div>                
+            <div className="space-y-2 mb-3">
                     <div className="space-y-1">
                         <Label className="text-xs md:text-sm font-medium">Worksheet Pages</Label>
                         <div className="grid grid-cols-2 gap-2 md:gap-3">
