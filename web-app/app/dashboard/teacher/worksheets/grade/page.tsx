@@ -35,7 +35,6 @@ export default function GradeWorksheetPage() {
 
     const [classes, setClasses] = useState<Class[]>([]);
     const [selectedClass, setSelectedClass] = useState<string>('');
-    const [students, setStudents] = useState<Student[]>([]);
     const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
 
     const [studentGrades, setStudentGrades] = useState<StudentGrade[]>([]);
@@ -53,7 +52,6 @@ export default function GradeWorksheetPage() {
                 const classesData = await classAPI.getTeacherClasses(user.id);
                 setClasses(classesData);
             } catch (error) {
-                console.error('Error fetching initial data:', error);
                 toast.error('Failed to load initial data');
             } finally {
                 setIsLoading(false);
@@ -66,7 +64,6 @@ export default function GradeWorksheetPage() {
     useEffect(() => {
         const loadStudentsData = async () => {
             if (!selectedClass) {
-                setStudents([]);
                 setStudentGrades([]);
                 return;
             }
@@ -85,7 +82,6 @@ export default function GradeWorksheetPage() {
             setIsFetchingTableData(true);
             
             const studentsData = await classAPI.getClassStudents(selectedClass);
-            setStudents(studentsData);
             
             const selectedDate = new Date(submittedOn);
             const today = new Date();
@@ -134,7 +130,6 @@ export default function GradeWorksheetPage() {
                     );
                     
                     const hasNonAbsentRecords = previousWorksheets && previousWorksheets.some(ws => !ws.isAbsent);
-                      // Students are never automatically marked absent
                     
                     return {
                         studentId: student.id,
@@ -231,80 +226,65 @@ export default function GradeWorksheetPage() {
     };
 
     const handleSaveStudent = async (grade: StudentGrade) => {
-        try {
-            // Get the most up-to-date data for this student from the main state
-            const currentStudentData = studentGrades.find(g => g.studentId === grade.studentId);
-            if (!currentStudentData) {
-                toast.error('Student data not found');
-                return;
-            }
-
-            // Use the current state data instead of the passed grade parameter
-            const worksheetNumber = currentStudentData.worksheetNumber;
-            const gradeValue = typeof currentStudentData.grade === 'string' ? currentStudentData.grade.trim() : '';
-            
-            const isValidWorksheetNumber = worksheetNumber && worksheetNumber > 0;
-            const isValidGrade = gradeValue !== '' && !isNaN(parseFloat(gradeValue));
-            
-            // Only use explicitly set absent status, never auto-mark as absent
-            const isAbsent = currentStudentData.isAbsent;
-            
-            let updatedGrade = { ...currentStudentData };
-            let shouldSave = false;
-            let shouldDelete = false;
-            
-            // If both worksheet and grade are valid but student is marked as absent, unmark as absent
-            if (isValidWorksheetNumber && isValidGrade && isAbsent) {
-                updatedGrade = {
-                    ...updatedGrade,
-                    isAbsent: false
-                };
-            }
-            
-            // Determine what action to take based on the data state - using same logic as bulk save
-            if (updatedGrade.isAbsent) {
-                // Student is marked as absent - always save this state
-                shouldSave = true;
-                updatedGrade = {
-                    ...updatedGrade,
-                    worksheetNumber: 0,
-                    grade: "",
-                    isRepeated: false
-                };
-            } else if (isValidWorksheetNumber && isValidGrade) {
-                // Both worksheet number and grade are valid - save
-                const numericGrade = parseFloat(gradeValue);
-                if (numericGrade < 0 || numericGrade > 40) {
-                    toast.error(`Grade for ${updatedGrade.name} must be between 0 and 40`);
+            try {
+                const currentStudentData = studentGrades.find(g => g.studentId === grade.studentId);
+                if (!currentStudentData) {
+                    toast.error('Student data not found');
                     return;
                 }
-                shouldSave = true;
-                updatedGrade = {
-                    ...updatedGrade,
-                    isAbsent: false
-                };
-            } else if (!isValidWorksheetNumber && !isValidGrade) {
-                // Both fields are empty/invalid
-                if (updatedGrade.existing && updatedGrade.id) {
-                    // Delete existing record if both fields are cleared
-                    shouldDelete = true;
+
+                const worksheetNumber = currentStudentData.worksheetNumber;
+                const gradeValue = typeof currentStudentData.grade === 'string' ? currentStudentData.grade.trim() : '';
+                
+                const isValidWorksheetNumber = worksheetNumber && worksheetNumber > 0;
+                const isValidGrade = gradeValue !== '' && !isNaN(parseFloat(gradeValue));
+                
+                const isAbsent = currentStudentData.isAbsent;
+                
+                let updatedGrade = { ...currentStudentData };
+                let shouldSave = false;
+                let shouldDelete = false;
+                
+                if (isValidWorksheetNumber && isValidGrade && isAbsent) {
+                    updatedGrade = {
+                        ...updatedGrade,
+                        isAbsent: false
+                    };
+                }
+                
+                if (updatedGrade.isAbsent) {
+                    shouldSave = true;
+                    updatedGrade = {
+                        ...updatedGrade,
+                        worksheetNumber: 0,
+                        grade: "",
+                        isRepeated: false
+                    };
+                } else if (isValidWorksheetNumber && isValidGrade) {
+                    const numericGrade = parseFloat(gradeValue);
+                    if (numericGrade < 0 || numericGrade > 40) {
+                        toast.error(`Grade for ${updatedGrade.name} must be between 0 and 40`);
+                        return;
+                    }
+                    shouldSave = true;
+                    updatedGrade = {
+                        ...updatedGrade,
+                        isAbsent: false
+                    };
+                } else if (!isValidWorksheetNumber && !isValidGrade) {
+                    if (updatedGrade.existing && updatedGrade.id) {
+                        shouldDelete = true;
+                    } else {
+                        toast.info(`No changes to save for ${updatedGrade.name}.`);
+                        return;
+                    }
                 } else {
-                    // For new records with no data, just inform and return (same as bulk save)
-                    toast.info(`No changes to save for ${updatedGrade.name}.`);
+                    toast.warning(`${updatedGrade.name} has incomplete data. Please fill in both Worksheet# and Grade, or mark as absent.`);
                     return;
-                }
-            } else {
-                // Incomplete data (only one field filled) - warn but don't block (same as bulk save)
-                toast.warning(`${updatedGrade.name} has incomplete data. Please fill in both Worksheet# and Grade, or mark as absent.`);
-                return;
-            }
-
-            // Handle deletion case
-            if (shouldDelete) {
+                }            if (shouldDelete) {
                 await worksheetAPI.deleteGradedWorksheet(updatedGrade.id);
                 toast.success(`Record for ${updatedGrade.name} removed successfully`);
                 
-                // Update local state to reflect deletion
                 setStudentGrades(prevGrades => prevGrades.map(g => {
                     if (g.studentId === updatedGrade.studentId) {
                         return {
@@ -320,12 +300,10 @@ export default function GradeWorksheetPage() {
                     return g;
                 }));
                 
-                // Refresh data from server
                 await fetchStudentData(updatedGrade.studentId);
                 return;
             }
 
-            // Handle save case
             if (shouldSave) {
                 const data = {
                     classId: selectedClass,
@@ -346,17 +324,14 @@ export default function GradeWorksheetPage() {
 
                 toast.success(`Grade for ${updatedGrade.name} saved successfully`);
 
-                // Update student grade locally first for immediate feedback
                 setStudentGrades(prevGrades => prevGrades.map(g =>
                     g.studentId === updatedGrade.studentId ? updatedGrade : g
                 ));
 
-                // Then fetch from server to ensure full consistency
                 await fetchStudentData(updatedGrade.studentId);
             }
 
         } catch (error) {
-            console.error('Error saving student grade:', error);
             toast.error(`Failed to save grade for ${grade.name}`);
         }
     };
@@ -405,10 +380,8 @@ export default function GradeWorksheetPage() {
                 const isValidWorksheetNumber = worksheetNumber && worksheetNumber > 0;
                 const isValidGrade = gradeValue !== '' && !isNaN(parseFloat(gradeValue));
                 
-                // Only use explicitly set absent status, never auto-mark as absent
                 const isAbsent = grade.isAbsent;
                 
-                // If both worksheet and grade are valid but student is marked as absent, unmark as absent
                 if (isValidWorksheetNumber && isValidGrade && isAbsent) {
                     updatedGrades[index] = {
                         ...updatedGrades[index],

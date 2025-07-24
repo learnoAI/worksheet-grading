@@ -43,11 +43,9 @@ interface StudentWorksheet {
     page1File?: File | null;
     page2File?: File | null;
     isRepeated?: boolean;
-    isCorrectGrade?: boolean;
     gradingDetails?: GradingDetails;
     id?: string;
     existing?: boolean;
-    isNew?: boolean;
 }
 
 interface StudentWorksheetCardProps {
@@ -57,7 +55,6 @@ interface StudentWorksheetCardProps {
     onPageFileChange?: (studentId: string, pageNumber: number, file: File | null) => void;
     onUpload: (worksheet: StudentWorksheet) => void;
     onSave: (worksheet: StudentWorksheet) => void;
-    fileInputRefs: React.RefObject<{[key: string]: HTMLInputElement | null}>;
 }
 
 export function StudentWorksheetCard({ 
@@ -66,8 +63,7 @@ export function StudentWorksheetCard({
     onUpdate,
     onPageFileChange,
     onUpload,
-    onSave,
-    fileInputRefs
+    onSave
 }: StudentWorksheetCardProps) {
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     
@@ -101,10 +97,6 @@ export function StudentWorksheetCard({
         onUpdate(index, "isAbsent", checked);
     };
 
-    const handleCorrectGradeChange = (checked: boolean) => {
-        onUpdate(index, "isCorrectGrade", checked);
-    };
-
     const handleWorksheetNumberChange = (value: string) => {
         const numValue = parseInt(value) || 0;
         onUpdate(index, "worksheetNumber", numValue);
@@ -115,10 +107,6 @@ export function StudentWorksheetCard({
         if (value && worksheet.isAbsent) {
             onUpdate(index, "isAbsent", false);
         }
-    };
-
-    const handleFileButtonClick = () => {
-        fileInputRefs.current[worksheet.studentId]?.click();
     };
 
     const handlePageFileUpload = (pageNumber: number) => {
@@ -161,11 +149,6 @@ export function StudentWorksheetCard({
                 {worksheet.existing && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                         Saved
-                    </span>
-                )}
-                {worksheet.isNew && (
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                        New
                     </span>
                 )}
                 {worksheet.isRepeated && (
@@ -351,17 +334,6 @@ export function StudentWorksheetCard({
                                 className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                             />
                             <Label htmlFor={`absent-${worksheet.studentId}`} className="text-sm">Absent</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                            <input
-                                type="checkbox"
-                                id={`correctGrade-${worksheet.studentId}`}
-                                checked={worksheet.isCorrectGrade || false}
-                                onChange={(e) => handleCorrectGradeChange(e.target.checked)}
-                                disabled={worksheet.isAbsent}
-                                className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500 disabled:opacity-50"
-                            />
-                            <Label htmlFor={`correctGrade-${worksheet.studentId}`} className="text-sm">Correct Grade</Label>
                         </div>
                         {worksheet.isRepeated && (
                             <div className="text-xs text-orange-600 font-medium">
