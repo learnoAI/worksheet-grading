@@ -187,13 +187,28 @@ export default function UploadWorksheetPage() {
     const [isFetchingTableData, setIsFetchingTableData] = useState(false);
     const [selectedClass, setSelectedClass] = useState<string>('');
     const [students, setStudents] = useState<Student[]>([]);
-    const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);    const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
+    const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [searchTerm, setSearchTerm] = useState<string>('');
+    const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
     const fileInputRefs = useRef<{[key: string]: HTMLInputElement | null}>({});
 
     
     const sortedStudentWorksheets = useMemo(() => {
         return sortStudentsByTokenNumber(studentWorksheets);
     }, [studentWorksheets]);
+
+    // Filtered worksheets based on search term
+    const filteredStudentWorksheets = useMemo(() => {
+        if (!searchTerm.trim()) {
+            return sortedStudentWorksheets;
+        }
+        
+        const lowercaseSearch = searchTerm.toLowerCase().trim();
+        return sortedStudentWorksheets.filter(worksheet => 
+            worksheet.name.toLowerCase().includes(lowercaseSearch) ||
+            worksheet.tokenNumber.toLowerCase().includes(lowercaseSearch)
+        );
+    }, [sortedStudentWorksheets, searchTerm]);
 
     
     useEffect(() => {
@@ -525,7 +540,9 @@ export default function UploadWorksheetPage() {
         }
     };    
     const handleBatchProcess = async () => {
-        const studentsWithFiles = studentWorksheets.filter(sw => 
+        // Use filtered worksheets when search is active, otherwise use all worksheets
+        const worksheetsToProcess = searchTerm.trim() ? filteredStudentWorksheets : studentWorksheets;
+        const studentsWithFiles = worksheetsToProcess.filter(sw => 
             !sw.isAbsent && (sw.page1File || sw.page2File) && sw.worksheetNumber
         );
           if (studentsWithFiles.length === 0) {
@@ -783,8 +800,10 @@ export default function UploadWorksheetPage() {
         setIsSaving(true);
         
         try {
+            // Use filtered worksheets when search is active, otherwise use all worksheets
+            const worksheetsToCheck = searchTerm.trim() ? filteredStudentWorksheets : studentWorksheets;
             // Filter students that can be saved
-            const studentsToSave = studentWorksheets.filter(worksheet => {
+            const studentsToSave = worksheetsToCheck.filter(worksheet => {
                 if (worksheet.isAbsent) {
                     return true; // Can always save absent students
                 }
@@ -895,6 +914,43 @@ export default function UploadWorksheetPage() {
         }
     };
 
+    // Function to mark all students without grades as absent
+    const handleMarkAllWithoutGradeAsAbsent = () => {
+        // Use filtered worksheets when search is active, otherwise use all worksheets
+        const worksheetsToCheck = searchTerm.trim() ? filteredStudentWorksheets : studentWorksheets;
+        
+        // Find students without grades (not absent and no grade - worksheet number doesn't matter)
+        const studentsWithoutGrades = worksheetsToCheck.filter(worksheet => 
+            !worksheet.isAbsent && 
+            (!worksheet.grade || worksheet.grade.trim() === '')
+        );
+
+        if (studentsWithoutGrades.length === 0) {
+            toast.info('No students without grades found to mark as absent.');
+            return;
+        }
+
+        // Update state to mark these students as absent
+        setStudentWorksheets(prev => prev.map(worksheet => {
+            const shouldMarkAbsent = studentsWithoutGrades.some(s => s.studentId === worksheet.studentId);
+            if (shouldMarkAbsent) {
+                return {
+                    ...worksheet,
+                    isAbsent: true,
+                    worksheetNumber: 0,
+                    grade: '',
+                    page1File: null,
+                    page2File: null,
+                    isRepeated: false,
+                    isCorrectGrade: false
+                };
+            }
+            return worksheet;
+        }));
+
+        toast.success(`Marked ${studentsWithoutGrades.length} student${studentsWithoutGrades.length !== 1 ? 's' : ''} as absent.`);
+    };
+
 
     if (isLoading) {
         return <div className="flex items-center justify-center min-h-[60vh]">Loading...</div>;
@@ -954,6 +1010,50 @@ export default function UploadWorksheetPage() {
                         </div>
                     </div>
 
+                    {selectedClass && !isFetchingTableData && sortedStudentWorksheets.length > 0 && (
+                        <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                                <Label htmlFor="search" className="text-sm font-medium">Search Students</Label>
+                                <Button
+                                    onClick={handleMarkAllWithoutGradeAsAbsent}
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs"
+                                    disabled={isSaving}
+                                >
+                                    Mark Ungraded as Absent
+                                    {(() => {
+                                        const worksheetsToCheck = searchTerm.trim() ? filteredStudentWorksheets : studentWorksheets;
+                                        const ungradedCount = worksheetsToCheck.filter(worksheet => 
+                                            !worksheet.isAbsent && 
+                                            (!worksheet.grade || worksheet.grade.trim() === '')
+                                        ).length;
+                                        return ungradedCount > 0 ? ` (${ungradedCount})` : '';
+                                    })()}
+                                </Button>
+                            </div>
+                            <div className="relative">
+                                <Input
+                                    id="search"
+                                    type="text"
+                                    placeholder="Search by name or token number..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="h-9 py-1 pr-8"
+                                />
+                                {searchTerm && (
+                                    <button
+                                        onClick={() => setSearchTerm('')}
+                                        className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                        type="button"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {selectedClass && isFetchingTableData && (
                         <div className="flex justify-center items-center h-40">
                             <p>Loading student data...</p>
@@ -964,43 +1064,57 @@ export default function UploadWorksheetPage() {
                         <>
                             {/* Scrollable Student Grid */}
                             <div className="max-h-[70vh] overflow-y-auto">
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 p-2 md:p-0">
-                                    {sortedStudentWorksheets.map((worksheet, sortedIndex) => (
-                                        <StudentWorksheetCard 
-                                            key={worksheet.studentId}
-                                            worksheet={worksheet}
-                                            index={sortedIndex}
-                                            onUpdate={handleUpdateWorksheet}
-                                            onPageFileChange={handlePageFileChange}
-                                            onUpload={handleUpload}
-                                            onSave={handleSaveStudent}
-                                            fileInputRefs={fileInputRefs}
-                                        />
-                                    ))}
-                                </div>
+                                {filteredStudentWorksheets.length > 0 ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 p-2 md:p-0">
+                                        {filteredStudentWorksheets.map((worksheet) => {
+                                            // Find the original index in the full sorted array for updates
+                                            const originalSortedIndex = sortedStudentWorksheets.findIndex(w => w.studentId === worksheet.studentId);
+                                            return (
+                                                <StudentWorksheetCard 
+                                                    key={worksheet.studentId}
+                                                    worksheet={worksheet}
+                                                    index={originalSortedIndex}
+                                                    onUpdate={handleUpdateWorksheet}
+                                                    onPageFileChange={handlePageFileChange}
+                                                    onUpload={handleUpload}
+                                                    onSave={handleSaveStudent}
+                                                    fileInputRefs={fileInputRefs}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="flex justify-center items-center h-40 text-gray-500">
+                                        <p>No students found matching &quot;{searchTerm}&quot;</p>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex flex-col md:flex-row justify-end mt-4 space-y-2 md:space-y-0 md:space-x-3 px-2 md:px-0">
                                 <Button
                                     onClick={handleBatchProcess}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) || 
-                                             !sortedStudentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
+                                             !filteredStudentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
                                     className="w-full md:w-auto"
                                     variant="secondary"
                                 >
-                                    AI Grade All
+                                    AI Grade All {searchTerm.trim() ? `(${filteredStudentWorksheets.length})` : ''}
                                 </Button>
                                 <Button
                                     onClick={handleSaveAllChanges}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
                                     className="w-full md:w-auto"
                                 >
-                                    {isSaving ? 'Saving Changes...' : 'Save All Changes'}
+                                    {isSaving ? 'Saving Changes...' : `Save All Changes ${searchTerm.trim() ? `(${filteredStudentWorksheets.length})` : ''}`}
                                 </Button>
                             </div>
                             
                             <div className="text-sm text-muted-foreground px-2 md:px-0">
-                                Showing {sortedStudentWorksheets.length} students
+                                {searchTerm.trim() ? (
+                                    <>Showing {filteredStudentWorksheets.length} of {sortedStudentWorksheets.length} students</>
+                                ) : (
+                                    <>Showing {sortedStudentWorksheets.length} students</>
+                                )}
                             </div>
                         </>
                     )}
