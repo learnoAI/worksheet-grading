@@ -19,7 +19,12 @@ dotenv.config();
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: config.corsOrigins === '*' ? true : config.corsOrigins,
+  credentials: true,
+  methods: ['*'],
+  allowedHeaders: ['*']
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

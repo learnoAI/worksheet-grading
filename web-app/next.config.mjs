@@ -4,6 +4,36 @@ const nextConfig = {
   experimental: {
     instrumentationHook: false,
   },
+  // Add headers for CORS and PostHog - Open for all origins
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
+          {
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+          },
+          {
+            key: 'Access-Control-Allow-Headers',
+            value: 'Content-Type, Authorization, X-Requested-With, X-PostHog-Token, Accept, Accept-Language, Content-Language',
+          },
+          {
+            key: 'Cross-Origin-Embedder-Policy',
+            value: 'unsafe-none',
+          },
+          {
+            key: 'Cross-Origin-Opener-Policy',
+            value: 'same-origin-allow-popups',
+          },
+        ],
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {
@@ -17,6 +47,14 @@ const nextConfig = {
       {
         protocol: "https",
         hostname: "learno-pdf-document.s3.amazonaws.com",
+      },
+      {
+        protocol: "https",
+        hostname: "us.i.posthog.com",
+      },
+      {
+        protocol: "https",
+        hostname: "app.posthog.com",
       },
     ],
   },

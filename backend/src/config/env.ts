@@ -6,6 +6,15 @@ export default {
     port: process.env.APP_PORT || 5100,
     nodeEnv: process.env.NODE_ENV || 'development',
     jwtSecret: process.env.JWT_SECRET || 'your-secret-key',
+    corsOrigins: process.env.CORS_ORIGINS ? 
+        (process.env.CORS_ORIGINS === '*' ? '*' : process.env.CORS_ORIGINS.split(',')) : [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'https://us.i.posthog.com',
+        'https://app.posthog.com',
+        'https://eu.i.posthog.com',
+        'https://us.posthog.com'
+    ],
     aws: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
