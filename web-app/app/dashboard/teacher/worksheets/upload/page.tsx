@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { classAPI, worksheetAPI } from '@/lib/api';
 import { StudentWorksheetCard } from './student-worksheet-card';
+import { usePostHog } from 'posthog-js/react';
 
 const PROGRESSION_THRESHOLD = 32;
 
@@ -116,6 +117,7 @@ const sortStudentsByTokenNumber = <T extends { tokenNumber: string }>(students: 
 export default function UploadWorksheetPage() {
     const { user } = useAuth();
     const router = useRouter();
+    const posthog = usePostHog();
     const [classes, setClasses] = useState<Class[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -719,6 +721,20 @@ export default function UploadWorksheetPage() {
                         await worksheetAPI.createGradedWorksheet(data);
                     }
 
+                    // Track if a student with incorrect grade was saved individually
+                    if (data.isIncorrectGrade) {
+                        posthog.capture('incorrect_grade_student_saved', {
+                            student_name: currentStudentData.name,
+                            student_token: currentStudentData.tokenNumber,
+                            worksheet_number: data.worksheetNumber,
+                            grade: data.grade,
+                            is_absent: data.isAbsent,
+                            is_repeated: data.isRepeated,
+                            action: existingWorksheet ? 'update' : 'create',
+                            page: 'upload_worksheet_individual'
+                        });
+                    }
+
                     toast.success(`${currentStudentData.name}'s worksheet saved successfully`);
                 }
 
@@ -832,6 +848,21 @@ export default function UploadWorksheetPage() {
                         } else {
                             await worksheetAPI.createGradedWorksheet(data);
                         }
+                        
+                        // Track if a student with incorrect grade was saved in bulk
+                        if (data.isIncorrectGrade) {
+                            posthog.capture('incorrect_grade_student_saved', {
+                                student_name: worksheet.name,
+                                student_token: worksheet.tokenNumber,
+                                worksheet_number: data.worksheetNumber,
+                                grade: data.grade,
+                                is_absent: data.isAbsent,
+                                is_repeated: data.isRepeated,
+                                action: existingWorksheet ? 'update' : 'create',
+                                page: 'upload_worksheet_bulk'
+                            });
+                        }
+                        
                         savedCount++;
                     }
                 } catch (error) {
@@ -849,6 +880,17 @@ export default function UploadWorksheetPage() {
                 }
                 
                 toast.success(message);
+                
+                // Track bulk save summary with incorrect grades count
+                const incorrectGradeCount = studentsToSave.filter(w => w.isIncorrectGrade).length;
+                if (incorrectGradeCount > 0) {
+                    posthog.capture('incorrect_grade_bulk_save', {
+                        total_students_saved: savedCount,
+                        incorrect_grade_count: incorrectGradeCount,
+                        total_failed: failedCount,
+                        page: 'upload_worksheet_bulk'
+                    });
+                }
             }
             
             if (failedCount > 0 && savedCount === 0) {

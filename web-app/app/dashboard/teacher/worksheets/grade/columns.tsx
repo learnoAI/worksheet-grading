@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { DataTableColumnHeader } from "./data-table-column-header";
 import { useState, useEffect } from "react";
 import { useDebounceFunction } from "@/lib/hooks";
+import { usePostHog } from 'posthog-js/react';
 
 // Custom checkbox component that forces re-render
 function ControlledCheckbox({
@@ -233,12 +234,36 @@ export const columns: ColumnDef<StudentGrade>[] = [
             const updateData = (table as any).options.meta?.updateData;
             const isAbsent = !!row.original.isAbsent;
             const isIncorrectGrade = !!row.original.isIncorrectGrade;
+            const posthog = usePostHog();
 
             return (
                 <ControlledCheckbox
                     checked={isIncorrectGrade}
                     onChange={(checked) => {
                         updateData(row.index, "isIncorrectGrade", checked);
+                        
+                        // Track incorrect grade checkbox interaction with error handling
+                        try {
+                            if (posthog && typeof posthog.capture === 'function') {
+                                posthog.capture('incorrect_grade_checkbox_changed', {
+                                    student_name: row.original.name,
+                                    student_token: row.original.tokenNumber,
+                                    worksheet_number: row.original.worksheetNumber,
+                                    current_grade: row.original.grade,
+                                    is_checked: checked,
+                                    page: 'grade_data_table',
+                                    timestamp: new Date().toISOString()
+                                });
+                                console.log('PostHog event sent: incorrect_grade_checkbox_changed', {
+                                    student: row.original.name,
+                                    checked: checked
+                                });
+                            } else {
+                                console.warn('PostHog not available or capture method not found');
+                            }
+                        } catch (error) {
+                            console.error('Error sending PostHog event:', error);
+                        }
                     }}
                     disabled={isAbsent}
                     label="Incorrect"

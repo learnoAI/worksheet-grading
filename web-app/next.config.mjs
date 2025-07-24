@@ -4,7 +4,7 @@ const nextConfig = {
   experimental: {
     instrumentationHook: false,
   },
-  // Add headers for CORS and PostHog - Open for all origins
+
   async headers() {
     return [
       {
@@ -28,6 +28,16 @@ const nextConfig = {
           },
           {
             key: 'Cross-Origin-Opener-Policy',
+            value: 'same-origin-allow-popups',
+          },
+          {
+            key: 'Content-Security-Policy',
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://us-assets.i.posthog.com https://us.i.posthog.com; connect-src 'self' https://us.i.posthog.com https://us.posthog.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src 'self'",
+          },
+        ],
+      },
+    ];
+  },
             value: 'same-origin-allow-popups',
           },
         ],
