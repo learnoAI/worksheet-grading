@@ -182,7 +182,7 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
  * @route GET /api/analytics/students
  */
 export const getStudentAnalytics = async (req: Request, res: Response) => {
-    const { schoolId, classId } = req.query;
+    const { schoolId, classId, startDate, endDate } = req.query;
     
     try {
         // Base filters for student query
@@ -222,7 +222,8 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                             }
                         }
                     }
-                },                studentWorksheets: {
+                },
+                studentWorksheets: {
                     select: {
                         id: true,
                         submittedOn: true,
@@ -230,6 +231,13 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                         isRepeated: true,
                         grade: true
                     },
+                    // Apply date filter if provided
+                    where: startDate && endDate ? {
+                        submittedOn: {
+                            gte: new Date(startDate as string),
+                            lte: new Date(endDate as string)
+                        }
+                    } : undefined,
                     orderBy: {
                         submittedOn: 'asc'
                     }
@@ -552,7 +560,7 @@ export const addStudentToClass = async (req: Request, res: Response) => {
  * @route GET /api/analytics/students/download
  */
 export const downloadStudentAnalytics = async (req: Request, res: Response) => {
-    const { schoolId, classId, format = 'csv' } = req.query;
+    const { schoolId, classId, startDate, endDate, format = 'csv' } = req.query;
     
     try {
         // Base filters for student query (same as getStudentAnalytics)
@@ -602,6 +610,13 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                         isRepeated: true,
                         grade: true
                     },
+                    // Apply date filter if provided
+                    where: startDate && endDate ? {
+                        submittedOn: {
+                            gte: new Date(startDate as string),
+                            lte: new Date(endDate as string)
+                        }
+                    } : undefined,
                     orderBy: {
                         submittedOn: 'asc'
                     }
@@ -690,7 +705,14 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
             
             // Set response headers for CSV download
             const timestamp = new Date().toISOString().split('T')[0];
-            const filename = `student_analytics_${timestamp}.csv`;
+            let filename = `student_analytics_${timestamp}.csv`;
+            
+            // Include date range in filename if provided
+            if (startDate && endDate) {
+                const start = new Date(startDate as string).toISOString().split('T')[0];
+                const end = new Date(endDate as string).toISOString().split('T')[0];
+                filename = `student_analytics_${start}_to_${end}.csv`;
+            }
             
             res.setHeader('Content-Type', 'text/csv');
             res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

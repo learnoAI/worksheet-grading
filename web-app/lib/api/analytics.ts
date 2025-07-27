@@ -58,11 +58,13 @@ export const analyticsAPI = {
         return fetchAPI<OverallAnalytics>(url);
     },
     
-    getStudentAnalytics: async (schoolId?: string, classId?: string): Promise<StudentAnalytics[]> => {
+    getStudentAnalytics: async (filters?: { schoolId?: string; classId?: string; startDate?: string; endDate?: string }): Promise<StudentAnalytics[]> => {
         let url = '/analytics/students';
         const params = new URLSearchParams();
-        if (schoolId) params.append('schoolId', schoolId);
-        if (classId) params.append('classId', classId);
+        if (filters?.schoolId) params.append('schoolId', filters.schoolId);
+        if (filters?.classId) params.append('classId', filters.classId);
+        if (filters?.startDate) params.append('startDate', filters.startDate);
+        if (filters?.endDate) params.append('endDate', filters.endDate);
         const queryString = params.toString();
         
         return fetchAPI<StudentAnalytics[]>(`${url}${queryString ? `?${queryString}` : ''}`);
@@ -88,12 +90,14 @@ export const analyticsAPI = {
     },
 
     // Download student analytics as CSV
-    downloadStudentAnalytics: async (filters?: { schoolId?: string; classId?: string }): Promise<void> => {
+    downloadStudentAnalytics: async (filters?: { schoolId?: string; classId?: string; startDate?: string; endDate?: string }): Promise<void> => {
         let url = '/analytics/students/download?format=csv';
         if (filters) {
             const params = new URLSearchParams();
             if (filters.schoolId) params.append('schoolId', filters.schoolId);
             if (filters.classId) params.append('classId', filters.classId);
+            if (filters.startDate) params.append('startDate', filters.startDate);
+            if (filters.endDate) params.append('endDate', filters.endDate);
             if (params.toString()) {
                 url += `&${params.toString()}`;
             }

@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { analyticsAPI, School, Class, StudentAnalytics } from '@/lib/api/analyticsAPI';
 import { userAPI } from '@/lib/api/user';
 import { toast } from 'sonner';
-import { Download, Filter, X, ArrowUp, ArrowDown, ChevronsUpDown, Archive, ArchiveRestore, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Download, Filter, X, ArrowUp, ArrowDown, ChevronsUpDown, Archive, ArchiveRestore, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 
 type SortField = 'name' | 'tokenNumber' | 'school' | 'class' | 'totalWorksheets' | 'repetitionRate' | 'absentPercentage' | 'firstWorksheetDate' | 'lastWorksheetDate';
 type SortDirection = 'asc' | 'desc';
@@ -38,6 +38,15 @@ export default function StudentAnalyticsPage() {
     const [classes, setClasses] = useState<Class[]>([]);    const [selectedSchoolId, setSelectedSchoolId] = useState<string>('all');
     const [selectedClassId, setSelectedClassId] = useState<string>('all');
     const [searchName, setSearchName] = useState<string>('');
+    
+    // Date filter state - Default to last 30 days
+    const [startDate, setStartDate] = useState<string>(
+        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    );
+    const [endDate, setEndDate] = useState<string>(
+        new Date().toISOString().split('T')[0]
+    );
+    const [enableDateFilter, setEnableDateFilter] = useState<boolean>(false);
       // Additional filter states
     const [minWorksheets, setMinWorksheets] = useState<string>('');
     const [maxAbsentRate, setMaxAbsentRate] = useState<string>('');
@@ -105,7 +114,9 @@ export default function StudentAnalyticsPage() {
             try {
                 const data = await analyticsAPI.getStudentAnalytics({
                     schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
-                    classId: selectedClassId !== 'all' ? selectedClassId : undefined
+                    classId: selectedClassId !== 'all' ? selectedClassId : undefined,
+                    startDate: enableDateFilter ? startDate : undefined,
+                    endDate: enableDateFilter ? endDate : undefined
                 });
                 setStudents(data);
             } catch (error) {
@@ -116,7 +127,7 @@ export default function StudentAnalyticsPage() {
             }
         };
         
-        loadStudentAnalytics();    }, [selectedSchoolId, selectedClassId]);    // Optimized token parser - memoized to avoid recreating the function
+        loadStudentAnalytics();    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate]);    // Optimized token parser - memoized to avoid recreating the function
     const parseToken = useCallback((token: string | null) => {
         if (!token) return { type: 'string' as const, original: '' };
         
@@ -261,7 +272,7 @@ export default function StudentAnalyticsPage() {
     // Reset to first page when filters change
     useEffect(() => {
         setCurrentPage(1);
-    }, [selectedSchoolId, selectedClassId, debouncedSearchName, debouncedMinWorksheets, debouncedMaxAbsentRate, debouncedMinRepetitionRate, showArchived, sortField, sortDirection]);// Handle sorting - memoized for performance
+    }, [selectedSchoolId, selectedClassId, debouncedSearchName, debouncedMinWorksheets, debouncedMaxAbsentRate, debouncedMinRepetitionRate, showArchived, sortField, sortDirection, enableDateFilter, startDate, endDate]);// Handle sorting - memoized for performance
     const handleSort = useCallback((field: SortField) => {
         if (sortField === field) {
             // Toggle direction if same field
@@ -297,7 +308,9 @@ export default function StudentAnalyticsPage() {
         try {
             await analyticsAPI.downloadStudentAnalytics({
                 schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
-                classId: selectedClassId !== 'all' ? selectedClassId : undefined
+                classId: selectedClassId !== 'all' ? selectedClassId : undefined,
+                startDate: enableDateFilter ? startDate : undefined,
+                endDate: enableDateFilter ? endDate : undefined
             });
             toast.success('Analytics data downloaded successfully');
         } catch (error) {
@@ -306,7 +319,46 @@ export default function StudentAnalyticsPage() {
         } finally {
             setIsDownloading(false);
         }
-    }, [selectedSchoolId, selectedClassId]);    // Clear all filters - memoized and set token sorting as default
+    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate]);
+
+    // Date range preset functions
+    const setDateRange = useCallback((days: number) => {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - days);
+        
+        setStartDate(start.toISOString().split('T')[0]);
+        setEndDate(end.toISOString().split('T')[0]);
+        setEnableDateFilter(true);
+    }, []);
+
+    const setThisWeek = useCallback(() => {
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const diff = now.getDate() - dayOfWeek; // Start of this week (Sunday)
+        
+        const startOfWeek = new Date(now.setDate(diff));
+        const endOfWeek = new Date();
+        
+        setStartDate(startOfWeek.toISOString().split('T')[0]);
+        setEndDate(endOfWeek.toISOString().split('T')[0]);
+        setEnableDateFilter(true);
+    }, []);
+
+    const setLastWeek = useCallback(() => {
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const diff = now.getDate() - dayOfWeek - 7; // Start of last week
+        
+        const startOfLastWeek = new Date(now.setDate(diff));
+        const endOfLastWeek = new Date(now.setDate(diff + 6));
+        
+        setStartDate(startOfLastWeek.toISOString().split('T')[0]);
+        setEndDate(endOfLastWeek.toISOString().split('T')[0]);
+        setEnableDateFilter(true);
+    }, []);
+
+    // Clear all filters - memoized and set token sorting as default
     const clearAllFilters = useCallback(() => {
         setSelectedSchoolId('all');
         setSelectedClassId('all');
@@ -315,6 +367,9 @@ export default function StudentAnalyticsPage() {
         setMaxAbsentRate('');
         setMinRepetitionRate('');
         setShowArchived('active');
+        setEnableDateFilter(false);
+        setStartDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+        setEndDate(new Date().toISOString().split('T')[0]);
         setSortField('tokenNumber'); // Default to token number sorting
         setSortDirection('asc');
         setCurrentPage(1); // Reset pagination
@@ -338,14 +393,16 @@ export default function StudentAnalyticsPage() {
               // Refresh student data
             const updatedData = await analyticsAPI.getStudentAnalytics({
                 schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
-                classId: selectedClassId !== 'all' ? selectedClassId : undefined
+                classId: selectedClassId !== 'all' ? selectedClassId : undefined,
+                startDate: enableDateFilter ? startDate : undefined,
+                endDate: enableDateFilter ? endDate : undefined
             });
             setStudents(updatedData);
         } catch (error) {
             console.error('Error removing student from class:', error);
             toast.error('Failed to remove student from class');
         }
-    }, [selectedSchoolId, selectedClassId]);
+    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate]);
 
     // Handle student archiving - memoized for performance
     const handleArchiveStudent = useCallback(async (studentId: string) => {
@@ -357,7 +414,9 @@ export default function StudentAnalyticsPage() {
             // Refresh student data
             const updatedData = await analyticsAPI.getStudentAnalytics({
                 schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
-                classId: selectedClassId !== 'all' ? selectedClassId : undefined
+                classId: selectedClassId !== 'all' ? selectedClassId : undefined,
+                startDate: enableDateFilter ? startDate : undefined,
+                endDate: enableDateFilter ? endDate : undefined
             });
             setStudents(updatedData);
         } catch (error: any) {
@@ -366,7 +425,7 @@ export default function StudentAnalyticsPage() {
         } finally {
             setActionLoading(null);
         }
-    }, [selectedSchoolId, selectedClassId]);
+    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate]);
 
     // Handle student unarchiving - memoized for performance
     const handleUnarchiveStudent = useCallback(async (studentId: string) => {
@@ -378,7 +437,9 @@ export default function StudentAnalyticsPage() {
             // Refresh student data
             const updatedData = await analyticsAPI.getStudentAnalytics({
                 schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
-                classId: selectedClassId !== 'all' ? selectedClassId : undefined
+                classId: selectedClassId !== 'all' ? selectedClassId : undefined,
+                startDate: enableDateFilter ? startDate : undefined,
+                endDate: enableDateFilter ? endDate : undefined
             });
             setStudents(updatedData);
         } catch (error: any) {
@@ -387,7 +448,7 @@ export default function StudentAnalyticsPage() {
         } finally {
             setActionLoading(null);
         }
-    }, [selectedSchoolId, selectedClassId]);
+    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate]);
     
     // Memoized date formatter to avoid recreation
     const formatDate = useCallback((dateString: string | null) => {
@@ -493,8 +554,94 @@ export default function StudentAnalyticsPage() {
                         </div>
                     </div>
                     
-                    {/* Enhanced Filters */}
-                    <div className="border-t pt-4">
+                    <div className="pt-4">
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id="enableDateFilter"
+                                    checked={enableDateFilter}
+                                    onChange={(e) => setEnableDateFilter(e.target.checked)}
+                                    className="rounded"
+                                />
+                                <label htmlFor="enableDateFilter" className="text-sm font-medium">
+                                    Filter by date range (analyze worksheets within specific period)
+                                </label>
+                            </div>
+                            
+                            {enableDateFilter && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Start Date</label>
+                                        <Input
+                                            type="date"
+                                            value={startDate}
+                                            onChange={(e) => setStartDate(e.target.value)}
+                                            max={endDate}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">End Date</label>
+                                        <Input
+                                            type="date"
+                                            value={endDate}
+                                            onChange={(e) => setEndDate(e.target.value)}
+                                            min={startDate}
+                                            max={new Date().toISOString().split('T')[0]}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {enableDateFilter && (
+                                <div className="space-y-2">
+                                    <p className="text-sm font-medium">Quick Date Ranges:</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={setLastWeek}
+                                            className="text-xs"
+                                        >
+                                            Last Week
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setDateRange(7)}
+                                            className="text-xs"
+                                        >
+                                            Last 7 Days
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setDateRange(30)}
+                                            className="text-xs"
+                                        >
+                                            Last 30 Days
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setDateRange(90)}
+                                            className="text-xs"
+                                        >
+                                            Last 3 Months
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {enableDateFilter}
+                        </div>
+                    </div>
+                    
+                    <div className="pt-4">
                         <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
                             <Filter className="h-4 w-4" />
                             Advanced Filters
