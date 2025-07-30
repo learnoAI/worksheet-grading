@@ -309,7 +309,7 @@ export function DataTable<TData, TValue>({
     }, []);
 
     // Memoize grade options to prevent recreation on every render
-    const gradeOptions = useMemo(() => Array.from({ length: 40 }, (_, i) => (40 - i).toString()), []);
+    const gradeOptions = useMemo(() => Array.from({ length: 41 }, (_, i) => (40 - i).toString()), []);
 
 
     return (

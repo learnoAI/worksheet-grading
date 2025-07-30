@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UploadIcon, Camera, Info, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { usePostHog } from 'posthog-js/react';
@@ -241,23 +242,31 @@ export function StudentWorksheetCard({
                 <div className="space-y-1">
                     <Label htmlFor={`grade-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">Grade</Label>
                     <div className="flex items-center space-x-1">
-                        <Input
-                            id={`grade-${worksheet.studentId}`}
-                            type="number"
-                            min="0"
-                            max="10"
-                            step="0.1"
+                        <Select
                             value={worksheet.grade || ''}
-                            onChange={(e) => handleGradeChange(e.target.value)}
-                            onClick={() => {
-                                if (worksheet.isAbsent) {
-                                    onUpdate(index, "isAbsent", false);
-                                }
-                            }}
+                            onValueChange={handleGradeChange}
                             disabled={worksheet.isAbsent || worksheet.isUploading}
-                            placeholder={worksheet.isAbsent ? "N/A" : (worksheet.isUploading ? "Processing" : "Grade")}
-                            className="h-8 md:h-10 text-sm flex-1"
-                        />
+                        >
+                            <SelectTrigger 
+                                className="h-8 md:h-10 text-sm flex-1"
+                                onClick={() => {
+                                    if (worksheet.isAbsent) {
+                                        onUpdate(index, "isAbsent", false);
+                                    }
+                                }}
+                            >
+                                <SelectValue 
+                                    placeholder={worksheet.isAbsent ? "N/A" : (worksheet.isUploading ? "Processing" : "Select grade")} 
+                                />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {Array.from({ length: 41 }, (_, i) => (40 - i).toString()).map((grade) => (
+                                    <SelectItem key={grade} value={grade}>
+                                        {grade}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                         {worksheet.gradingDetails && (
                             <Button
                                 variant="ghost"

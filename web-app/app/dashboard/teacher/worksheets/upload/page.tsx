@@ -476,11 +476,14 @@ export default function UploadWorksheetPage() {
                                   .sort((a, b) => a - b);
             const wrongQuestionNumbers = wrongNumbers.length > 0 ? wrongNumbers.join(', ') : '';
             
+            // Ensure grade is within valid range (0-40) and rounded
+            const roundedGrade = Math.max(0, Math.min(40, Math.round(grade)));
+            
             setStudentWorksheets(prev => prev.map(sw => 
                 sw.studentId === worksheet.studentId 
                     ? { 
                         ...sw, 
-                        grade: grade.toString(), 
+                        grade: roundedGrade.toString(), 
                         isUploading: false,
                         gradingDetails: gradingDetails,
                         wrongQuestionNumbers: wrongQuestionNumbers, // Auto-populate from AI grading
@@ -491,7 +494,7 @@ export default function UploadWorksheetPage() {
                     : sw
             ));
             
-            toast.success(`Worksheet for ${worksheet.name} processed successfully! Grade: ${grade}`);
+            toast.success(`Worksheet for ${worksheet.name} processed successfully! Grade: ${roundedGrade}`);
             return { success: true };
         } catch (error) {
             toast.error('Failed to upload or grade worksheet');
@@ -946,22 +949,7 @@ export default function UploadWorksheetPage() {
     if (isLoading) {
         return <div className="flex items-center justify-center min-h-[60vh]">Loading...</div>;
     }    return (
-        <div className="space-y-4 md:space-y-6">
-            <div className="flex justify-between items-center px-2 md:px-0">
-                <h1 className="text-xl md:text-2xl font-bold">Upload Student Worksheets</h1>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                        const basePath = user?.role === 'TEACHER' ? '/dashboard/teacher' : '/dashboard/superadmin';
-                        router.push(`${basePath}/worksheets`);
-                    }}
-                >
-                    Cancel
-                </Button>
-            </div>
-
-            <div className="bg-white rounded-lg border shadow-sm">
+        <div className="bg-white rounded-lg border shadow-sm">
                 <div className="p-4 md:p-6 border-b">
                     <h2 className="text-lg font-semibold mb-1">Upload Worksheet Images</h2>
                     <p className="text-sm text-gray-600">
@@ -1110,6 +1098,5 @@ export default function UploadWorksheetPage() {
                     )}
                 </div>
             </div>
-        </div>
     );
 }

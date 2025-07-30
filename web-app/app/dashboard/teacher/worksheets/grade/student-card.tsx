@@ -147,8 +147,8 @@ export function StudentCard({
         }
     };
 
-    // Generate grade options (1-40)
-    const gradeOptions = Array.from({ length: 40 }, (_, i) => (40 - i).toString());
+    // Generate grade options (0-40)
+    const gradeOptions = Array.from({ length: 41 }, (_, i) => (40 - i).toString());
 
     const determineIfProgressed = () => {
         if (student.worksheetNumber <= 1) return false;
