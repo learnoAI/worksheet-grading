@@ -293,7 +293,6 @@ export function StudentWorksheetCard({
                 />
                 {worksheet.gradingDetails && (
                     <div className="space-y-1">
-                        {(worksheet.gradingDetails.wrong_answers > 0 || worksheet.gradingDetails.unanswered > 0) && displayedWrongQuestionNumbers}
                         {worksheet.gradingDetails.wrong_answers === 0 && worksheet.gradingDetails.unanswered === 0 && (
                             <p className="text-xs text-green-600">
                                 No wrong questions

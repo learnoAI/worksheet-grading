@@ -2,10 +2,8 @@
 
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { notificationAPI } from '@/lib/api';
 
 export default function TeacherLayout({
     children,
@@ -14,7 +12,6 @@ export default function TeacherLayout({
 }) {
     const { user, isLoading, logout } = useAuth();
     const router = useRouter();
-    const [unreadCount, setUnreadCount] = useState(0);
 
     // Redirect if not authenticated or not a teacher
     useEffect(() => {
@@ -22,27 +19,6 @@ export default function TeacherLayout({
             router.push('/login');
         }
     }, [user, isLoading, router]);
-
-    // Fetch unread notifications count
-    useEffect(() => {
-        if (user) {
-            const fetchNotifications = async () => {
-                try {
-                    const notifications = await notificationAPI.getNotifications();
-                    const unread = notifications.filter(n => n.status === 'UNREAD').length;
-                    setUnreadCount(unread);
-                } catch (error) {
-                    console.error('Error fetching notifications:', error);
-                }
-            };
-
-            fetchNotifications();
-
-            // Set up polling for notifications every 30 seconds
-            const interval = setInterval(fetchNotifications, 30000);
-            return () => clearInterval(interval);
-        }
-    }, [user]);
 
     // Handle logout
     const handleLogout = () => {
@@ -71,45 +47,9 @@ export default function TeacherLayout({
 
             {/* Main content */}
             <div className="max-w-7xl mx-auto px-2 md:px-4 lg:px-8 py-3 md:py-6">
-                <div className="flex flex-col md:flex-row gap-3 md:gap-6">
-                    {/* Sidebar */}
-                    <aside className="w-full md:w-64 bg-white p-3 md:p-4 rounded-lg shadow">
-                        <nav className="space-y-1 md:space-y-2">
-                            <Link href="/dashboard/teacher" className="block p-2 rounded hover:bg-gray-100 text-sm">
-                                Dashboard
-                            </Link>
-
-                            <Link href="/dashboard/teacher/classes" className="block p-2 rounded hover:bg-gray-100 text-sm">
-                                My Classes
-                            </Link>
-
-                            <Link href="/dashboard/teacher/worksheets/grade" className="block p-2 rounded hover:bg-gray-100 text-sm">
-                                Grade Worksheets
-                            </Link>
-
-                            <Link href="/dashboard/teacher/worksheets/upload" className="block p-2 rounded hover:bg-gray-100 text-sm">
-                                Upload Worksheets
-                            </Link>
-
-                            <Link href="/dashboard/teacher/students" className="block p-2 rounded hover:bg-gray-100 text-sm">
-                                Students
-                            </Link>
-
-                            <Link href="/dashboard/teacher/notifications" className="flex items-center justify-between p-2 rounded hover:bg-gray-100 text-sm">
-                                <span>Notifications</span>
-                                {unreadCount > 0 && (
-                                    <span className="bg-blue-500 text-white text-xs rounded-full px-2 py-1">
-                                        {unreadCount}
-                                    </span>
-                                )}
-                            </Link>
-                        </nav>
-                    </aside>
-
-                    <main className="flex-1 bg-white p-3 md:p-6 rounded-lg shadow">
-                        {children}
-                    </main>
-                </div>
+                <main className="bg-white p-3 md:p-6 rounded-lg shadow">
+                    {children}
+                </main>
             </div>
         </div>
     );

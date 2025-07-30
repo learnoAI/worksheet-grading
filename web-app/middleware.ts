@@ -9,7 +9,7 @@ type UserRole = 'SUPERADMIN' | 'TEACHER' | 'STUDENT' | 'ADMIN';
 // Define role-based path mappings
 const rolePathMap: Record<UserRole, string> = {
     'SUPERADMIN': '/dashboard/superadmin',
-    'TEACHER': '/dashboard/teacher',
+    'TEACHER': '/dashboard/teacher/worksheets/upload',
     'STUDENT': '/dashboard/student',
     'ADMIN': '/dashboard/admin'
 };
@@ -64,6 +64,17 @@ export function middleware(request: NextRequest) {
             // Check if user is trying to access a role-specific path they shouldn't
             const userRolePath = rolePathMap[userRole];
             if (userRolePath && !pathname.startsWith(userRolePath)) {
+                // For teachers, allow access to any teacher route, but redirect from base teacher path
+                if (userRole === 'TEACHER') {
+                    if (pathname === '/dashboard/teacher') {
+                        return NextResponse.redirect(new URL(userRolePath, request.url));
+                    }
+                    // Allow access to any other teacher routes
+                    if (pathname.startsWith('/dashboard/teacher/')) {
+                        return NextResponse.next();
+                    }
+                }
+                
                 // Check if they're trying to access another role's path
                 const isAccessingOtherRole = Object.values(rolePathMap).some(path => 
                     path !== userRolePath && pathname.startsWith(path)
