@@ -2,10 +2,8 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { UserRole } from '@/lib/api/types';
 
-// Define public paths that don't require authentication
 const publicPaths = ['/login', '/'];
 
-// Define role-based path mappings
 const rolePathMap: Record<UserRole, string> = {
     [UserRole.SUPERADMIN]: '/dashboard/superadmin',
     [UserRole.TEACHER]: '/dashboard/teacher/worksheets/upload',
@@ -17,12 +15,9 @@ export function middleware(request: NextRequest) {
     const token = request.cookies.get('token')?.value;
     const { pathname } = request.nextUrl;
 
-    // Allow access to public paths
     if (publicPaths.includes(pathname)) {
-        // If user has token and tries to access public paths, redirect to dashboard
         if (token) {
             try {
-                // Get user role from token and redirect to appropriate dashboard
                 const payload = JSON.parse(atob(token.split('.')[1]));
                 const userRole = payload.role as UserRole;
                 const rolePath = rolePathMap[userRole];
@@ -30,7 +25,6 @@ export function middleware(request: NextRequest) {
                     return NextResponse.redirect(new URL(rolePath, request.url));
                 }
             } catch (error) {
-                // If token is invalid, clear it and allow access to public paths
                 const response = NextResponse.next();
                 response.cookies.delete('token');
                 return response;
@@ -40,19 +34,15 @@ export function middleware(request: NextRequest) {
         return NextResponse.next();
     }
 
-    // Check if user is authenticated
     if (!token) {
         return NextResponse.redirect(new URL('/login', request.url));
     }
 
-    // For dashboard routes, ensure users can only access their role-specific paths
     if (pathname.startsWith('/dashboard')) {
         try {
-            // Get user role from token
             const payload = JSON.parse(atob(token.split('.')[1]));
             const userRole = payload.role as UserRole;
 
-            // If user is on the main dashboard page, redirect to their role-specific dashboard
             if (pathname === '/dashboard') {
                 const rolePath = rolePathMap[userRole];
                 if (rolePath) {
@@ -60,32 +50,27 @@ export function middleware(request: NextRequest) {
                 }
             }
 
-            // Check if user is trying to access a role-specific path they shouldn't
             const userRolePath = rolePathMap[userRole];
-            if (userRolePath && !pathname.startsWith(userRolePath)) {
-                // For teachers, allow access to any teacher route, but redirect from base teacher path
-                if (userRole === UserRole.TEACHER) {
-                    if (pathname === '/dashboard/teacher') {
-                        return NextResponse.redirect(new URL(userRolePath, request.url));
-                    }
-                    // Allow access to any other teacher routes
-                    if (pathname.startsWith('/dashboard/teacher/')) {
-                        return NextResponse.next();
-                    }
+            
+            if (userRole === UserRole.TEACHER) {
+                if (pathname === '/dashboard/teacher') {
+                    return NextResponse.redirect(new URL(userRolePath, request.url));
                 }
-                
-                // Check if they're trying to access another role's path
+                if (pathname.startsWith('/dashboard/teacher/')) {
+                    return NextResponse.next();
+                }
+            }
+            
+            if (userRolePath && !pathname.startsWith(userRolePath)) {
                 const isAccessingOtherRole = Object.values(rolePathMap).some(path => 
                     path !== userRolePath && pathname.startsWith(path)
                 );
                 
                 if (isAccessingOtherRole) {
-                    // Redirect to their proper dashboard
                     return NextResponse.redirect(new URL(userRolePath, request.url));
                 }
             }
         } catch (error) {
-            // If there's any error parsing the token, redirect to login and clear cookie
             const response = NextResponse.redirect(new URL('/login', request.url));
             response.cookies.delete('token');
             return response;
@@ -97,13 +82,6 @@ export function middleware(request: NextRequest) {
 
 export const config = {
     matcher: [
-        /*
-         * Match all request paths except for the ones starting with:
-         * - api (API routes)
-         * - _next/static (static files)
-         * - _next/image (image optimization files)
-         * - favicon.ico (favicon file)
-         */
         '/((?!api|_next/static|_next/image|favicon.ico).*)',
     ],
-} 
+}
