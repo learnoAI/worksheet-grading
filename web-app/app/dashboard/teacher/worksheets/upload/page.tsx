@@ -1041,12 +1041,10 @@ export default function UploadWorksheetPage() {
 
                     {selectedClass && !isFetchingTableData && sortedStudentWorksheets.length > 0 && (
                         <>
-                            {/* Scrollable Student Grid */}
-                            <div className="max-h-[70vh] overflow-y-auto">
+                            <div>
                                 {filteredStudentWorksheets.length > 0 ? (
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 p-2 md:p-0">
                                         {filteredStudentWorksheets.map((worksheet) => {
-                                            // Find the original index in the full sorted array for updates
                                             const originalSortedIndex = sortedStudentWorksheets.findIndex(w => w.studentId === worksheet.studentId);
                                             return (
                                                 <StudentWorksheetCard 
@@ -1068,12 +1066,12 @@ export default function UploadWorksheetPage() {
                                 )}
                             </div>
 
-                            <div className="flex flex-col md:flex-row justify-end mt-4 space-y-2 md:space-y-0 md:space-x-3 px-2 md:px-0">
+                            {/* Desktop buttons */}
+                            <div className="hidden md:flex justify-end mt-4 space-x-3">
                                 <Button
                                     onClick={handleBatchProcess}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) || 
                                              !filteredStudentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
-                                    className="w-full md:w-auto"
                                     variant="secondary"
                                 >
                                     AI Grade All {searchTerm.trim() ? `(${filteredStudentWorksheets.length})` : ''}
@@ -1081,10 +1079,32 @@ export default function UploadWorksheetPage() {
                                 <Button
                                     onClick={handleSaveAllChanges}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
-                                    className="w-full md:w-auto"
                                 >
                                     {isSaving ? 'Saving Changes...' : `Save All Changes ${searchTerm.trim() ? `(${filteredStudentWorksheets.length})` : ''}`}
                                 </Button>
+                            </div>
+
+                            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 mb-0">
+                                <div className="bg-white shadow-lg p-4">
+                                    <div className="flex space-x-3">
+                                        <Button
+                                            onClick={handleBatchProcess}
+                                            disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) || 
+                                                     !filteredStudentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
+                                            className="flex-1 h-12 text-sm font-medium"
+                                            variant="secondary"
+                                        >
+                                            AI Grade All
+                                        </Button>
+                                        <Button
+                                            onClick={handleSaveAllChanges}
+                                            disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
+                                            className="flex-1 h-12 text-sm font-medium"
+                                        >
+                                            {isSaving ? 'Saving...' : 'Save All'}
+                                        </Button>
+                                    </div>
+                                </div>
                             </div>
                             
                             <div className="text-sm text-muted-foreground px-2 md:px-0">

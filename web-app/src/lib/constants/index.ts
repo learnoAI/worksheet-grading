@@ -3,7 +3,7 @@ export const ITEMS_PER_PAGE = 30;
 export const MAX_GRADE = 40;
 
 export const DEBOUNCE_DELAY = 300;
-export const DEFAULT_CACHE_DURATION = 180000; // 3 minutes
+export const DEFAULT_CACHE_DURATION = 180000; // 3 mins
 
 export const ROUTES = {
   HOME: '/',
