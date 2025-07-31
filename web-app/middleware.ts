@@ -1,17 +1,16 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { UserRole } from '@/lib/api/types';
 
 // Define public paths that don't require authentication
 const publicPaths = ['/login', '/'];
 
-type UserRole = 'SUPERADMIN' | 'TEACHER' | 'STUDENT' | 'ADMIN';
-
 // Define role-based path mappings
 const rolePathMap: Record<UserRole, string> = {
-    'SUPERADMIN': '/dashboard/superadmin',
-    'TEACHER': '/dashboard/teacher/worksheets/upload',
-    'STUDENT': '/dashboard/student',
-    'ADMIN': '/dashboard/admin'
+    [UserRole.SUPERADMIN]: '/dashboard/superadmin',
+    [UserRole.TEACHER]: '/dashboard/teacher/worksheets/upload',
+    [UserRole.STUDENT]: '/dashboard/student',
+    [UserRole.ADMIN]: '/dashboard/admin'
 };
 
 export function middleware(request: NextRequest) {
@@ -65,7 +64,7 @@ export function middleware(request: NextRequest) {
             const userRolePath = rolePathMap[userRole];
             if (userRolePath && !pathname.startsWith(userRolePath)) {
                 // For teachers, allow access to any teacher route, but redirect from base teacher path
-                if (userRole === 'TEACHER') {
+                if (userRole === UserRole.TEACHER) {
                     if (pathname === '/dashboard/teacher') {
                         return NextResponse.redirect(new URL(userRolePath, request.url));
                     }

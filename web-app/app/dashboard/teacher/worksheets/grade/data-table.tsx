@@ -37,6 +37,7 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StudentCard } from "./student-card";
 import { useDebounce } from "@/lib/hooks";
+import { StudentGrade } from "./columns";
 
 function deepCopy<T>(obj: T): T {
     if (obj === null || typeof obj !== "object") return obj;
@@ -52,14 +53,14 @@ function deepCopy<T>(obj: T): T {
     return cloned;
 }
 
-interface DataTableProps<TData, TValue> {
+interface DataTableProps<TData extends StudentGrade, TValue> {
     columns: ColumnDef<TData, TValue>[];
     data: TData[];
     onDataChange?: (updatedData: TData[]) => void;
     onSaveStudent?: (student: TData) => void;
 }
 
-export function DataTable<TData, TValue>({
+export function DataTable<TData extends StudentGrade, TValue>({
     columns,
     data,
     onDataChange,
@@ -92,15 +93,13 @@ export function DataTable<TData, TValue>({
             columnFilters,
         },
         meta: {
-            updateData: (rowIndex: number, columnId: string, value: any) => {
+            updateData: (rowIndex: number, columnId: string, value: unknown) => {
                 // Use optimized deep copy instead of JSON methods
                 const newData = deepCopy(data);
                 
                 // Get the current row data
                 const currentRow = (newData as any)[rowIndex];
                 
-                console.log(`[Table] Updating row ${rowIndex}, field: ${columnId}, value:`, value, 
-                    `Current state: isAbsent=${currentRow.isAbsent}, worksheetNumber=${currentRow.worksheetNumber}, grade=${currentRow.grade}`);
                 
                 // Handle specific field updates with their side effects
                 if (columnId === 'isAbsent') {
@@ -108,7 +107,6 @@ export function DataTable<TData, TValue>({
                     
                     // When marking a student as absent, clear other fields
                     if (newAbsentState) {
-                        console.log(`[Table] Row ${rowIndex} marked as absent, clearing other fields`);
                         (newData as any)[rowIndex] = {
                             ...currentRow,
                             isAbsent: true,
@@ -120,7 +118,6 @@ export function DataTable<TData, TValue>({
                     } else {
                         // When unmarking as absent, only update the isAbsent status
                         // The StudentCard component will handle setting proper values
-                        console.log(`[Table] Row ${rowIndex} marked as not absent`);
                         (newData as any)[rowIndex] = {
                             ...currentRow,
                             isAbsent: false
@@ -129,7 +126,6 @@ export function DataTable<TData, TValue>({
                     // Set worksheet number without auto-marking as absent
                     const worksheetNumber = value;
                     
-                    console.log(`[Table] Setting worksheet number for row ${rowIndex} to ${worksheetNumber}`);
                     
                     (newData as any)[rowIndex] = {
                         ...currentRow,
@@ -139,7 +135,6 @@ export function DataTable<TData, TValue>({
                     // Set grade without auto-marking as absent
                     const grade = value;
                     
-                    console.log(`[Table] Setting grade for row ${rowIndex} to "${grade}"`);
                     
                     (newData as any)[rowIndex] = {
                         ...currentRow,
@@ -155,7 +150,6 @@ export function DataTable<TData, TValue>({
                 }
                 
                 // Log the final state after update
-                console.log(`[Table] Row ${rowIndex} final state:`, (newData as any)[rowIndex]);
                 
                 // Notify the parent component of the data change
                 onDataChange?.(newData);
@@ -164,13 +158,12 @@ export function DataTable<TData, TValue>({
     }), [data, columns, sorting, columnFilters, onDataChange]);
 
     const table = useReactTable(tableConfig);    // Helper function to update data by student ID - memoized for performance
-    const updateStudentData = useCallback((studentId: string, field: string, value: any) => {
+    const updateStudentData = useCallback((studentId: string, field: string, value: unknown) => {
         // Instead of trying to find the student in possibly filtered data,
         // we'll make a direct update to the full data array
-        const updatedData = [...data].map((student: any) => {
+        const updatedData = [...data].map((student: TData) => {
             // Only update the student with matching ID
             if (student.studentId === studentId) {
-                console.log(`[DataTable] Directly updating student ${studentId}, field: ${field}, value:`, value);
                 
                 // Create a copy of the student object to modify
                 const updatedStudent = { ...student };
@@ -187,17 +180,18 @@ export function DataTable<TData, TValue>({
                     }
                 }                // Special handling for worksheet number
                 else if (field === 'worksheetNumber') {
-                    updatedStudent.worksheetNumber = value;
+                    updatedStudent.worksheetNumber = typeof value === 'number' ? value : Number(value);
                     
                     // If setting valid worksheet number, ensure not absent
-                    if (value > 0) {
+                    const numValue = typeof value === 'number' ? value : Number(value);
+                    if (numValue > 0) {
                         updatedStudent.isAbsent = false;
                     }
                     // No longer auto-mark as absent if value is 0
                 }
                 // Special handling for grade
                 else if (field === 'grade') {
-                    updatedStudent.grade = value;
+                    updatedStudent.grade = String(value);
                     
                     // If setting a grade, ensure not absent
                     if (value) {
@@ -210,12 +204,6 @@ export function DataTable<TData, TValue>({
                     updatedStudent[field] = value;
                 }
                 
-                console.log(`[DataTable] After direct update, student ${studentId} state:`, {
-                    isAbsent: updatedStudent.isAbsent,
-                    worksheetNumber: updatedStudent.worksheetNumber,
-                    grade: updatedStudent.grade,
-                    isRepeated: updatedStudent.isRepeated
-                });
                 
                 return updatedStudent;
             }

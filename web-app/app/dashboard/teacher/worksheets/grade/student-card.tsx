@@ -57,17 +57,11 @@ export function StudentCard({
     };
 
     useEffect(() => {
-        console.log(`[StudentCard] Student data updated: ${student.name}`, {
-            isAbsent: student.isAbsent,
-            worksheetNumber: student.worksheetNumber,
-            grade: student.grade
-        });
         
         const hasWorksheetNumber = student.worksheetNumber && student.worksheetNumber > 0;
         const hasGrade = student.grade && student.grade.toString().trim() !== '';
         
         if (student.isAbsent && hasWorksheetNumber && hasGrade) {
-            console.warn(`[StudentCard] Inconsistent state detected for ${student.name}: marked as absent but has worksheet=${student.worksheetNumber} and grade=${student.grade}`);
             updateData(student.studentId, "isAbsent", false);
             setIsAbsent(false);
         } else {
@@ -79,7 +73,6 @@ export function StudentCard({
         setGrade(student.grade || '');
     }, [student]);
     const handleAbsentChange = (checked: boolean) => {
-        console.log(`${student.name}: Changing absent status to ${checked}`);
         
         setIsAbsent(checked);
         
@@ -108,7 +101,6 @@ export function StudentCard({
     };
 
     const handleWorksheetNumberChange = (value: string) => {
-        console.log(`${student.name}: Setting worksheet number to ${value}`);
         setWorksheetNumber(value);
         const numValue = parseInt(value) || 0;
         
@@ -126,7 +118,6 @@ export function StudentCard({
     };
 
     const handleGradeChange = (value: string) => {
-        console.log(`${student.name}: Setting grade to ${value}`);
         setGrade(value);
         
         if (isAbsent) {
