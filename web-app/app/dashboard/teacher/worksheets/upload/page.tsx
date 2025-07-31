@@ -764,6 +764,13 @@ export default function UploadWorksheetPage() {
     };
 
     
+    const scrollToTop = () => {
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
+        });
+    };
+
     const handleSaveAllChanges = async () => {
         setIsSaving(true);
         
@@ -852,7 +859,6 @@ export default function UploadWorksheetPage() {
                             await worksheetAPI.createGradedWorksheet(data);
                         }
                         
-                        // Track if a student with incorrect grade was saved in bulk
                         if (data.isIncorrectGrade) {
                             posthog.capture('incorrect_grade_student_saved', {
                                 student_name: worksheet.name,
@@ -873,8 +879,6 @@ export default function UploadWorksheetPage() {
                 }
             }));
             
-            
-            // Inform user about the save results
             if (savedCount > 0) {
                 let message = `Successfully saved ${savedCount} student${savedCount !== 1 ? 's' : ''}`;
                 
@@ -884,7 +888,6 @@ export default function UploadWorksheetPage() {
                 
                 toast.success(message);
                 
-                // Track bulk save summary with incorrect grades count
                 const incorrectGradeCount = studentsToSave.filter(w => w.isIncorrectGrade).length;
                 if (incorrectGradeCount > 0) {
                     posthog.capture('incorrect_grade_bulk_save', {
@@ -907,12 +910,8 @@ export default function UploadWorksheetPage() {
         }
     };
 
-    // Function to mark all students without grades as absent
     const handleMarkAllWithoutGradeAsAbsent = () => {
-        // Use filtered worksheets when search is active, otherwise use all worksheets
         const worksheetsToCheck = searchTerm.trim() ? filteredStudentWorksheets : studentWorksheets;
-        
-        // Find students without grades (not absent and no grade - worksheet number doesn't matter)
         const studentsWithoutGrades = worksheetsToCheck.filter(worksheet => 
             !worksheet.isAbsent && 
             (!worksheet.grade || worksheet.grade.trim() === '')
@@ -923,7 +922,6 @@ export default function UploadWorksheetPage() {
             return;
         }
 
-        // Update state to mark these students as absent
         setStudentWorksheets(prev => prev.map(worksheet => {
             const shouldMarkAbsent = studentsWithoutGrades.some(s => s.studentId === worksheet.studentId);
             if (shouldMarkAbsent) {
@@ -948,15 +946,17 @@ export default function UploadWorksheetPage() {
 
     if (isLoading) {
         return <div className="flex items-center justify-center min-h-[60vh]">Loading...</div>;
-    }    return (
-        <div className="bg-white rounded-lg border shadow-sm">
-                <div className="p-4 md:p-6 border-b">
-                    <h2 className="text-lg font-semibold mb-1">Upload Worksheet Images</h2>
-                    <p className="text-sm text-gray-600">
-                        Select class and date, then upload and grade worksheets for each student.
-                    </p>
-                </div>
-                <div className="p-4 md:p-6 space-y-4">
+    }
+
+    return (
+        <div className="bg-white rounded-lg shadow-sm">
+            <div className="p-4 md:p-6">
+                <h2 className="text-lg font-semibold mb-1">Upload Worksheet Images</h2>
+                <p className="text-sm text-gray-600 mb-6">
+                    Select class and date, then upload and grade worksheets for each student.
+                </p>
+                
+                <div className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="class" className="text-sm font-medium">Class</Label>
@@ -964,7 +964,7 @@ export default function UploadWorksheetPage() {
                                 id="class"
                                 value={selectedClass}
                                 onChange={(e) => setSelectedClass(e.target.value)}
-                                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                className="flex h-9 w-full rounded-md border-1 bg-gray-50 px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                 required
                             >
                                 <option value="">Select a class</option>
@@ -983,7 +983,7 @@ export default function UploadWorksheetPage() {
                                 type="date"
                                 value={submittedOn}
                                 onChange={(e) => setSubmittedOn(e.target.value)}
-                                className="h-9 py-1"
+                                className="h-9 py-1 border-1 bg-gray-50 focus-visible:ring-1"
                                 required
                             />
                         </div>
@@ -1018,7 +1018,7 @@ export default function UploadWorksheetPage() {
                                     placeholder="Search by name or token number..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="h-9 py-1 pr-8"
+                                    className="h-9 py-1 pr-8 border-0 bg-gray-50 focus-visible:ring-1"
                                 />
                                 {searchTerm && (
                                     <button
@@ -1085,8 +1085,15 @@ export default function UploadWorksheetPage() {
                             </div>
 
                             <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 mb-0">
-                                <div className="bg-white shadow-lg p-4">
+                                <div className="bg-white border-t border-gray-100 p-4">
                                     <div className="flex space-x-3">
+                                        <Button
+                                            onClick={scrollToTop}
+                                            className="h-12 w-12 p-0"
+                                            variant="outline"
+                                        >
+                                            ↑
+                                        </Button>
                                         <Button
                                             onClick={handleBatchProcess}
                                             disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) || 
@@ -1118,5 +1125,6 @@ export default function UploadWorksheetPage() {
                     )}
                 </div>
             </div>
+        </div>
     );
 }

@@ -42,7 +42,6 @@ export function TeacherLayout({
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-3 md:px-4 lg:px-8 py-3 md:py-4 flex justify-between items-center">
           <div>
@@ -63,9 +62,7 @@ export function TeacherLayout({
       </header>
 
       <div className="max-w-7xl mx-auto px-2 md:px-4 lg:px-8 py-3 md:py-6">
-        <main className="bg-white p-3 md:p-6 rounded-lg shadow">
-          {children}
-        </main>
+        {children}
       </div>
     </div>
   );
