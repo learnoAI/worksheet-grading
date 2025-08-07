@@ -10,8 +10,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { AddSchoolModal } from '@/components/AddSchoolModal';
 import { EditSchoolModal } from '@/components/EditSchoolModal';
 import { ArchiveSchoolModal } from '@/components/ArchiveSchoolModal';
+import { CreateClassModal } from '@/components/CreateClassModal';
 import { toast } from 'sonner';
-import { Search, Plus, Building2, Archive, ArchiveRestore} from 'lucide-react';
+import { Search, Plus, Building2, Archive, ArchiveRestore, GraduationCap} from 'lucide-react';
 
 export default function SchoolsPage() {
     const [schools, setSchools] = useState<School[]>([]);
@@ -25,6 +26,8 @@ export default function SchoolsPage() {
     const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
     const [archiveAction, setArchiveAction] = useState<'archive' | 'unarchive'>('archive');
     const [includeArchived, setIncludeArchived] = useState(false);
+    const [isCreateClassModalOpen, setIsCreateClassModalOpen] = useState(false);
+    const [selectedSchoolForClass, setSelectedSchoolForClass] = useState<School | null>(null);
 
     useEffect(() => {
         loadSchools();
@@ -273,6 +276,19 @@ export default function SchoolsPage() {
                                                         variant="outline" 
                                                         size="sm"
                                                         onClick={() => {
+                                                            setSelectedSchoolForClass(school);
+                                                            setIsCreateClassModalOpen(true);
+                                                        }}
+                                                        title="Create Class for this school"
+                                                    >
+                                                        <GraduationCap className="h-4 w-4 mr-1" />
+                                                        Add Class
+                                                    </Button>
+                                                    
+                                                    <Button 
+                                                        variant="outline" 
+                                                        size="sm"
+                                                        onClick={() => {
                                                             setSelectedSchool(school);
                                                             setIsEditModalOpen(true);
                                                         }}
@@ -346,6 +362,21 @@ export default function SchoolsPage() {
                 onSuccess={loadSchools}
                 school={selectedSchool}
                 action={archiveAction}
+            />
+
+            {/* Create Class Modal */}
+            <CreateClassModal
+                isOpen={isCreateClassModalOpen}
+                onClose={() => {
+                    setIsCreateClassModalOpen(false);
+                    setSelectedSchoolForClass(null);
+                }}
+                onSuccess={() => {
+                    setIsCreateClassModalOpen(false);
+                    setSelectedSchoolForClass(null);
+                    toast.success('Class created successfully! You can view it in the Classes page.');
+                }}
+                defaultSchoolId={selectedSchoolForClass?.id}
             />
         </div>
     );

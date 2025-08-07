@@ -39,6 +39,7 @@ import {
 const CreateUserForm = lazy(() => import('@/components/CreateUserForm').then(module => ({ default: module.CreateUserForm })));
 const StudentManagementModal = lazy(() => import('@/components/StudentManagementModal').then(module => ({ default: module.StudentManagementModal })));
 const TeacherManagementModal = lazy(() => import('@/components/TeacherManagementModal').then(module => ({ default: module.TeacherManagementModal })));
+const CreateClassModal = lazy(() => import('@/components/CreateClassModal').then(module => ({ default: module.CreateClassModal })));
 
 // Custom hooks for better performance
 const useDebounce = <T,>(value: T, delay: number): T => {
@@ -249,6 +250,9 @@ export default function ClassesPage() {
     
     // Create user state
     const [showCreateUser, setShowCreateUser] = useState(false);
+    
+    // Create class state
+    const [showCreateClass, setShowCreateClass] = useState(false);
     
     // Management modals state
     const [selectedClassForStudents, setSelectedClassForStudents] = useState<ClassWithSchool | null>(null);
@@ -578,6 +582,11 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
         handleRefresh(); // Refresh data
     }, [handleRefresh]);
 
+    const handleCreateClassSuccess = useCallback(() => {
+        setShowCreateClass(false);
+        handleRefresh(); // Refresh data to show new class
+    }, [handleRefresh]);
+
     const handleStudentsUpdated = useCallback(() => {
         handleRefresh(); // Refresh data to update student counts
     }, [handleRefresh]);
@@ -599,6 +608,14 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <h1 className="text-2xl font-bold">Classes Management</h1>
                 <div className="flex flex-col sm:flex-row gap-2">
+                    <Button 
+                        onClick={() => setShowCreateClass(true)}
+                        size="sm"
+                        className="flex items-center gap-2 w-full sm:w-auto"
+                    >
+                        <GraduationCap className="h-4 w-4" />
+                        Create Class
+                    </Button>
                     <Button 
                         onClick={() => setShowCreateUser(true)}
                         size="sm"
@@ -956,6 +973,16 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                         className={selectedClassForTeachers.name}
                         schoolId={selectedClassForTeachers.schoolId}
                         onTeachersUpdated={handleTeachersUpdated}
+                    />
+                </Suspense>
+            )}
+
+            {showCreateClass && (
+                <Suspense fallback={<ComponentLoader />}>
+                    <CreateClassModal
+                        isOpen={showCreateClass}
+                        onClose={() => setShowCreateClass(false)}
+                        onSuccess={handleCreateClassSuccess}
                     />
                 </Suspense>
             )}
