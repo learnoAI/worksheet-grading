@@ -5,6 +5,7 @@ import {
     archiveClass,
     unarchiveClass,
     getClassById,
+    createClass,
     addTeacherToClass,
     removeTeacherFromClass,
     getClassTeachers,
@@ -25,6 +26,9 @@ router.use(authorizeRoles([UserRole.SUPERADMIN]));
 
 // Get all classes (with option to include archived)
 router.get('/', asHandler(getAllClasses));
+
+// Create a new class
+router.post('/', asHandler(createClass));
 
 // Get archived classes only
 router.get('/archived', asHandler(getArchivedClasses));

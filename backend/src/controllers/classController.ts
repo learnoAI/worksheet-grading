@@ -670,3 +670,67 @@ export const removeStudentFromClass = async (req: Request, res: Response) => {
         return res.status(500).json({ message: 'Server error while removing student from class' });
     }
 };
+
+/**
+ * Create a new class
+ * @route POST /api/classes
+ */
+export const createClass = async (req: Request, res: Response) => {
+    const { name, schoolId } = req.body;
+
+    try {
+        // Validate input
+        if (!name || !schoolId) {
+            return res.status(400).json({ message: 'Name and school ID are required' });
+        }
+
+        // Check if school exists
+        const school = await prisma.school.findUnique({
+            where: { id: schoolId }
+        });
+
+        if (!school) {
+            return res.status(404).json({ message: 'School not found' });
+        }
+
+        // Check if class with same name already exists in this school
+        const existingClass = await prisma.class.findFirst({
+            where: {
+                name: name.trim(),
+                schoolId
+            }
+        });
+
+        if (existingClass) {
+            return res.status(400).json({ message: 'A class with this name already exists in this school' });
+        }
+
+        // Create the class
+        const newClass = await prisma.class.create({
+            data: {
+                name: name.trim(),
+                schoolId
+            },
+            include: {
+                school: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                },
+                _count: {
+                    select: {
+                        studentClasses: true,
+                        teacherClasses: true,
+                        worksheets: true
+                    }
+                }
+            }
+        });
+
+        return res.status(201).json(newClass);
+    } catch (error) {
+        console.error('Error creating class:', error);
+        return res.status(500).json({ message: 'Server error while creating class' });
+    }
+};
