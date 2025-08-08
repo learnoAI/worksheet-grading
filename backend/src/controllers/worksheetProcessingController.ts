@@ -3,6 +3,7 @@ import { ProcessingStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
+import { scheduleGrading } from '../services/gradingLimiter';
 
 interface PythonApiResponse {
     success: boolean;
@@ -22,7 +23,6 @@ interface PythonApiResponse {
     unanswered_questions?: any[];
     overall_feedback?: string;
     error?: string;
-    // Fields we add in our backend
     worksheetId?: string;
     databaseWarning?: string;
 }
@@ -39,7 +39,7 @@ export const processWorksheets = async (req: Request, res: Response) => {
         });
     }
 
-    try {        // Extract data from the request
+    try {
         const { token_no, worksheet_name } = req.body;
         
         if (!token_no || !worksheet_name) {
@@ -74,12 +74,12 @@ export const processWorksheets = async (req: Request, res: Response) => {
         }
           console.log(`Calling Python API at ${pythonApiUrl}/process-worksheets with token_no: ${token_no}, worksheet_name: ${worksheet_name}`);
         
-        // Make request to Python API with query parameters
-        const response = await fetch(`${pythonApiUrl}/process-worksheets?token_no=${encodeURIComponent(token_no)}&worksheet_name=${encodeURIComponent(worksheet_name)}`, {
+        // Queue the grading call so multiple parallel uploads don't overwhelm the Python service
+        const response = await scheduleGrading(() => fetch(`${pythonApiUrl}/process-worksheets?token_no=${encodeURIComponent(token_no)}&worksheet_name=${encodeURIComponent(worksheet_name)}`, {
             method: 'POST',
             body: formData,
             headers: formData.getHeaders()
-        });
+        }));
         
         // Get response from Python API
         const pythonResponse: PythonApiResponse = await response.json();
