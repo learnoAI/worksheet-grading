@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { schoolAPI } from '@/lib/api';
 import { School } from '@/lib/api/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,6 +13,7 @@ import { ArchiveSchoolModal } from '@/components/ArchiveSchoolModal';
 import { CreateClassModal } from '@/components/CreateClassModal';
 import { toast } from 'sonner';
 import { Search, Plus, Building2, Archive, ArchiveRestore, GraduationCap} from 'lucide-react';
+import { Skeleton, SkeletonStyles } from '@/components/ui/skeleton';
 
 export default function SchoolsPage() {
     const [schools, setSchools] = useState<School[]>([]);
@@ -70,15 +71,51 @@ export default function SchoolsPage() {
         }
     };
 
-    if (isLoading) {
-        return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-                    <p className="mt-2 text-sm text-gray-600">Loading schools...</p>
+    const skeleton = useMemo(() => (
+        <div className="space-y-6">
+            <SkeletonStyles />
+            <div className="flex justify-between items-center">
+                <div className="flex items-center space-x-2">
+                    <Skeleton className="h-8 w-8 rounded" />
+                    <Skeleton className="h-8 w-64" />
+                </div>
+                <div className="flex gap-2">
+                    <Skeleton className="h-9 w-32" />
+                    <Skeleton className="h-9 w-48" />
                 </div>
             </div>
-        );
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {Array.from({length:3}).map((_,i)=>(
+                    <div key={i} className="border rounded-lg p-4 space-y-2">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-6 w-20" />
+                        <Skeleton className="h-3 w-24" />
+                    </div>
+                ))}
+            </div>
+            <div className="border rounded-lg p-4 space-y-4">
+                <Skeleton className="h-5 w-48" />
+                <div className="flex flex-wrap gap-3">
+                    {Array.from({length:5}).map((_,i)=>(
+                        <Skeleton key={i} className="h-9 w-40" />
+                    ))}
+                </div>
+                <div className="space-y-2">
+                    {Array.from({length:7}).map((_,i)=>(
+                        <div key={i} className="grid grid-cols-5 gap-4 items-center">
+                            <Skeleton className="h-4 w-full col-span-2" />
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-8 w-full" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    ), []);
+
+    if (isLoading) {
+        return skeleton;
     }
 
     if (error && schools.length === 0) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { worksheetTemplateAPI } from '@/lib/api/worksheetTemplate';
@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { Skeleton, SkeletonStyles } from '@/components/ui/skeleton';
 
 interface TemplateEditPageProps {
     params: {
@@ -203,8 +204,62 @@ export default function TemplateEditPage({ params }: TemplateEditPageProps) {
         );
     };
 
+    const skeleton = useMemo(() => (
+        <div className="space-y-6">
+            <SkeletonStyles />
+            <div className="flex justify-between items-center">
+                <Skeleton className="h-8 w-96" />
+                <Skeleton className="h-9 w-40" />
+            </div>
+            <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-4">
+                    <div className="border rounded-lg p-6 space-y-4">
+                        <Skeleton className="h-5 w-40" />
+                        <div className="space-y-2">
+                            <Skeleton className="h-4 w-32" />
+                            <Skeleton className="h-10 w-full" />
+                        </div>
+                        <div className="flex gap-3 justify-end">
+                            <Skeleton className="h-9 w-28" />
+                            <Skeleton className="h-9 w-40" />
+                        </div>
+                    </div>
+                    <div className="border rounded-lg p-6 space-y-4">
+                        <Skeleton className="h-5 w-44" />
+                        {Array.from({length:3}).map((_,i)=>(
+                            <div key={i} className="space-y-2">
+                                <Skeleton className="h-4 w-24" />
+                                <Skeleton className="h-10 w-full" />
+                            </div>
+                        ))}
+                        <div className="flex justify-end gap-3">
+                            <Skeleton className="h-9 w-28" />
+                            <Skeleton className="h-9 w-40" />
+                        </div>
+                    </div>
+                </div>
+                <div className="space-y-4">
+                    <div className="border rounded-lg p-6 space-y-4">
+                        <Skeleton className="h-5 w-52" />
+                        {Array.from({length:4}).map((_,i)=>(
+                            <Skeleton key={i} className="h-32 w-full" />
+                        ))}
+                    </div>
+                    <div className="border rounded-lg p-6 space-y-4">
+                        <Skeleton className="h-5 w-40" />
+                        <div className="flex flex-wrap gap-2">
+                            {Array.from({length:8}).map((_,i)=>(
+                                <Skeleton key={i} className="h-7 w-20" />
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    ), []);
+
     if (isLoading || loading) {
-        return <div className="flex justify-center items-center h-full">Loading...</div>;
+        return skeleton;
     }
 
     if (!user || user.role !== UserRole.SUPERADMIN || !template) {

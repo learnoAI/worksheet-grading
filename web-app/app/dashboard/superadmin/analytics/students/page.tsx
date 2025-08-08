@@ -11,6 +11,7 @@ import { analyticsAPI, School, Class, StudentAnalytics } from '@/lib/api/analyti
 import { userAPI } from '@/lib/api/user';
 import { toast } from 'sonner';
 import { Download, Filter, X, ArrowUp, ArrowDown, ChevronsUpDown, Archive, ArchiveRestore, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Skeleton, SkeletonStyles } from '@/components/ui/skeleton';
 
 type SortField = 'name' | 'tokenNumber' | 'school' | 'class' | 'totalWorksheets' | 'repetitionRate' | 'absentPercentage' | 'firstWorksheetDate' | 'lastWorksheetDate';
 type SortDirection = 'asc' | 'desc';
@@ -456,6 +457,42 @@ export default function StudentAnalyticsPage() {
         return new Date(dateString).toLocaleDateString();
     }, []);
     
+    const pageSkeleton = useMemo(() => (
+        <div className="space-y-6">
+            <SkeletonStyles />
+            <Skeleton className="h-8 w-80" />
+            <div className="border rounded-lg p-6 space-y-4">
+                <Skeleton className="h-5 w-52" />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {Array.from({length:9}).map((_,i)=>(
+                        <div key={i} className="space-y-2">
+                            <Skeleton className="h-4 w-32" />
+                            <Skeleton className="h-10 w-full" />
+                        </div>
+                    ))}
+                </div>
+                <div className="flex flex-wrap gap-3">
+                    {Array.from({length:6}).map((_,i)=>(
+                        <Skeleton key={i} className="h-9 w-36" />
+                    ))}
+                </div>
+                <Skeleton className="h-9 w-48" />
+            </div>
+            <div className="border rounded-lg p-6 space-y-4">
+                <Skeleton className="h-5 w-64" />
+                <div className="space-y-3">
+                    {Array.from({length:12}).map((_,i)=>(
+                        <div key={i} className="grid grid-cols-8 gap-4 items-center">
+                            {Array.from({length:8}).map((__,j)=>(
+                                <Skeleton key={j} className="h-4 w-full" />
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    ), []);
+
     return (
         <div className="space-y-6">
             <h1 className="text-2xl font-bold">Student Analytics</h1>
@@ -805,8 +842,14 @@ export default function StudentAnalyticsPage() {
                 </CardHeader>
                 <CardContent>
                     {isLoading ? (
-                        <div className="flex items-center justify-center py-8">
-                            <p>Loading student analytics...</p>
+                        <div className="space-y-3">
+                            {Array.from({length:10}).map((_,i)=>(
+                                <div key={i} className="grid grid-cols-8 gap-4 items-center">
+                                    {Array.from({length:8}).map((__,j)=>(
+                                        <Skeleton key={j} className="h-4 w-full" />
+                                    ))}
+                                </div>
+                            ))}
                         </div>
                     ) : filteredStudents.length === 0 ? (
                         <div className="text-center py-8 text-muted-foreground">

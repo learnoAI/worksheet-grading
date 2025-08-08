@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import {
 import { analyticsAPI, OverallAnalytics, School, Class } from '@/lib/api/analytics';
 import { toast } from 'sonner';
 import { Download, ChevronDown, ExternalLink } from 'lucide-react';
+import { Skeleton, SkeletonStyles } from '@/components/ui/skeleton';
 
 export default function AnalyticsDashboardPage() {
     // Date range state
@@ -147,6 +148,42 @@ export default function AnalyticsDashboardPage() {
         return `${selectedSchoolIds.length} Schools Selected`;
     };
     
+    const skeleton = useMemo(() => (
+        <div className="space-y-6">
+            <SkeletonStyles />
+            <Skeleton className="h-8 w-72" />
+            <div className="border rounded-lg p-6 space-y-4">
+                <Skeleton className="h-5 w-40" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {Array.from({length:4}).map((_,i)=>(
+                        <div key={i} className="space-y-2">
+                            <Skeleton className="h-4 w-32" />
+                            <Skeleton className="h-10 w-48" />
+                        </div>
+                    ))}
+                </div>
+                <div className="flex gap-3">
+                    <Skeleton className="h-9 w-40" />
+                </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {Array.from({length:4}).map((_,i)=>(
+                    <div key={i} className="border rounded-lg p-6 space-y-4">
+                        <Skeleton className="h-5 w-48" />
+                        <div className="space-y-3">
+                            {Array.from({length:4}).map((__,j)=>(
+                                <div key={j} className="flex justify-between items-center">
+                                    <Skeleton className="h-4 w-32" />
+                                    <Skeleton className="h-4 w-16" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    ), []);
+
     return (
         <div className="space-y-6">
             <h1 className="text-2xl font-bold">Overall Analytics</h1>
@@ -236,9 +273,7 @@ export default function AnalyticsDashboardPage() {
             
             {/* Analytics Cards */}
             {isLoading ? (
-                <div className="flex items-center justify-center h-64">
-                    <p>Loading analytics data...</p>
-                </div>
+                skeleton
             ) : analytics ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Total Worksheets & Completion Card */}

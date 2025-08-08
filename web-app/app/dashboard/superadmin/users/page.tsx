@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { userAPI } from '@/lib/api/user';
@@ -40,8 +40,9 @@ import {
     X
 } from 'lucide-react';
 import Link from 'next/link';
+import { Skeleton, SkeletonStyles } from '@/components/ui/skeleton';
+import { HeadingActionSkeleton, TableSkeleton } from '@/components/superadmin/skeletons';
 
-// Enhanced User interface with relationships - using the actual API response structure
 interface UserWithDetails extends Omit<User, 'studentClasses' | 'teacherClasses' | 'adminSchools'> {
     studentClasses?: Array<{
         class: {
@@ -71,7 +72,6 @@ interface UserWithDetails extends Omit<User, 'studentClasses' | 'teacherClasses'
     }>;
 }
 
-// Custom hooks for better performance
 const useDebounce = <T,>(value: T, delay: number): T => {
     const [debouncedValue, setDebouncedValue] = useState<T>(value);
 
@@ -88,18 +88,38 @@ const useDebounce = <T,>(value: T, delay: number): T => {
     return debouncedValue;
 };
 
-// Pagination constants
 const ITEMS_PER_PAGE = 30;
 
-// Optimized loading components
-const PageLoader = memo(() => (
-    <div className="flex justify-center items-center h-96">
-        <Loader2 className="h-8 w-8 animate-spin" />
-        <span className="ml-2">Loading users...</span>
+const UsersPageSkeleton = memo(() => (
+    <div className="space-y-6">
+        <SkeletonStyles />
+        <div className="flex justify-between items-center">
+            <Skeleton className="h-8 w-72" />
+            <div className="flex gap-2">
+                <Skeleton className="h-9 w-40" />
+                <Skeleton className="h-9 w-40" />
+            </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {Array.from({length:4}).map((_,i)=>(
+                <div key={i} className="border rounded-lg p-4 space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-6 w-20" />
+                </div>
+            ))}
+        </div>
+        <div className="border rounded-lg p-4 space-y-4">
+            <Skeleton className="h-5 w-40" />
+            <div className="flex flex-wrap gap-3">
+                {Array.from({length:6}).map((_,i)=>(
+                    <Skeleton key={i} className="h-9 w-32" />
+                ))}
+            </div>
+            <TableSkeleton rows={7} columns={6} />
+        </div>
     </div>
 ));
 
-// Optimized pagination component
 const PaginationControls = memo(({ 
     currentPage, 
     totalPages, 
@@ -725,7 +745,7 @@ export default function UsersPage() {
     };
 
     if (isLoading || (loading && users.length === 0)) {
-        return <PageLoader />;
+    return <UsersPageSkeleton />;
     }
 
     if (!user || user.role !== UserRole.SUPERADMIN) {

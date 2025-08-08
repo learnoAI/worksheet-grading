@@ -93,10 +93,45 @@ const ITEMS_PER_PAGE = 20;
 const BATCH_SIZE = 5; // For loading counts
 
 // Optimized loading components
-const PageLoader = memo(() => (
-    <div className="flex justify-center items-center h-96">
-        <Loader2 className="h-8 w-8 animate-spin" />
-        <span className="ml-2">Loading classes...</span>
+import { Skeleton, SkeletonStyles } from '@/components/ui/skeleton';
+
+const ClassesPageSkeleton = memo(() => (
+    <div className="space-y-6">
+        <SkeletonStyles />
+        <div className="flex justify-between items-center">
+            <Skeleton className="h-8 w-80" />
+            <div className="flex gap-2">
+                <Skeleton className="h-9 w-40" />
+                <Skeleton className="h-9 w-40" />
+            </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {Array.from({length:4}).map((_,i)=>(
+                <div key={i} className="border rounded-lg p-4 space-y-2">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-6 w-16" />
+                </div>
+            ))}
+        </div>
+        <div className="border rounded-lg p-4 space-y-4">
+            <Skeleton className="h-5 w-60" />
+            <div className="flex flex-wrap gap-3">
+                {Array.from({length:8}).map((_,i)=>(
+                    <Skeleton key={i} className="h-9 w-36" />
+                ))}
+            </div>
+            <div className="space-y-2">
+                {Array.from({length:8}).map((_,i)=>(
+                    <div key={i} className="grid grid-cols-6 gap-4 items-center">
+                        <Skeleton className="h-4 w-full col-span-2" />
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-8 w-full" />
+                    </div>
+                ))}
+            </div>
+        </div>
     </div>
 ));
 
@@ -596,7 +631,7 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
     }, [handleRefresh]);
 
     if (isLoading || loading) {
-        return <PageLoader />;
+    return <ClassesPageSkeleton />;
     }
 
     if (!user || user.role !== UserRole.SUPERADMIN) {

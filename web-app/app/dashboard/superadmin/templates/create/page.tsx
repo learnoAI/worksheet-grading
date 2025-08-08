@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { worksheetTemplateAPI } from '@/lib/api/worksheetTemplate';
@@ -11,6 +11,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { FormSkeleton } from '@/components/superadmin/skeletons';
+import { SkeletonStyles } from '@/components/ui/skeleton';
 import { useEffect } from 'react';
 
 export default function CreateTemplatePage() {
@@ -46,8 +48,15 @@ export default function CreateTemplatePage() {
         }
     };
 
+    const skeleton = useMemo(() => (
+        <div className="space-y-6">
+            <SkeletonStyles />
+            <FormSkeleton fields={1} />
+        </div>
+    ), []);
+
     if (isLoading) {
-        return <div className="flex justify-center items-center h-full">Loading...</div>;
+        return skeleton;
     }
 
     if (!user || user.role !== UserRole.SUPERADMIN) {

@@ -133,7 +133,12 @@ export default function UploadWorksheetPage() {
         return sortStudentsByTokenNumber(studentWorksheets);
     }, [studentWorksheets]);
 
-    // Filtered worksheets based on search term
+    const gradedCount = useMemo(() => {
+        return studentWorksheets.filter(sw => !sw.isAbsent && sw.worksheetNumber > 0 && sw.grade !== '' && sw.grade !== undefined && sw.grade !== null).length;
+    }, [studentWorksheets]);
+
+    const totalStudents = studentWorksheets.length;
+
     const filteredStudentWorksheets = useMemo(() => {
         if (!searchTerm.trim()) {
             return sortedStudentWorksheets;
@@ -955,6 +960,22 @@ export default function UploadWorksheetPage() {
                 <p className="text-sm text-gray-600 mb-6">
                     Select class and date, then upload and grade worksheets for each student.
                 </p>
+                {selectedClass && (
+                    <div className="mb-6 grid grid-cols-2 md:flex md:items-center md:space-x-6 gap-3 text-sm">
+                        <div className="flex items-center space-x-2 bg-gray-50 rounded-md px-3 py-2">
+                            <span className="font-medium">Graded Today:</span>
+                            <span>{gradedCount} / {totalStudents}</span>
+                        </div>
+                        <div className="flex items-center space-x-2 bg-gray-50 rounded-md px-3 py-2">
+                            <span className="font-medium">Completion:</span>
+                            <span>{totalStudents ? Math.round((gradedCount / totalStudents) * 100) : 0}%</span>
+                        </div>
+                        <div className="flex items-center space-x-2 bg-gray-50 rounded-md px-3 py-2 col-span-2 md:col-span-1">
+                            <span className="font-medium">Date:</span>
+                            <span>{submittedOn}</span>
+                        </div>
+                    </div>
+                )}
                 
                 <div className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">

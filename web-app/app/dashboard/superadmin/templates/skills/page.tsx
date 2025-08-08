@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { worksheetTemplateAPI } from '@/lib/api/worksheetTemplate';
@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { HeadingActionSkeleton, PageSectionSkeleton } from '@/components/superadmin/skeletons';
+import { Skeleton, SkeletonStyles } from '@/components/ui/skeleton';
 
 export default function SkillsPage() {
     const router = useRouter();
@@ -79,8 +81,39 @@ export default function SkillsPage() {
         }
     };
 
+    const skeleton = useMemo(() => (
+        <div className="space-y-6">
+            <SkeletonStyles />
+            <HeadingActionSkeleton />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="border rounded-lg p-6 space-y-5">
+                    <Skeleton className="h-5 w-56" />
+                    <Skeleton className="h-4 w-72" />
+                    {Array.from({length:2}).map((_,i)=>(
+                        <div key={i} className="space-y-2">
+                            <Skeleton className="h-4 w-32" />
+                            <Skeleton className="h-10 w-full" />
+                        </div>
+                    ))}
+                    <div className="flex justify-end">
+                        <Skeleton className="h-9 w-40" />
+                    </div>
+                </div>
+                <div className="border rounded-lg p-6 space-y-4">
+                    <Skeleton className="h-5 w-48" />
+                    <Skeleton className="h-4 w-64" />
+                    <div className="space-y-3">
+                        {Array.from({length:5}).map((_,i)=>(
+                            <Skeleton key={i} className="h-16 w-full" />
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    ), []);
+
     if (isLoading || loading) {
-        return <div className="flex justify-center items-center h-full">Loading...</div>;
+        return skeleton;
     }
 
     if (!user || user.role !== UserRole.SUPERADMIN) {

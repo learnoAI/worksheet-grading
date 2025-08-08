@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { worksheetTemplateAPI } from '@/lib/api/worksheetTemplate';
@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { HeadingActionSkeleton, TableSkeleton, FormSkeleton, PageSectionSkeleton, FullPageSkeleton } from '@/components/superadmin/skeletons';
+import { SkeletonStyles } from '@/components/ui/skeleton';
 
 export default function TemplatesPage() {
     const { user, isLoading } = useAuth();
@@ -54,8 +56,16 @@ export default function TemplatesPage() {
         }
     };
 
+    const skeleton = useMemo(() => (
+        <div className="space-y-6">
+            <SkeletonStyles />
+            <HeadingActionSkeleton />
+            <TableSkeleton rows={6} columns={5} />
+        </div>
+    ), []);
+
     if (isLoading || loading) {
-        return <div className="flex justify-center items-center h-full">Loading...</div>;
+        return skeleton;
     }
 
     if (!user || user.role !== UserRole.SUPERADMIN) {

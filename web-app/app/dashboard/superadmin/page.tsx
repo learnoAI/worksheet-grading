@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { userAPI } from '@/lib/api/user';
@@ -8,6 +8,7 @@ import { User, UserRole } from '@/lib/api/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { Skeleton, SkeletonStyles } from '@/components/ui/skeleton';
 import Link from 'next/link';
 
 export default function SuperAdminPage() {
@@ -40,8 +41,50 @@ export default function SuperAdminPage() {
         }
     };
 
+    const skeletonContent = useMemo(() => (
+        <div className="space-y-6">
+            <SkeletonStyles />
+            {/* Heading */}
+            <Skeleton className="h-8 w-64" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {[0,1].map(i => (
+                    <div key={i} className="border rounded-lg p-6 space-y-4">
+                        <Skeleton className="h-5 w-40" />
+                        <Skeleton className="h-4 w-72" />
+                        <Skeleton className="h-4 w-full" />
+                        <div className="flex gap-3 pt-2">
+                            <Skeleton className="h-9 w-full" />
+                            <Skeleton className="h-9 w-full hidden md:block" />
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="border rounded-lg overflow-hidden">
+                <div className="border-b p-6 space-y-2">
+                    <Skeleton className="h-5 w-32" />
+                    <Skeleton className="h-4 w-64" />
+                </div>
+                <div className="p-4">
+                    <div className="space-y-3">
+                        {[...Array(6)].map((_, idx) => (
+                            <div key={idx} className="grid grid-cols-4 gap-4 items-center">
+                                <Skeleton className="h-4 w-32" />
+                                <Skeleton className="h-4 w-20" />
+                                <Skeleton className="h-4 w-24" />
+                                <div className="flex gap-2">
+                                    <Skeleton className="h-8 w-16" />
+                                    <Skeleton className="h-8 w-28" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    ), []);
+
     if (isLoading || loading) {
-        return <div className="flex justify-center items-center h-full">Loading...</div>;
+        return skeletonContent;
     }
 
     if (!user || user.role !== UserRole.SUPERADMIN) {
