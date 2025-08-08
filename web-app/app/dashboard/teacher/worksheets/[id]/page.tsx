@@ -8,32 +8,46 @@ import { Button } from '@/components/ui/button';
 import { worksheetAPI } from '@/lib/api';
 import { Worksheet } from '@/lib/api';
 
-export default function WorksheetDetailPage({ params }: { params: { id: string } }) {
+export default function WorksheetDetailPage({ params }: { params: { id?: string } }) {
     const { user } = useAuth();
     const router = useRouter();
     const [worksheet, setWorksheet] = useState<Worksheet | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        console.debug('[WorksheetDetail] Received params:', params);
+    }, [params]);
 
     useEffect(() => {
         const fetchWorksheet = async () => {
+            if (!params?.id) return;
             setIsLoading(true);
+            setError(null);
             try {
                 const data = await worksheetAPI.getWorksheetById(params.id);
                 setWorksheet(data);
-            } catch (error) {
-                console.error('Error fetching worksheet:', error);
+            } catch (err: any) {
+                console.error('Error fetching worksheet:', err);
+                setError(err?.message || 'Failed to load worksheet');
             } finally {
                 setIsLoading(false);
             }
         };
 
-        if (params.id) {
-            fetchWorksheet();
-        }
-    }, [params.id]);
+        fetchWorksheet();
+    }, [params?.id]);
+
+    if (!params?.id) {
+        return <div className="text-sm text-red-600">Invalid or missing worksheet id in route. Ensure you navigated to /dashboard/teacher/worksheets/&lt;id&gt;.</div>;
+    }
 
     if (isLoading) {
         return <div>Loading worksheet details...</div>;
+    }
+
+    if (error) {
+        return <div className="text-sm text-red-600">{error}</div>;
     }
 
     if (!worksheet) {
