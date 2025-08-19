@@ -64,8 +64,7 @@ interface StudentWorksheet {
     page1File?: File | null;
     page2File?: File | null;
     gradingDetails?: GradingDetails;
-    wrongQuestionNumbers?: string; // Comma-separated wrong question numbers
-    
+    wrongQuestionNumbers?: string;
     id?: string;
     existing?: boolean;
 }
@@ -961,18 +960,18 @@ export default function UploadWorksheetPage() {
                     Select class and date, then upload and grade worksheets for each student.
                 </p>
                 {selectedClass && (
-                    <div className="mb-6 grid grid-cols-2 md:flex md:items-center md:space-x-6 gap-3 text-sm">
-                        <div className="flex items-center space-x-2 bg-gray-50 rounded-md px-3 py-2">
+                    <div className="mb-6 space-y-3 md:space-y-0 md:flex md:items-center md:space-x-6 text-sm">
+                        <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">
                             <span className="font-medium">Graded Today:</span>
-                            <span>{gradedCount} / {totalStudents}</span>
+                            <span className="font-semibold text-blue-600">{gradedCount} / {totalStudents}</span>
                         </div>
-                        <div className="flex items-center space-x-2 bg-gray-50 rounded-md px-3 py-2">
+                        <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">
                             <span className="font-medium">Completion:</span>
-                            <span>{totalStudents ? Math.round((gradedCount / totalStudents) * 100) : 0}%</span>
+                            <span className="font-semibold text-green-600">{totalStudents ? Math.round((gradedCount / totalStudents) * 100) : 0}%</span>
                         </div>
-                        <div className="flex items-center space-x-2 bg-gray-50 rounded-md px-3 py-2 col-span-2 md:col-span-1">
+                        <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">
                             <span className="font-medium">Date:</span>
-                            <span>{submittedOn}</span>
+                            <span className="font-semibold">{submittedOn}</span>
                         </div>
                     </div>
                 )}
