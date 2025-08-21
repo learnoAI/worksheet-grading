@@ -65,8 +65,14 @@ export default function IncorrectGradingPage() {
             setLoading(true);
             const { data, total, page: p, pageSize: ps } = await worksheetAPI.getIncorrectGradingWorksheets({ page, pageSize, startDate: startDate || undefined, endDate: endDate || undefined });
             const sorted = [...(data as any[])].sort((a, b) => {
+                const aHasGradingDetails = a.gradingDetails ? 1 : 0;
+                const bHasGradingDetails = b.gradingDetails ? 1 : 0;
+                const gradingDetailsDiff = bHasGradingDetails - aHasGradingDetails;
+                if (gradingDetailsDiff !== 0) return gradingDetailsDiff;
+                
                 const dateDiff = new Date(b.submittedOn).getTime() - new Date(a.submittedOn).getTime();
                 if (dateDiff !== 0) return dateDiff;
+                
                 const aNum = (a.worksheetNumber ?? 0) as number;
                 const bNum = (b.worksheetNumber ?? 0) as number;
                 return aNum - bNum;
