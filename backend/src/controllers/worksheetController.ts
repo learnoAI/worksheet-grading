@@ -1,9 +1,10 @@
 import { Request, Response } from 'express';
 import { validationResult } from 'express-validator';
 import prisma from '../utils/prisma';
-import { uploadToS3, deleteFromS3 } from '../services/s3Service';
+import { uploadToS3 } from '../services/s3Service';
 import { enqueueWorksheet } from '../services/queueService';
 import { ProcessingStatus } from '@prisma/client';
+import fetch from 'node-fetch';
 
 interface MulterFile extends Express.Multer.File { }
 
@@ -600,7 +601,6 @@ export const deleteGradedWorksheet = async (req: Request, res: Response) => {
     }
 };
 
-// Get previous worksheets for a student up to a specific date
 export const getPreviousWorksheets = async (req: Request, res: Response) => {
     const { classId, studentId, endDate } = req.query;
 
@@ -609,13 +609,9 @@ export const getPreviousWorksheets = async (req: Request, res: Response) => {
     }
 
     try {
-        // Create date object from endDate
         const endDateObj = new Date(endDate as string);
         const currentDate = new Date();
         
-        // Create query to find worksheets
-        // If the endDate is in the future compared to today, we should include all worksheets
-        // up to today, otherwise use the provided endDate
         const isFutureDate = endDateObj > currentDate;
         
         const worksheets = await prisma.worksheet.findMany({
@@ -627,7 +623,6 @@ export const getPreviousWorksheets = async (req: Request, res: Response) => {
                         lt: endDateObj
                     }
                 }),
-                // Only include completed worksheets 
                 status: ProcessingStatus.COMPLETED
             },
             include: {
@@ -642,5 +637,187 @@ export const getPreviousWorksheets = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Get previous worksheets error:', error);
         return res.status(500).json({ message: 'Server error while retrieving previous worksheets' });
+    }
+};
+
+export const getIncorrectGradingWorksheets = async (req: Request, res: Response) => {
+    try {
+        const { page = '1', pageSize = '10', startDate, endDate } = req.query as {
+            page?: string;
+            pageSize?: string;
+            startDate?: string;
+            endDate?: string;
+        };
+
+        const pageNum = Math.max(parseInt(page || '1', 10) || 1, 1);
+        const sizeNum = Math.min(Math.max(parseInt(pageSize || '10', 10) || 10, 1), 100);
+
+        const where: any = {
+            isIncorrectGrade: true,
+            status: ProcessingStatus.COMPLETED,
+        };
+
+        if (startDate || endDate) {
+            const submittedOn: any = {};
+            if (startDate) {
+                const start = new Date(startDate);
+                submittedOn.gte = start;
+            }
+            if (endDate) {
+                const end = new Date(endDate);
+                const endExclusive = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() + 1));
+                submittedOn.lt = endExclusive;
+            }
+            where.submittedOn = submittedOn;
+        }
+
+        const worksheets = await prisma.worksheet.findMany({
+            where,
+            include: {
+                student: { select: { id: true, name: true, tokenNumber: true } },
+                submittedBy: { select: { name: true, username: true } },
+                class: { select: { name: true } },
+                template: { select: { worksheetNumber: true } }
+            },
+            orderBy: [
+                { submittedOn: 'desc' },
+                { template: { worksheetNumber: 'asc' } }
+            ]
+        });
+
+        const transformed = worksheets.map(worksheet => ({
+            id: worksheet.id,
+            worksheetNumber: worksheet.template?.worksheetNumber || 0,
+            grade: worksheet.grade || 0,
+            submittedOn: worksheet.submittedOn,
+            adminComments: worksheet.adminComments,
+            student: {
+                id: worksheet.student?.id || null,
+                name: worksheet.student?.name || 'Unknown',
+                tokenNumber: worksheet.student?.tokenNumber || 'N/A'
+            },
+            submittedBy: {
+                name: worksheet.submittedBy.name,
+                username: worksheet.submittedBy.username
+            },
+            class: { name: worksheet.class.name },
+            gradingDetails: worksheet.gradingDetails
+        }));
+
+        const seen = new Set<string>();
+        const deduped: typeof transformed = [] as any;
+        for (const w of transformed) {
+            const dt = w.submittedOn ? new Date(w.submittedOn as any) : new Date(0);
+            const dateKey = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+            const studentKey = w.student?.id || 'unknown';
+            const key = `${studentKey}|${w.worksheetNumber}|${dateKey}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                deduped.push(w);
+            }
+        }
+
+        const total = deduped.length;
+        const startIdx = (pageNum - 1) * sizeNum;
+        const endIdx = startIdx + sizeNum;
+        const data = deduped.slice(startIdx, endIdx).map(w => ({
+            id: w.id,
+            worksheetNumber: w.worksheetNumber,
+            grade: w.grade,
+            submittedOn: w.submittedOn,
+            adminComments: w.adminComments,
+            student: { name: w.student.name, tokenNumber: w.student.tokenNumber },
+            submittedBy: { name: w.submittedBy.name, username: w.submittedBy.username },
+            class: { name: w.class.name },
+            gradingDetails: w.gradingDetails
+        }));
+
+        return res.status(200).json({ data, total, page: pageNum, pageSize: sizeNum });
+    } catch (error) {
+        console.error('Get incorrect grading worksheets error:', error);
+        return res.status(500).json({ message: 'Server error while retrieving incorrect grading worksheets' });
+    }
+};
+
+export const updateWorksheetAdminComments = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { adminComments } = req.body;
+
+    try {
+        const existingWorksheet = await prisma.worksheet.findUnique({
+            where: { id }
+        });
+
+        if (!existingWorksheet) {
+            return res.status(404).json({ message: 'Worksheet not found' });
+        }
+
+        const updatedWorksheet = await prisma.worksheet.update({
+            where: { id },
+            data: {
+                adminComments: adminComments || null,
+                updatedAt: new Date()
+            }
+        });
+
+        return res.status(200).json({ 
+            message: 'Admin comments updated successfully',
+            worksheet: updatedWorksheet
+        });
+    } catch (error) {
+        console.error('Update worksheet admin comments error:', error);
+        return res.status(500).json({ message: 'Server error while updating admin comments' });
+    }
+};
+
+/**
+ * Get worksheet images from Python API
+ * @route GET /api/worksheets/images
+ */
+export const getWorksheetImages = async (req: Request, res: Response) => {
+    // Validate input
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { token_no, worksheet_name } = req.body;
+    const pythonApiUrl = process.env.PYTHON_API_URL;
+
+    if (!pythonApiUrl) {
+        console.error('PYTHON_API_URL environment variable not set');
+        return res.status(500).json({ 
+            message: 'Server configuration error: PYTHON_API_URL not set'
+        });
+    }
+
+    try {
+        // Call Python API to get worksheet images
+        const response = await fetch(
+            `${pythonApiUrl}/get-worksheet-images`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    token_no: token_no as string,
+                    worksheet_name: worksheet_name as string
+                })
+            }
+        );
+
+        if (!response.ok) {
+            const error = await response.json();
+            return res.status(response.status).json({ 
+                message: error.message || 'Failed to fetch images from Python API'
+            });
+        }
+
+        const imageUrls = await response.json();
+        return res.status(200).json(imageUrls);
+    } catch (error) {
+        console.error('Get worksheet images error:', error);
+        return res.status(500).json({ message: 'Server error while fetching worksheet images' });
     }
 };

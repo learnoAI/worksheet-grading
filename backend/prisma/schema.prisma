@@ -185,6 +185,7 @@ model Worksheet {
   mongoDbId            String?             @unique
   gradingDetails       Json?               // Store the detailed grading information from AI
   wrongQuestionNumbers String?             // Comma-separated wrong question numbers
+  adminComments        String?             // Administrative comments for incorrect grading review
 }
 
 model WorksheetImage {

@@ -13,7 +13,10 @@ import {
     findWorksheetByClassStudentDate,
     updateGradedWorksheet,
     deleteGradedWorksheet,
-    getPreviousWorksheets
+    getPreviousWorksheets,
+    getIncorrectGradingWorksheets,
+    updateWorksheetAdminComments,
+    getWorksheetImages
 } from '../controllers/worksheetController';
 import { UserRole } from '@prisma/client';
 import { auth, authorizeRoles, asHandler } from '../middleware/utils';
@@ -82,6 +85,43 @@ router.get(
         query('endDate').isISO8601().withMessage('End date must be a valid ISO date')
     ],
     asHandler(getPreviousWorksheets)
+);
+
+// Get worksheets flagged as incorrectly graded (superadmin only)
+router.get(
+    '/incorrect-grading',
+    [
+        auth,
+        authorizeRoles([UserRole.SUPERADMIN]),
+        query('page').optional().isInt({ min: 1 }).withMessage('page must be >= 1'),
+        query('pageSize').optional().isInt({ min: 1, max: 100 }).withMessage('pageSize must be between 1 and 100'),
+        query('startDate').optional().isISO8601().withMessage('startDate must be a valid ISO date'),
+        query('endDate').optional().isISO8601().withMessage('endDate must be a valid ISO date')
+    ],
+    asHandler(getIncorrectGradingWorksheets)
+);
+
+// Update worksheet admin comments (superadmin only)
+router.patch(
+    '/:id/admin-comments',
+    [
+        auth,
+        authorizeRoles([UserRole.SUPERADMIN]),
+        body('adminComments').optional().isString().withMessage('Admin comments must be a string')
+    ],
+    asHandler(updateWorksheetAdminComments)
+);
+
+// Get worksheet images via Python API
+router.post(
+    '/images',
+    [
+        auth,
+        authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+        body('token_no').notEmpty().withMessage('Token number is required'),
+        body('worksheet_name').notEmpty().withMessage('Worksheet name is required')
+    ],
+    asHandler(getWorksheetImages)
 );
 
 // Get worksheet by ID
