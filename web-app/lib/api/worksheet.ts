@@ -150,25 +150,19 @@ export const worksheetAPI = {
 
     updateGradedWorksheet: async (id: string, data: CreateGradedWorksheetData): Promise<GradedWorksheetData> => {
         try {
-            // Deep clone the data to avoid modifying the original object
             const requestData = JSON.parse(JSON.stringify(data));
             
-            // Ensure proper data formatting for absent students
             if (requestData.isAbsent) {
-                // For absent students, ensure worksheetNumber is 0 and grade is 0
                 requestData.worksheetNumber = 0;
                 requestData.grade = 0;
                 requestData.isRepeated = false;
             } else {
-                // For present students, ensure values are proper numbers
                 requestData.grade = parseFloat(requestData.grade.toString());
                 requestData.worksheetNumber = parseInt(requestData.worksheetNumber.toString());
             }
             
-            // Add logging to help diagnose issues
             console.log(`Updating worksheet ${id} with data:`, requestData);
             
-            // Add timestamp to ensure fresh request
             const timestamp = new Date().getTime();
             
             const result = await fetchAPI<GradedWorksheetData>(`/worksheets/grade/${id}?_t=${timestamp}`, {
@@ -176,7 +170,6 @@ export const worksheetAPI = {
                 body: JSON.stringify(requestData)
             });
             
-            // Log the response
             console.log(`Update response for worksheet ${id}:`, result);
             
             return result;
@@ -194,35 +187,27 @@ export const worksheetAPI = {
 
     getPreviousWorksheets: async (classId: string, studentId: string, currentDate: string): Promise<Worksheet[]> => {
         try {
-            // Create a date object for the current date
             const date = new Date(currentDate);
-            date.setHours(0, 0, 0, 0); // Reset time for accurate comparison
-            
+            date.setHours(0, 0, 0, 0);
+
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             
-            // If the date is in the future, we should use today's date as the end date
-            // This ensures we get all worksheets up to today
             const endDate = date > today ? today : date;
-            
-            // Format the endDate as UTC to maintain consistency
             const formattedEndDate = new Date(Date.UTC(
                 endDate.getFullYear(), 
                 endDate.getMonth(), 
                 endDate.getDate()
             ));
             
-            // Add timestamp to force fresh request
             const timestamp = new Date().getTime();
             
-            // We don't set a specific start date to get all previous worksheets
             const url = `/worksheets/history?classId=${classId}&studentId=${studentId}&endDate=${formattedEndDate.toISOString()}&_t=${timestamp}`;
             
             const worksheets = await fetchAPI<Worksheet[]>(url);
             return worksheets;
         } catch (error) {
             console.error('Error fetching previous worksheets:', error);
-            // Return empty array instead of throwing to prevent UI breakage
             return [];
         }
     },
