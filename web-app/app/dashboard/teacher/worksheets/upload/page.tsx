@@ -115,14 +115,12 @@ const sortStudentsByTokenNumber = <T extends { tokenNumber: string }>(students: 
 
 export default function UploadWorksheetPage() {
     const { user } = useAuth();
-    const router = useRouter();
     const posthog = usePostHog();
     const [classes, setClasses] = useState<Class[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [isFetchingTableData, setIsFetchingTableData] = useState(false);
     const [selectedClass, setSelectedClass] = useState<string>('');
-    const [students, setStudents] = useState<Student[]>([]);
     const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
@@ -170,7 +168,6 @@ export default function UploadWorksheetPage() {
     useEffect(() => {
         const fetchStudentsAndWorksheets = async () => {
             if (!selectedClass) {
-                setStudents([]);
                 setStudentWorksheets([]);
                 return;
             }
@@ -182,7 +179,6 @@ export default function UploadWorksheetPage() {
                 
                 
                 const sortedStudents = sortStudentsByTokenNumber(studentsData);
-                setStudents(sortedStudents);
 
                 const selectedDate = new Date(submittedOn);
                 const today = new Date();
@@ -222,29 +218,24 @@ export default function UploadWorksheetPage() {
                             };
                         }
                         
-                        
-                        // Get ALL worksheets for this student to find the most recent one with a grade >= 32
-                        // We use a future date to ensure we get all worksheets including today's and future ones
                         const futureDate = new Date();
-                        futureDate.setFullYear(futureDate.getFullYear() + 1); // One year in the future
+                        futureDate.setFullYear(futureDate.getFullYear() + 1);
                         
                         const allWorksheets = await worksheetAPI.getPreviousWorksheets(
                             selectedClass,
                             student.id, 
-                            futureDate.toISOString().split('T')[0] // This will get ALL worksheets
+                            futureDate.toISOString().split('T')[0]
                         );
                         
                         const hasHistory = allWorksheets && allWorksheets.length > 0;
                         studentsWithHistory.set(student.id, hasHistory);
                         
-                        // Sort worksheets by date (most recent first)
                         const sortedWorksheets = allWorksheets?.sort((a, b) => {
                             const dateA = new Date(a.submittedOn || '').getTime();
                             const dateB = new Date(b.submittedOn || '').getTime();
                             return dateB - dateA;
                         }) || [];
                         
-                        // Find the most recent worksheet that is not absent and has a grade
                         const latestValidWorksheet = sortedWorksheets.find(ws => 
                             !ws.isAbsent && 
                             ws.grade !== null && 
@@ -258,16 +249,13 @@ export default function UploadWorksheetPage() {
                             const score = latestValidWorksheet.grade || 0;
                             const worksheetNumber = latestValidWorksheet.template?.worksheetNumber || 0;
                             
-                            // If the most recent worksheet has a score >= PROGRESSION_THRESHOLD, increment the worksheet number
                             if (score >= PROGRESSION_THRESHOLD) {
                                 recommendedWorksheetNumber = worksheetNumber + 1;
                             } else {
-                                // If the most recent worksheet has a score < 32, repeat the same worksheet
                                 recommendedWorksheetNumber = worksheetNumber;
                             }
                         }
                         
-                        // Check if this worksheet number has been done before to determine if it's repeated
                         const isRepeatedWorksheet = allWorksheets && allWorksheets.some(pw => 
                             !pw.isAbsent && pw.template?.worksheetNumber === recommendedWorksheetNumber
                         );
@@ -355,20 +343,18 @@ export default function UploadWorksheetPage() {
                 isIncorrectGrade: false
             };
         } else if (field === "worksheetNumber") {
-            // When worksheet number changes, check if it's a repeat
             const newWorksheetNumber = value;
             let isRepeated = false;
             
             if (newWorksheetNumber > 0) {
                 try {
-                    // Get ALL worksheets for this student to check if this worksheet number was done before
                     const futureDate = new Date();
-                    futureDate.setFullYear(futureDate.getFullYear() + 1); // One year in the future
+                    futureDate.setFullYear(futureDate.getFullYear() + 1);
                     
                     const allWorksheets = await worksheetAPI.getPreviousWorksheets(
                         selectedClass,
                         sortedWorksheet.studentId, 
-                        futureDate.toISOString().split('T')[0] // This will get ALL worksheets
+                        futureDate.toISOString().split('T')[0]
                     );
                     
                     isRepeated = allWorksheets && allWorksheets.some(pw => 
@@ -459,7 +445,6 @@ export default function UploadWorksheetPage() {
               
             const grade = result.grade || result.totalScore || 0;
             
-            // Store detailed grading information
             const gradingDetails: GradingDetails = {
                 total_possible: result.total_possible || 0,
                 grade_percentage: result.grade_percentage || 0,
@@ -474,13 +459,10 @@ export default function UploadWorksheetPage() {
                 overall_feedback: result.overall_feedback || ''
             };
             
-            // Auto-populate wrong question numbers from grading details
             const wrongNumbers = [...(result.wrong_questions || []).map((q: any) => q.question_number), 
                                   ...(result.unanswered_questions || []).map((q: any) => q.question_number)]
                                   .sort((a, b) => a - b);
             const wrongQuestionNumbers = wrongNumbers.length > 0 ? wrongNumbers.join(', ') : '';
-            
-            // Ensure grade is within valid range (0-40) and rounded
             const roundedGrade = Math.max(0, Math.min(40, Math.round(grade)));
             
             setStudentWorksheets(prev => prev.map(sw => 
@@ -490,8 +472,7 @@ export default function UploadWorksheetPage() {
                         grade: roundedGrade.toString(), 
                         isUploading: false,
                         gradingDetails: gradingDetails,
-                        wrongQuestionNumbers: wrongQuestionNumbers, // Auto-populate from AI grading
-                        // Clear uploaded files after processing
+                        wrongQuestionNumbers: wrongQuestionNumbers,
                         page1File: null,
                         page2File: null
                     } 
@@ -779,15 +760,12 @@ export default function UploadWorksheetPage() {
         setIsSaving(true);
         
         try {
-            // Use filtered worksheets when search is active, otherwise use all worksheets
             const worksheetsToCheck = searchTerm.trim() ? filteredStudentWorksheets : studentWorksheets;
-            // Filter students that can be saved
             const studentsToSave = worksheetsToCheck.filter(worksheet => {
                 if (worksheet.isAbsent) {
-                    return true; // Can always save absent students
+                    return true;
                 }
                 
-                // For non-absent students, require at least worksheet number
                 return worksheet.worksheetNumber > 0;
             });
 
@@ -1086,7 +1064,6 @@ export default function UploadWorksheetPage() {
                                 )}
                             </div>
 
-                            {/* Desktop buttons */}
                             <div className="hidden md:flex justify-end mt-4 space-x-3">
                                 <Button
                                     onClick={handleBatchProcess}

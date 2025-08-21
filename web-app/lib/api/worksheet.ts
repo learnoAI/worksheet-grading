@@ -225,5 +225,49 @@ export const worksheetAPI = {
             // Return empty array instead of throwing to prevent UI breakage
             return [];
         }
+    },
+
+    getIncorrectGradingWorksheets: async (params?: { page?: number; pageSize?: number; startDate?: string; endDate?: string }): Promise<{ data: any[]; total: number; page: number; pageSize: number }> => {
+        try {
+            const query = new URLSearchParams();
+            if (params?.page) query.set('page', String(params.page));
+            if (params?.pageSize) query.set('pageSize', String(params.pageSize));
+            if (params?.startDate) query.set('startDate', params.startDate);
+            if (params?.endDate) query.set('endDate', params.endDate);
+            const qs = query.toString();
+            const endpoint = `/worksheets/incorrect-grading${qs ? `?${qs}` : ''}`;
+            return fetchAPI<{ data: any[]; total: number; page: number; pageSize: number }>(endpoint);
+        } catch (error) {
+            console.error('Error fetching incorrect grading worksheets:', error);
+            throw error;
+        }
+    },
+
+    updateWorksheetAdminComments: async (worksheetId: string, data: { adminComments: string }): Promise<void> => {
+        try {
+            await fetchAPI<void>(`/worksheets/${worksheetId}/admin-comments`, {
+                method: 'PATCH',
+                body: JSON.stringify(data)
+            });
+        } catch (error) {
+            console.error('Error updating worksheet admin comments:', error);
+            throw error;
+        }
+    },
+
+    getWorksheetImages: async (tokenNo: string, worksheetName: string): Promise<string[]> => {
+        try {
+            const response = await fetchAPI<string[]>(`/worksheets/images`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    token_no: tokenNo,
+                    worksheet_name: worksheetName
+                })
+            });
+            return response;
+        } catch (error) {
+            console.error('Error fetching worksheet images:', error);
+            throw error;
+        }
     }
 };

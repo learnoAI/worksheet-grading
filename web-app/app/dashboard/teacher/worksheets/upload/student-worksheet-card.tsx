@@ -131,7 +131,6 @@ export function StudentWorksheetCard({
         onUpdate(index, "wrongQuestionNumbers", value);
     };
 
-    // Auto-populate wrong question numbers from grading details
     const getWrongQuestionNumbersFromGrading = () => {
         if (!worksheet.gradingDetails) return '';
         
@@ -142,12 +141,10 @@ export function StudentWorksheetCard({
         return allWrongNumbers.join(', ');
     };
 
-    // Get the displayed wrong question numbers (use manual input if available, otherwise use AI grading)
     const displayedWrongQuestionNumbers = worksheet.wrongQuestionNumbers !== undefined 
         ? worksheet.wrongQuestionNumbers 
         : getWrongQuestionNumbersFromGrading();
 
-    // Debug logging to see what's happening with auto-population
     useEffect(() => {
         if (worksheet.gradingDetails) {
             console.log(`[WrongQuestions] ${worksheet.name}:`, {
@@ -204,7 +201,7 @@ export function StudentWorksheetCard({
                     </span>
                 )}
                 {worksheet.isRepeated && (
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-500 text-white">
                         Repeat
                     </span>
                 )}
@@ -431,11 +428,6 @@ export function StudentWorksheetCard({
                             />
                             <Label htmlFor={`incorrect-grade-${worksheet.studentId}`} className="text-sm">Incorrect Grade</Label>
                         </div>
-                        {worksheet.isRepeated && (
-                            <div className="text-xs text-orange-600 font-medium">
-                                Repeated Worksheet
-                            </div>
-                        )}
                     </div>
 
                     <div className="flex w-full md:w-auto space-x-2">

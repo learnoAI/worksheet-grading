@@ -18,12 +18,10 @@ export default function SuperAdminPage() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Redirect if not logged in or not a superadmin
         if (!isLoading && (!user || user.role !== UserRole.SUPERADMIN)) {
             toast.error('Access denied');
             router.push('/dashboard');
         } else if (!isLoading && user?.role === UserRole.SUPERADMIN) {
-            // Load all users
             loadUsers();
         }
     }, [user, isLoading, router]);
@@ -44,7 +42,6 @@ export default function SuperAdminPage() {
     const skeletonContent = useMemo(() => (
         <div className="space-y-6">
             <SkeletonStyles />
-            {/* Heading */}
             <Skeleton className="h-8 w-64" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {[0,1].map(i => (
@@ -88,24 +85,22 @@ export default function SuperAdminPage() {
     }
 
     if (!user || user.role !== UserRole.SUPERADMIN) {
-        return null; // This shouldn't be visible due to redirect in useEffect
+        return null;
     }
 
     return (
         <div className="space-y-6">
             <h1 className="text-2xl font-bold">Admin Dashboard</h1>
 
-            {/* Admin Sections */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* User Management Section */}
-                <Card>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
+                <Card className="h-full flex flex-col">
                     <CardHeader>
                         <CardTitle>User Management</CardTitle>
                         <CardDescription>Create and manage users in the system</CardDescription>
                     </CardHeader>
-                    <CardContent className="flex flex-col space-y-4">
+                    <CardContent className="flex-1 flex flex-col space-y-4">
                         <p>Manage all users including teachers, students, and administrators.</p>
-                        <div className="mt-2">
+                        <div className="mt-auto">
                             <Button className="w-full" asChild>
                                 <Link href="/dashboard/superadmin/create-user">Create New User</Link>
                             </Button>
@@ -113,27 +108,40 @@ export default function SuperAdminPage() {
                     </CardContent>
                 </Card>
 
-                {/* Worksheet Templates Section */}
-                <Card>
+                <Card className="h-full flex flex-col">
                     <CardHeader>
                         <CardTitle>Worksheet Templates</CardTitle>
                         <CardDescription>Manage worksheet templates in the system</CardDescription>
                     </CardHeader>
-                    <CardContent className="flex flex-col space-y-4">
+                    <CardContent className="flex-1 flex flex-col space-y-4">
                         <p>Create and edit worksheet templates, questions, and associated math skills.</p>
-                        <div className="mt-2 flex gap-2">
+                        <div className="mt-auto flex gap-2">
                             <Button className="flex-1" asChild>
                                 <Link href="/dashboard/superadmin/templates">Manage Templates</Link>
                             </Button>
-                            <Button className="flex-1" variant="outline" asChild>
+                            {/* <Button className="flex-1" variant="outline" asChild>
                                 <Link href="/dashboard/superadmin/templates/skills">Math Skills</Link>
+                            </Button> */}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="h-full flex flex-col">
+                    <CardHeader>
+                        <CardTitle>Incorrect AI Grading</CardTitle>
+                        <CardDescription>Review worksheets flagged as incorrectly graded by AI</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex-1 flex flex-col space-y-4">
+                        <p>View and manage worksheets that teachers have marked as having incorrect AI grades.</p>
+                        <div className="mt-auto">
+                            <Button className="w-full" asChild>
+                                <Link href="/dashboard/superadmin/incorrect-grading">Review Incorrect Grades</Link>
                             </Button>
                         </div>
                     </CardContent>
                 </Card>
             </div>
 
-            {/* User List */}
             <Card>
                 <CardHeader>
                     <CardTitle>All Users</CardTitle>
