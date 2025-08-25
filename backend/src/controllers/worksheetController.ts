@@ -821,3 +821,43 @@ export const getWorksheetImages = async (req: Request, res: Response) => {
         return res.status(500).json({ message: 'Server error while fetching worksheet images' });
     }
 };
+
+/**
+ * Get total AI graded worksheets count from Python API
+ */
+export const getTotalAiGraded = async (req: Request, res: Response) => {
+    const pythonApiUrl = process.env.PYTHON_API_URL;
+
+    if (!pythonApiUrl) {
+        console.error('PYTHON_API_URL environment variable not set');
+        return res.status(500).json({ 
+            message: 'Server configuration error: PYTHON_API_URL not set'
+        });
+    }
+
+    try {
+        // Call Python API to get total AI graded count
+        const response = await fetch(
+            `${pythonApiUrl}/total-ai-graded`,
+            {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (!response.ok) {
+            const error = await response.json();
+            return res.status(response.status).json({ 
+                message: error.message || 'Failed to fetch total AI graded count from Python API'
+            });
+        }
+
+        const totalCount = await response.json();
+        return res.status(200).json(totalCount);
+    } catch (error) {
+        console.error('Get total AI graded error:', error);
+        return res.status(500).json({ message: 'Server error while fetching total AI graded count' });
+    }
+};

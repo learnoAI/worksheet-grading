@@ -9,7 +9,8 @@
     "start": "node dist/src/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "archive-dropouts": "ts-node src/scripts/archive-dropout-students.ts"
   },
   "keywords": [],
   "author": "",

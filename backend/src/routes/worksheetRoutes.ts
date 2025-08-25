@@ -16,7 +16,8 @@ import {
     getPreviousWorksheets,
     getIncorrectGradingWorksheets,
     updateWorksheetAdminComments,
-    getWorksheetImages
+    getWorksheetImages,
+    getTotalAiGraded
 } from '../controllers/worksheetController';
 import { UserRole } from '@prisma/client';
 import { auth, authorizeRoles, asHandler } from '../middleware/utils';
@@ -122,6 +123,16 @@ router.post(
         body('worksheet_name').notEmpty().withMessage('Worksheet name is required')
     ],
     asHandler(getWorksheetImages)
+);
+
+// Get total AI graded worksheets count via Python API
+router.get(
+    '/total-ai-graded',
+    [
+        auth,
+        authorizeRoles([UserRole.SUPERADMIN])
+    ],
+    asHandler(getTotalAiGraded)
 );
 
 // Get worksheet by ID
