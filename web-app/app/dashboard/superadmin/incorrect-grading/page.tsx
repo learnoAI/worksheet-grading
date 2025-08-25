@@ -13,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
-import { ArrowLeft, Save, Eye, ImageIcon } from 'lucide-react';
+import { ArrowLeft, Eye, ImageIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 interface IncorrectGradingWorksheet {
@@ -46,6 +46,7 @@ export default function IncorrectGradingPage() {
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
     const [total, setTotal] = useState(0);
+    const [totalAiGraded, setTotalAiGraded] = useState<number>(0);
     const [startDate, setStartDate] = useState<string>('');
     const [endDate, setEndDate] = useState<string>('');
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({});
@@ -57,8 +58,19 @@ export default function IncorrectGradingPage() {
             router.push('/dashboard');
         } else if (!isLoading && user?.role === UserRole.SUPERADMIN) {
             loadIncorrectGradingWorksheets();
+            loadTotalAiGraded();
         }
     }, [user, isLoading, router]);
+
+    const loadTotalAiGraded = async () => {
+        try {
+            const response = await worksheetAPI.getTotalAiGraded();
+            setTotalAiGraded(response.total_ai_graded);
+        } catch (error) {
+            console.error('Error loading total AI graded count:', error);
+            // Don't show error toast for this as it's not critical
+        }
+    };
 
     const loadIncorrectGradingWorksheets = async () => {
         try {
@@ -225,6 +237,10 @@ export default function IncorrectGradingPage() {
                                 <div className="text-sm text-muted-foreground">Total Incorrectly Graded</div>
                                 <div className="text-2xl font-semibold">{total}</div>
                             </div>
+                            <div className="border rounded-md p-4 bg-muted/30">
+                                <div className="text-sm text-muted-foreground">Total AI Graded</div>
+                                <div className="text-2xl font-semibold">{totalAiGraded.toLocaleString()}</div>
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
@@ -265,7 +281,7 @@ export default function IncorrectGradingPage() {
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div>
                                                         <Label className="text-sm font-medium text-gray-600">Worksheet Number</Label>
-                                                        <p className="text-lg font-semibold">#{worksheet.worksheetNumber}</p>
+                                                        <p className="text-lg font-semibold">{worksheet.worksheetNumber}</p>
                                                     </div>
                                                     <div>
                                                         <Label className="text-sm font-medium text-gray-600">AI Grade</Label>

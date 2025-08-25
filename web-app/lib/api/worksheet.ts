@@ -254,5 +254,14 @@ export const worksheetAPI = {
             console.error('Error fetching worksheet images:', error);
             throw error;
         }
+    },
+
+    getTotalAiGraded: async (): Promise<{ total_ai_graded: number }> => {
+        try {
+            return fetchAPI<{ total_ai_graded: number }>('/worksheets/total-ai-graded');
+        } catch (error) {
+            console.error('Error fetching total AI graded count:', error);
+            throw error;
+        }
     }
 };
