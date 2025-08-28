@@ -237,6 +237,17 @@ export const worksheetAPI = {
         }
     },
 
+    markWorksheetAsCorrectlyGraded: async (worksheetId: string): Promise<void> => {
+        try {
+            await fetchAPI<void>(`/worksheets/${worksheetId}/mark-correct`, {
+                method: 'PATCH'
+            });
+        } catch (error) {
+            console.error('Error marking worksheet as correctly graded:', error);
+            throw error;
+        }
+    },
+
     getWorksheetImages: async (tokenNo: string, worksheetName: string): Promise<string[]> => {
         try {
             const response = await fetchAPI<string[]>(`/worksheets/images`, {

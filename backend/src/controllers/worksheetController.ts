@@ -773,6 +773,38 @@ export const updateWorksheetAdminComments = async (req: Request, res: Response) 
     }
 };
 
+export const markWorksheetAsCorrectlyGraded = async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    try {
+        // Find the existing worksheet
+        const existingWorksheet = await prisma.worksheet.findUnique({
+            where: { id }
+        });
+
+        if (!existingWorksheet) {
+            return res.status(404).json({ message: 'Worksheet not found' });
+        }
+
+        // Update the worksheet to mark it as correctly graded
+        const updatedWorksheet = await prisma.worksheet.update({
+            where: { id },
+            data: {
+                isIncorrectGrade: false,
+                updatedAt: new Date()
+            }
+        });
+
+        return res.status(200).json({ 
+            message: 'Worksheet marked as correctly graded',
+            worksheet: updatedWorksheet
+        });
+    } catch (error) {
+        console.error('Mark worksheet as correctly graded error:', error);
+        return res.status(500).json({ message: 'Server error while updating worksheet grading status' });
+    }
+};
+
 /**
  * Get worksheet images from Python API
  * @route GET /api/worksheets/images

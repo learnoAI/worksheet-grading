@@ -16,6 +16,7 @@ import {
     getPreviousWorksheets,
     getIncorrectGradingWorksheets,
     updateWorksheetAdminComments,
+    markWorksheetAsCorrectlyGraded,
     getWorksheetImages,
     getTotalAiGraded,
     getStudentGradingDetails
@@ -112,6 +113,16 @@ router.patch(
         body('adminComments').optional().isString().withMessage('Admin comments must be a string')
     ],
     asHandler(updateWorksheetAdminComments)
+);
+
+// Mark worksheet as correctly graded (superadmin only)
+router.patch(
+    '/:id/mark-correct',
+    [
+        auth,
+        authorizeRoles([UserRole.SUPERADMIN])
+    ],
+    asHandler(markWorksheetAsCorrectlyGraded)
 );
 
 // Get worksheet images via Python API

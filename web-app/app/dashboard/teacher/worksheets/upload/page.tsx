@@ -17,13 +17,6 @@ interface Class {
     name: string;
 }
 
-interface Student {
-    id: string;
-    username: string;
-    name: string;
-    tokenNumber: string;
-}
-
 interface QuestionScore {
     question_number: number;
     question: string;

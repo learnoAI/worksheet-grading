@@ -13,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
-import { ArrowLeft, Eye, ImageIcon } from 'lucide-react';
+import { ArrowLeft, Eye, ImageIcon, Check } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 interface IncorrectGradingWorksheet {
@@ -53,6 +53,7 @@ export default function IncorrectGradingPage() {
     const [worksheetImages, setWorksheetImages] = useState<Record<string, string[]>>({});
     const [fetchingGradingDetails, setFetchingGradingDetails] = useState<Record<string, boolean>>({});
     const [gradingDetailsCache, setGradingDetailsCache] = useState<Record<string, any>>({});
+    const [markingAsCorrect, setMarkingAsCorrect] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         if (!isLoading && (!user || user.role !== UserRole.SUPERADMIN)) {
@@ -141,6 +142,30 @@ export default function IncorrectGradingPage() {
             toast.error('Failed to save comment');
         } finally {
             setSavingComments(prev => ({ ...prev, [worksheetId]: false }));
+        }
+    };
+
+    const markAsCorrectlyGraded = async (worksheetId: string) => {
+        try {
+            setMarkingAsCorrect(prev => ({ ...prev, [worksheetId]: true }));
+            
+            await worksheetAPI.markWorksheetAsCorrectlyGraded(worksheetId);
+            
+            toast.success('Worksheet marked as correctly graded');
+            
+            // Remove the worksheet from the list since it's no longer incorrectly graded
+            setWorksheets(prev => prev.filter(worksheet => worksheet.id !== worksheetId));
+            
+            // Update the total count
+            setTotal(prev => Math.max(0, prev - 1));
+            
+            // Reload the count to ensure accuracy
+            loadTotalAiGraded();
+        } catch (error) {
+            console.error('Error marking worksheet as correctly graded:', error);
+            toast.error('Failed to mark worksheet as correctly graded');
+        } finally {
+            setMarkingAsCorrect(prev => ({ ...prev, [worksheetId]: false }));
         }
     };
 
@@ -592,19 +617,36 @@ export default function IncorrectGradingPage() {
                                                         className="mt-2 min-h-[100px]"
                                                     />
                                                 </div>
-                                                <Button
-                                                    onClick={() => saveComment(worksheet.id)}
-                                                    disabled={savingComments[worksheet.id]}
-                                                    className="w-full"
-                                                >
-                                                    {savingComments[worksheet.id] ? (
-                                                        'Saving...'
-                                                    ) : (
-                                                        <>
-                                                            Save Comment
-                                                        </>
-                                                    )}
-                                                </Button>
+                                                <div className="space-y-2">
+                                                    <Button
+                                                        onClick={() => markAsCorrectlyGraded(worksheet.id)}
+                                                        disabled={markingAsCorrect[worksheet.id]}
+                                                        variant="outline"
+                                                        className="w-full border-green-200 text-green-700 hover:bg-green-50"
+                                                    >
+                                                        {markingAsCorrect[worksheet.id] ? (
+                                                            'Marking as Correct...'
+                                                        ) : (
+                                                            <>
+                                                                <Check className="h-4 w-4 mr-2" />
+                                                                AI did correct grading
+                                                            </>
+                                                        )}
+                                                    </Button>
+                                                    <Button
+                                                        onClick={() => saveComment(worksheet.id)}
+                                                        disabled={savingComments[worksheet.id]}
+                                                        className="w-full"
+                                                    >
+                                                        {savingComments[worksheet.id] ? (
+                                                            'Saving...'
+                                                        ) : (
+                                                            <>
+                                                                Save Comment
+                                                            </>
+                                                        )}
+                                                    </Button>
+                                                </div>
                                             </div>
                                         </div>
                                     </CardContent>
