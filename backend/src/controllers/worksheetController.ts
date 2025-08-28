@@ -5,6 +5,7 @@ import { uploadToS3 } from '../services/s3Service';
 import { enqueueWorksheet } from '../services/queueService';
 import { ProcessingStatus } from '@prisma/client';
 import fetch from 'node-fetch';
+import { overflow } from 'html2canvas/dist/types/css/property-descriptors/overflow';
 
 interface MulterFile extends Express.Multer.File { }
 
@@ -671,6 +672,9 @@ export const getIncorrectGradingWorksheets = async (req: Request, res: Response)
             where.submittedOn = submittedOn;
         }
 
+        // Ensure database connection before query
+        await prisma.$connect();
+        
         const worksheets = await prisma.worksheet.findMany({
             where,
             include: {
@@ -836,16 +840,7 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
     }
 
     try {
-        // Call Python API to get total AI graded count
-        const response = await fetch(
-            `${pythonApiUrl}/total-ai-graded`,
-            {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
+        const response = await fetch(`${pythonApiUrl}/total-ai-graded`);
 
         if (!response.ok) {
             const error = await response.json();
@@ -854,10 +849,70 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
             });
         }
 
-        const totalCount = await response.json();
-        return res.status(200).json(totalCount);
+        const data = await response.json();
+        return res.status(200).json(data);
     } catch (error) {
         console.error('Get total AI graded error:', error);
         return res.status(500).json({ message: 'Server error while fetching total AI graded count' });
+    }
+};
+
+/**
+ * Get student grading details from Python API
+ * @route POST /api/worksheets/student-grading-details
+ */
+export const getStudentGradingDetails = async (req: Request, res: Response) => {
+    // Validate input
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { token_no, worksheet_name, overall_score } = req.body;
+    const pythonApiUrl = process.env.PYTHON_API_URL;
+
+    if (!pythonApiUrl) {
+        console.error('PYTHON_API_URL environment variable not set');
+        return res.status(500).json({ 
+            message: 'Server configuration error: PYTHON_API_URL not set'
+        });
+    }
+
+    try {
+        // Prepare request body for Python API
+        const requestBody: any = {
+            token_no: token_no as string,
+            worksheet_name: worksheet_name as string
+        };
+
+        // Only include overall_score if it's provided
+        if (overall_score !== undefined && overall_score !== null) {
+            requestBody.overall_score = overall_score as number;
+        }
+
+        // Call Python API to get student grading details
+        const response = await fetch(
+            `${pythonApiUrl}/student-grading-details`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            }
+        );
+
+        if (!response.ok) {
+            const error = await response.json();
+            return res.status(response.status).json({ 
+                message: error.message || 'Failed to fetch grading details from Python API'
+            });
+        }
+
+        const gradingDetails = await response.json();
+        return res.status(200).json(gradingDetails);
+    } catch (error) {
+        console.error('Get student grading details error:', error);
+        return res.status(500).json({ message: 'Server error while fetching student grading details' });
     }
 };

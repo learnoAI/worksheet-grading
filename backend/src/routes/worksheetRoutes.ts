@@ -17,7 +17,8 @@ import {
     getIncorrectGradingWorksheets,
     updateWorksheetAdminComments,
     getWorksheetImages,
-    getTotalAiGraded
+    getTotalAiGraded,
+    getStudentGradingDetails
 } from '../controllers/worksheetController';
 import { UserRole } from '@prisma/client';
 import { auth, authorizeRoles, asHandler } from '../middleware/utils';
@@ -133,6 +134,19 @@ router.get(
         authorizeRoles([UserRole.SUPERADMIN])
     ],
     asHandler(getTotalAiGraded)
+);
+
+// Get student grading details via Python API
+router.post(
+    '/student-grading-details',
+    [
+        auth,
+        authorizeRoles([UserRole.SUPERADMIN]),
+        body('token_no').notEmpty().withMessage('Token number is required'),
+        body('worksheet_name').notEmpty().withMessage('Worksheet name is required'),
+        body('overall_score').optional().isNumeric().withMessage('Overall score must be a number')
+    ],
+    asHandler(getStudentGradingDetails)
 );
 
 // Get worksheet by ID

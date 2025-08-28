@@ -52,6 +52,10 @@ export const login = async (req: Request, res: Response) => {
         });
     } catch (error) {
         console.error('Login error:', error);
+        // Check if the error is a PrismaClientInitializationError and provide a more specific message
+        if ((error as any).name === 'PrismaClientInitializationError') {
+            return res.status(500).json({ message: 'Database connection error. Please ensure the database server is running and the connection string is correct.' });
+        }
         return res.status(500).json({ message: 'Server error during login' });
     }
 };
