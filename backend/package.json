@@ -5,8 +5,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon",
-    "build": "tsc",
+    "build": "npx prisma generate && tsc",
     "start": "node dist/src/index.js",
+    "postinstall": "npx prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
@@ -31,7 +32,6 @@
     "eslint": "^9.22.0",
     "globals": "^16.0.0",
     "nodemon": "^3.1.9",
-    "prisma": "^6.5.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.26.0"
@@ -54,6 +54,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^2.7.0",
+    "prisma": "^6.5.0",
     "xlsx": "^0.18.5"
   }
 }
