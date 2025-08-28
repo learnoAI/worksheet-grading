@@ -12,9 +12,6 @@ export const getNotifications = async (req: Request, res: Response) => {
             return res.status(401).json({ message: 'Not authenticated' });
         }
 
-        // Ensure database connection before query
-        await prisma.$connect();
-        
         const notifications = await prisma.notification.findMany({
             where: { userId: req.user.userId },
             orderBy: {

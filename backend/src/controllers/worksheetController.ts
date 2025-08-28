@@ -671,9 +671,6 @@ export const getIncorrectGradingWorksheets = async (req: Request, res: Response)
             where.submittedOn = submittedOn;
         }
 
-        // Ensure database connection before query
-        await prisma.$connect();
-        
         const worksheets = await prisma.worksheet.findMany({
             where,
             include: {
