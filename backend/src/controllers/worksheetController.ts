@@ -5,7 +5,6 @@ import { uploadToS3 } from '../services/s3Service';
 import { enqueueWorksheet } from '../services/queueService';
 import { ProcessingStatus } from '@prisma/client';
 import fetch from 'node-fetch';
-import { overflow } from 'html2canvas/dist/types/css/property-descriptors/overflow';
 
 interface MulterFile extends Express.Multer.File { }
 
