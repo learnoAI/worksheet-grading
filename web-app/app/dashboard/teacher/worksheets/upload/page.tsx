@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -218,47 +217,78 @@ export default function UploadWorksheetPage() {
                             };
                         }
                         
-                        const futureDate = new Date();
-                        futureDate.setFullYear(futureDate.getFullYear() + 1);
+                        // Get all worksheets up to the selected date (not a future date)
+                        const endDate = new Date(submittedOn);
+                        endDate.setHours(23, 59, 59, 999); // End of the selected day
                         
                         const allWorksheets = await worksheetAPI.getPreviousWorksheets(
                             selectedClass,
                             student.id, 
-                            futureDate.toISOString().split('T')[0]
+                            endDate.toISOString().split('T')[0]
                         );
                         
                         const hasHistory = allWorksheets && allWorksheets.length > 0;
                         studentsWithHistory.set(student.id, hasHistory);
                         
+                        // Sort worksheets by date (most recent first)
                         const sortedWorksheets = allWorksheets?.sort((a, b) => {
                             const dateA = new Date(a.submittedOn || '').getTime();
                             const dateB = new Date(b.submittedOn || '').getTime();
                             return dateB - dateA;
                         }) || [];
                         
-                        const latestValidWorksheet = sortedWorksheets.find(ws => 
-                            !ws.isAbsent && 
-                            ws.grade !== null && 
-                            ws.grade !== undefined && 
-                            ws.grade !== 0
-                        );
+                        // Find the most recent valid worksheet BEFORE the selected date
+                        const selectedDateObj = new Date(submittedOn);
+                        selectedDateObj.setHours(0, 0, 0, 0);
+                        
+                        const latestValidWorksheetBeforeDate = sortedWorksheets.find(ws => {
+                            const worksheetDate = new Date(ws.submittedOn || '');
+                            worksheetDate.setHours(0, 0, 0, 0);
+                            
+                            return !ws.isAbsent && 
+                                   ws.grade !== null && 
+                                   ws.grade !== undefined && 
+                                   ws.grade !== 0 &&
+                                   worksheetDate < selectedDateObj;
+                        });
                         
                         let recommendedWorksheetNumber = 0;
+                        let isRepeatedWorksheet = false;
                         
-                        if (latestValidWorksheet) {
-                            const score = latestValidWorksheet.grade || 0;
-                            const worksheetNumber = latestValidWorksheet.template?.worksheetNumber || 0;
+                        if (latestValidWorksheetBeforeDate) {
+                            const score = latestValidWorksheetBeforeDate.grade || 0;
+                            const worksheetNumber = latestValidWorksheetBeforeDate.template?.worksheetNumber || 0;
                             
                             if (score >= PROGRESSION_THRESHOLD) {
+                                // Student passed, increment to next worksheet
                                 recommendedWorksheetNumber = worksheetNumber + 1;
+                                
+                                // Check if this new worksheet number has been attempted before the selected date
+                                isRepeatedWorksheet = allWorksheets && allWorksheets.some(pw => {
+                                    const pwDate = new Date(pw.submittedOn || '');
+                                    pwDate.setHours(0, 0, 0, 0);
+                                    
+                                    return !pw.isAbsent && 
+                                           pw.template?.worksheetNumber === recommendedWorksheetNumber &&
+                                           pwDate < selectedDateObj;
+                                });
                             } else {
+                                // Student didn't pass, repeat the same worksheet
                                 recommendedWorksheetNumber = worksheetNumber;
+                                
+                                // This is definitely a repeat since we found a previous attempt
+                                isRepeatedWorksheet = true;
+                            }
+                        } else {
+                            if (hasHistory) {
+                                recommendedWorksheetNumber = 1;
+                                isRepeatedWorksheet = false;
+                            } else {
+                                // Completely new student with no history
+                                recommendedWorksheetNumber = 1;
+                                isRepeatedWorksheet = false;
                             }
                         }
-                        
-                        const isRepeatedWorksheet = allWorksheets && allWorksheets.some(pw => 
-                            !pw.isAbsent && pw.template?.worksheetNumber === recommendedWorksheetNumber
-                        );
                         
                         return {
                             studentId: student.id,
@@ -269,7 +299,7 @@ export default function UploadWorksheetPage() {
                             grade: '',
                             existing: false,
                             isAbsent: false,
-                            isRepeated: !!isRepeatedWorksheet,
+                            isRepeated: isRepeatedWorksheet,
                             isCorrectGrade: false,
                             isIncorrectGrade: false,
                             isNew: !hasHistory,
@@ -348,18 +378,28 @@ export default function UploadWorksheetPage() {
             
             if (newWorksheetNumber > 0) {
                 try {
-                    const futureDate = new Date();
-                    futureDate.setFullYear(futureDate.getFullYear() + 1);
+                    // Get all worksheets up to the selected date
+                    const endDate = new Date(submittedOn);
+                    endDate.setHours(23, 59, 59, 999); // End of the selected day
                     
                     const allWorksheets = await worksheetAPI.getPreviousWorksheets(
                         selectedClass,
                         sortedWorksheet.studentId, 
-                        futureDate.toISOString().split('T')[0]
+                        endDate.toISOString().split('T')[0]
                     );
                     
-                    isRepeated = allWorksheets && allWorksheets.some(pw => 
-                        !pw.isAbsent && pw.template?.worksheetNumber === newWorksheetNumber
-                    );
+                    // Check if this worksheet number has been attempted before the selected date
+                    const selectedDateObj = new Date(submittedOn);
+                    selectedDateObj.setHours(0, 0, 0, 0);
+                    
+                    isRepeated = allWorksheets && allWorksheets.some(pw => {
+                        const worksheetDate = new Date(pw.submittedOn || '');
+                        worksheetDate.setHours(0, 0, 0, 0);
+                        
+                        return !pw.isAbsent && 
+                               pw.template?.worksheetNumber === newWorksheetNumber &&
+                               worksheetDate < selectedDateObj; // Only check dates before the selected date
+                    });
                 } catch (error) {
                     console.error('Error checking if worksheet is repeated:', error);
                 }

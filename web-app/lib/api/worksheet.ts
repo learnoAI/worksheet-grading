@@ -188,16 +188,13 @@ export const worksheetAPI = {
     getPreviousWorksheets: async (classId: string, studentId: string, currentDate: string): Promise<Worksheet[]> => {
         try {
             const date = new Date(currentDate);
-            date.setHours(0, 0, 0, 0);
-
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
+            date.setHours(23, 59, 59, 999); // End of day to include the full day
             
-            const endDate = date > today ? today : date;
             const formattedEndDate = new Date(Date.UTC(
-                endDate.getFullYear(), 
-                endDate.getMonth(), 
-                endDate.getDate()
+                date.getFullYear(), 
+                date.getMonth(), 
+                date.getDate(),
+                23, 59, 59, 999
             ));
             
             const timestamp = new Date().getTime();
