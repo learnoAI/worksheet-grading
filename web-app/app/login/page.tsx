@@ -22,8 +22,6 @@ export default function LoginPage() {
             const response = await login(username, password);
             toast.success('Login successful');
             
-            // Let middleware handle the role-based redirect instead of doing it here
-            // This prevents double redirects
             window.location.href = '/dashboard';
         } catch (error) {
             toast.error('Login failed. Please check your credentials.');

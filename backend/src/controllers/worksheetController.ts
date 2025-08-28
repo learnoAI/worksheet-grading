@@ -280,7 +280,10 @@ export const getClassStudents = async (req: Request, res: Response) => {
 
     const students = await prisma.studentClass.findMany({
         where: {
-            classId: classId
+            classId: classId,
+            student: {
+                isArchived: false
+            }
         },
         include: {
             student: {
