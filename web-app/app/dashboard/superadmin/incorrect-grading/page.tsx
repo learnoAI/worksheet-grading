@@ -51,6 +51,8 @@ export default function IncorrectGradingPage() {
     const [endDate, setEndDate] = useState<string>('');
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({});
     const [worksheetImages, setWorksheetImages] = useState<Record<string, string[]>>({});
+    const [fetchingGradingDetails, setFetchingGradingDetails] = useState<Record<string, boolean>>({});
+    const [gradingDetailsCache, setGradingDetailsCache] = useState<Record<string, any>>({});
 
     useEffect(() => {
         if (!isLoading && (!user || user.role !== UserRole.SUPERADMIN)) {
@@ -68,7 +70,6 @@ export default function IncorrectGradingPage() {
             setTotalAiGraded(response.total_ai_graded);
         } catch (error) {
             console.error('Error loading total AI graded count:', error);
-            // Don't show error toast for this as it's not critical
         }
     };
 
@@ -168,8 +169,45 @@ export default function IncorrectGradingPage() {
         }
     };
 
+    const loadGradingDetails = async (tokenNo: string, worksheetNumber: number, overallScore?: number) => {
+        const worksheetKey = `${tokenNo}-${worksheetNumber}`;
+        
+        if (fetchingGradingDetails[worksheetKey] || gradingDetailsCache[worksheetKey]) {
+            return gradingDetailsCache[worksheetKey];
+        }
+
+        try {
+            setFetchingGradingDetails(prev => ({ ...prev, [worksheetKey]: true }));
+            
+            const gradingDetails = await worksheetAPI.getStudentGradingDetails(tokenNo, worksheetNumber, overallScore);
+            
+            setGradingDetailsCache(prev => ({
+                ...prev,
+                [worksheetKey]: gradingDetails
+            }));
+            
+            return gradingDetails;
+        } catch (error) {
+            console.error('Error loading grading details:', error);
+            toast.error('Failed to load grading details');
+            return null;
+        } finally {
+            setFetchingGradingDetails(prev => ({ ...prev, [worksheetKey]: false }));
+        }
+    };
+
     const computeStats = (gd?: any) => {
         if (!gd) return { total: undefined, correct: undefined, wrong: undefined, unanswered: undefined };
+        
+        if (gd.total_questions !== undefined) {
+            return {
+                total: gd.total_questions,
+                correct: gd.correct_answers,
+                wrong: gd.wrong_answers,
+                unanswered: gd.unanswered || 0
+            };
+        }
+        
         const total = gd.total_questions ?? gd.total_possible ?? gd.question_scores?.length ?? gd.wrong_questions?.length ?? undefined;
         const correct = gd.correct_answers ?? (Array.isArray(gd.question_scores) ? gd.question_scores.filter((q: any) => q.is_correct).length : undefined);
         const unanswered = gd.unanswered ?? 0;
@@ -331,76 +369,137 @@ export default function IncorrectGradingPage() {
                                                 <div className="grid grid-cols-1 gap-2">
                                                     <Dialog>
                                                         <DialogTrigger asChild>
-                                                            <Button type="button" variant="outline" className="w-full">
+                                                            <Button 
+                                                                type="button" 
+                                                                variant="outline" 
+                                                                className="w-full"
+                                                            >
                                                                 <Eye className="h-4 w-4 mr-2" />
                                                                 View Grading Details
                                                             </Button>
                                                         </DialogTrigger>
-                                                        <DialogContent className="sm:max-w-3xl">
+                                                        <DialogContent className="sm:max-w-4xl">
                                                             <DialogHeader>
                                                                 <DialogTitle>Worksheet #{worksheet.worksheetNumber} - Grading Details</DialogTitle>
-                                                                <DialogDescription>AI grading breakdown for the submission.</DialogDescription>
+                                                                <DialogDescription>
+                                                                    Student: {worksheet.student.name} (Token: {worksheet.student.tokenNumber})
+                                                                </DialogDescription>
                                                             </DialogHeader>
                                                             <div className="space-y-4 max-h-[70vh] overflow-y-auto">
-                                                                {worksheet.gradingDetails ? (
-                                                                    <>
-                                                                        {(() => {
-                                                                            const s = computeStats(worksheet.gradingDetails);
-                                                                            return (
-                                                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                                                                    <div className="border rounded-md p-3 bg-muted/30">
-                                                                                        <div className="text-xs text-muted-foreground">Total</div>
-                                                                                        <div className="text-base font-semibold">{s.total ?? 'N/A'}</div>
+                                                                {(() => {
+                                                                    const worksheetKey = `${worksheet.student.tokenNumber}-${worksheet.worksheetNumber}`;
+                                                                    const isLoading = fetchingGradingDetails[worksheetKey];
+                                                                    const pythonGradingDetails = gradingDetailsCache[worksheetKey];
+                                                                    
+                                                                    const gradingDetails = worksheet.gradingDetails || pythonGradingDetails;
+
+                                                                    if (isLoading) {
+                                                                        return (
+                                                                            <div className="flex items-center justify-center py-8">
+                                                                                <div className="text-center">
+                                                                                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                                                                                    <p className="mt-2 text-sm text-muted-foreground">Loading grading details...</p>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    if (!gradingDetails) {
+                                                                        return (
+                                                                            <div className="text-center py-8">
+                                                                                <p className="text-muted-foreground">No grading details found in database for this worksheet.</p>
+                                                                                <Button 
+                                                                                    className="mt-4"
+                                                                                    onClick={() => loadGradingDetails(worksheet.student.tokenNumber, worksheet.worksheetNumber, worksheet.grade)}
+                                                                                    disabled={isLoading}
+                                                                                >
+                                                                                    {isLoading ? 'Loading...' : 'Retry'}
+                                                                                </Button>
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    const s = computeStats(gradingDetails);
+
+                                                                    return (
+                                                                        <>
+
+                                                                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                                                                <div className="border rounded-md p-3 bg-muted/30">
+                                                                                    <div className="text-xs text-muted-foreground">Overall Score</div>
+                                                                                    <div className="text-base font-semibold">{s.correct ?? 'N/A'}/{s.total ?? 'N/A'}</div>
+                                                                                </div>
+                                                                                <div className="border rounded-md p-3 bg-muted/30">
+                                                                                    <div className="text-xs text-muted-foreground">Percentage</div>
+                                                                                    <div className="text-base font-semibold">{gradingDetails.grade_percentage ?? (s.total && s.correct ? Math.round((s.correct / s.total) * 100) : 'N/A')}%</div>
+                                                                                </div>
+                                                                                <div className="border rounded-md p-3 bg-green-50">
+                                                                                    <div className="text-xs text-muted-foreground">Correct</div>
+                                                                                    <div className="text-base font-semibold text-green-700">{s.correct ?? 'N/A'}</div>
+                                                                                </div>
+                                                                                <div className="border rounded-md p-3 bg-red-50">
+                                                                                    <div className="text-xs text-muted-foreground">Wrong</div>
+                                                                                    <div className="text-base font-semibold text-red-700">{s.wrong ?? 'N/A'}</div>
+                                                                                </div>
+                                                                                <div className="border rounded-md p-3 bg-gray-50">
+                                                                                    <div className="text-xs text-muted-foreground">Unanswered</div>
+                                                                                    <div className="text-base font-semibold text-gray-700">{s.unanswered ?? 'N/A'}</div>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {gradingDetails.overall_feedback && (
+                                                                                <div className="border rounded-md p-4 bg-blue-50">
+                                                                                    <div className="text-sm font-medium text-blue-900 mb-2">Overall Feedback</div>
+                                                                                    <div className="text-sm text-blue-800">{gradingDetails.overall_feedback}</div>
+                                                                                </div>
+                                                                            )}
+
+                                                                            {(gradingDetails.question_scores || gradingDetails.wrong_questions) && (
+                                                                                <div className="border rounded-md">
+                                                                                    <div className="p-3 border-b font-medium bg-gray-50">
+                                                                                        All Questions ({(gradingDetails.question_scores ?? gradingDetails.wrong_questions ?? []).length})
                                                                                     </div>
-                                                                                    <div className="border rounded-md p-3 bg-muted/30">
-                                                                                        <div className="text-xs text-muted-foreground">Correct</div>
-                                                                                        <div className="text-base font-semibold">{s.correct ?? 'N/A'}</div>
-                                                                                    </div>
-                                                                                    <div className="border rounded-md p-3 bg-muted/30">
-                                                                                        <div className="text-xs text-muted-foreground">Wrong</div>
-                                                                                        <div className="text-base font-semibold">{s.wrong ?? 'N/A'}</div>
-                                                                                    </div>
-                                                                                    <div className="border rounded-md p-3 bg-muted/30">
-                                                                                        <div className="text-xs text-muted-foreground">Unanswered</div>
-                                                                                        <div className="text-base font-semibold">{s.unanswered ?? 'N/A'}</div>
+                                                                                    <div className="divide-y max-h-96 overflow-y-auto">
+                                                                                        {(gradingDetails.question_scores ?? gradingDetails.wrong_questions ?? []).map((q: any, idx: number) => (
+                                                                                            <div key={q.question_number ?? idx} className="p-3">
+                                                                                                <div className="flex items-center justify-between mb-2">
+                                                                                                    <div className="font-medium">
+                                                                                                        Q{q.question_number ?? (idx + 1)}: {q.question?.replace(/^Q\d+\.\s*/, '') || 'No question text'}
+                                                                                                    </div>
+                                                                                                    <div className="flex items-center gap-2">
+                                                                                                        {q.points_earned !== undefined && q.max_points !== undefined && (
+                                                                                                            <div className="text-xs px-2 py-1 rounded bg-gray-100">
+                                                                                                                {q.points_earned}/{q.max_points} pts
+                                                                                                            </div>
+                                                                                                        )}
+                                                                                                        <div className={`text-xs px-2 py-1 rounded ${q.is_correct ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                                                                            {q.is_correct ? '✓ Correct' : '✗ Wrong'}
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                <div className="grid grid-cols-2 gap-4 text-sm mb-2">
+                                                                                                    <div className="border rounded p-2 bg-blue-50">
+                                                                                                        <div className="text-xs text-blue-600 font-medium">Student Answer</div>
+                                                                                                        <div className="font-medium">{q.student_answer || '-'}</div>
+                                                                                                    </div>
+                                                                                                    <div className="border rounded p-2 bg-green-50">
+                                                                                                        <div className="text-xs text-green-600 font-medium">Correct Answer</div>
+                                                                                                        <div className="font-medium">{q.correct_answer || '-'}</div>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                {q.feedback && (
+                                                                                                    <div className="text-xs text-muted-foreground bg-gray-50 p-2 rounded">
+                                                                                                        <span className="font-medium">Feedback:</span> {q.feedback}
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        ))}
                                                                                     </div>
                                                                                 </div>
-                                                                            );
-                                                                        })()}
-
-                                                                        {worksheet.gradingDetails.overall_feedback && (
-                                                                            <div className="text-sm text-muted-foreground">{worksheet.gradingDetails.overall_feedback}</div>
-                                                                        )}
-
-                                                                        <div className="border rounded-md">
-                                                                            <div className="p-3 border-b font-medium">Questions</div>
-                                                                            <div className="divide-y">
-                                                                                {(worksheet.gradingDetails.question_scores ?? worksheet.gradingDetails.wrong_questions ?? []).map((q: any, idx: number) => (
-                                                                                    <div key={q.question_number ?? idx} className="p-3">
-                                                                                        <div className="flex items-center justify-between">
-                                                                                            <div className="font-medium">
-                                                                                                {typeof q.question_number === 'number' ? `Q${q.question_number}` : q.question?.split('.')[0] ?? 'Q'}
-                                                                                                {q.question ? `: ${q.question.replace(/^Q\d+\.\s*/, '')}` : ''}
-                                                                                            </div>
-                                                                                            <div className={`text-xs px-2 py-0.5 rounded ${q.is_correct ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                                                                                {q.is_correct ? 'Correct' : 'Wrong'}
-                                                                                            </div>
-                                                                                        </div>
-                                                                                        <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                                                                                            <div>Student: <span className="font-medium">{q.student_answer ?? '-'}</span></div>
-                                                                                            <div>Correct: <span className="font-medium">{q.correct_answer ?? '-'}</span></div>
-                                                                                        </div>
-                                                                                        {q.feedback && (
-                                                                                            <div className="mt-1 text-xs text-muted-foreground">{q.feedback}</div>
-                                                                                        )}
-                                                                                    </div>
-                                                                                ))}
-                                                                            </div>
-                                                                        </div>
-                                                                    </>
-                                                                ) : (
-                                                                    <p className="text-sm text-muted-foreground">No grading details available.</p>
-                                                                )}
+                                                                            )}
+                                                                        </>
+                                                                    );
+                                                                })()}
                                                             </div>
                                                         </DialogContent>
                                                     </Dialog>

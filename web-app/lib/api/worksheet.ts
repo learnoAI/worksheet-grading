@@ -263,5 +263,38 @@ export const worksheetAPI = {
             console.error('Error fetching total AI graded count:', error);
             throw error;
         }
+    },
+
+    getStudentGradingDetails: async (tokenNo: string, worksheetNumber: number, overallScore?: number): Promise<any> => {
+        try {
+            const requestBody: any = {
+                token_no: tokenNo,
+                worksheet_name: worksheetNumber.toString()
+            };
+            
+            // Include overall_score if it's provided (including 0)
+            if (overallScore !== undefined && overallScore !== null) {
+                requestBody.overall_score = Number(overallScore);
+            }
+            
+            console.log('Sending request to Python API:', requestBody);
+            
+            const response = await fetchAPI<any>(`/worksheets/student-grading-details`, {
+                method: 'POST',
+                body: JSON.stringify(requestBody)
+            });
+            return response;
+        } catch (error: any) {
+            console.error('Error fetching student grading details:', error);
+            console.error('Request payload:', { tokenNo, worksheetNumber, overallScore });
+            
+            // Enhanced error logging for debugging
+            if (error.response) {
+                console.error('Response status:', error.response.status);
+                console.error('Response data:', await error.response.text().catch(() => 'Unable to read response'));
+            }
+            
+            throw error;
+        }
     }
 };
