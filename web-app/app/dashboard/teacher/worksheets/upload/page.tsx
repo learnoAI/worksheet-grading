@@ -544,30 +544,37 @@ export default function UploadWorksheetPage() {
         ));
         
         try {
+            let successful = 0;
+            let failed = 0;
             
-        const batchSize = 10; 
-        let successful = 0;
-        let failed = 0;            
-            for (let i = 0; i < studentsWithFiles.length; i += batchSize) {
-                const currentBatch = studentsWithFiles.slice(i, i + batchSize);
-                const batchNumber = Math.floor(i / batchSize) + 1;
-                const totalBatches = Math.ceil(studentsWithFiles.length / batchSize);
+            // Process worksheets sequentially (one by one)
+            for (let i = 0; i < studentsWithFiles.length; i++) {
+                const worksheet = studentsWithFiles[i];
+                const currentNumber = i + 1;
+                const totalCount = studentsWithFiles.length;
                 
-                const batchResults = await Promise.allSettled(
-                    currentBatch.map(worksheet => handleUpload(worksheet))
-                );
+                // Show progress toast
+                toast.info(`Processing worksheet ${currentNumber} of ${totalCount}: ${worksheet.name}`, {
+                    duration: 2000
+                });
                 
-                
-                batchResults.forEach((result, index) => {
-                    if (result.status === 'fulfilled' && result.value && result.value.success) {
+                try {
+                    const result = await handleUpload(worksheet);
+                    if (result && result.success) {
                         successful++;
                     } else {
                         failed++;
+                        toast.error(`Failed to process worksheet for ${worksheet.name}`);
                     }
-                });
+                } catch (error) {
+                    failed++;
+                    console.error(`Error processing worksheet for ${worksheet.name}:`, error);
+                    toast.error(`Error processing ${worksheet.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
                 
-                if (i + batchSize < studentsWithFiles.length) {
-                    await new Promise(resolve => setTimeout(resolve, 1000)); 
+                // Add a small delay between requests to avoid overwhelming the server
+                if (i < studentsWithFiles.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
                 }
             }
             
