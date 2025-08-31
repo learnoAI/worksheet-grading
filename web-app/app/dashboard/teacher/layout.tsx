@@ -8,7 +8,7 @@ export default function TeacherLayoutWrapper({
     children: React.ReactNode;
 }) {
     return (
-        <TeacherLayout title="Worksheet Grading App">
+        <TeacherLayout title="AssessWise">
             {children}
         </TeacherLayout>
     );

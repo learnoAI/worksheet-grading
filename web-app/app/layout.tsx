@@ -8,7 +8,7 @@ import { PostHogProvider } from "./providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Worksheet Grading App",
+  title: "AssessWise",
   description: "An app for grading offline worksheets",
 };
 

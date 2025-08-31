@@ -12,7 +12,7 @@ interface TeacherLayoutProps {
 
 export function TeacherLayout({ 
   children, 
-  title = "Worksheet Grading App",
+  title = "AssessWise",
   description 
 }: TeacherLayoutProps) {
   const { user, isLoading, logout } = useAuth();

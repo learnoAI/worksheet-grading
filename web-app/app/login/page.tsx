@@ -35,7 +35,7 @@ export default function LoginPage() {
         <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
             <Card className="w-full max-w-md">
                 <CardHeader className="space-y-1">
-                    <CardTitle className="text-2xl font-bold text-center">Worksheet Grading App</CardTitle>
+                    <CardTitle className="text-2xl font-bold text-center">AssessWise</CardTitle>
                     <CardDescription className="text-center">Enter your credentials to sign in</CardDescription>
                 </CardHeader>
                 <form onSubmit={handleSubmit}>

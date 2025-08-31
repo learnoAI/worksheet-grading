@@ -63,7 +63,7 @@ export default function SuperAdminLayout({
             {/* Header */}
             <header className="bg-white shadow">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-                    <h1 className="text-xl font-bold">Worksheet Grading App</h1>
+                    <h1 className="text-xl font-bold">AssessWise</h1>
                     <div className="flex items-center gap-4">
                         <div className="text-sm text-gray-600">
                             Logged in as <span className="font-medium">{user.username}</span> (Admin)

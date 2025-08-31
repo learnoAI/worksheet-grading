@@ -46,7 +46,7 @@ app.get('/health', (req: Request, res: Response) => {
 
 // Default route
 app.get('/', (req: Request, res: Response) => {
-    res.send('Worksheet Grading API');
+    res.send('AssessWise API');
 });
 
 // Error handling middleware
