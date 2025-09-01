@@ -22,5 +22,9 @@ export default {
         s3BucketName: process.env.AWS_S3_BUCKET_NAME || 'worksheet-images'
     },
     redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
-    pythonApiUrl: process.env.PYTHON_API_URL || 'https://saarthi-api-jzugp.ondigitalocean.app/'
+    pythonApiUrl: process.env.PYTHON_API_URL || 'https://saarthi-api-jzugp.ondigitalocean.app/',
+    grading: {
+        maxConcurrent: parseInt(process.env.GRADING_MAX_CONCURRENT || '1', 10),
+        minTimeMs: parseInt(process.env.GRADING_MIN_TIME_MS || '1000', 10)
+    }
 };
