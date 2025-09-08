@@ -11,6 +11,8 @@ export interface OverallAnalytics {
     repetitionRate: number;
     highScoreCount: number;
     highScorePercentage: number;
+    excellenceScoreCount: number;
+    excellenceScorePercentage: number;
     totalGraded: number;
     needsRepetitionCount: number;
     needsRepetitionPercentage: number;
@@ -90,7 +92,7 @@ export const analyticsAPI = {
     },
 
     // Download student analytics as CSV
-    downloadStudentAnalytics: async (filters?: { schoolId?: string; classId?: string; startDate?: string; endDate?: string }): Promise<void> => {
+    downloadStudentAnalytics: async (filters?: { schoolId?: string; classId?: string; startDate?: string; endDate?: string; showArchived?: string }): Promise<void> => {
         let url = '/analytics/students/download?format=csv';
         if (filters) {
             const params = new URLSearchParams();
@@ -98,6 +100,7 @@ export const analyticsAPI = {
             if (filters.classId) params.append('classId', filters.classId);
             if (filters.startDate) params.append('startDate', filters.startDate);
             if (filters.endDate) params.append('endDate', filters.endDate);
+            if (filters.showArchived) params.append('showArchived', filters.showArchived);
             if (params.toString()) {
                 url += `&${params.toString()}`;
             }

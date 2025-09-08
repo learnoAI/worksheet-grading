@@ -43,7 +43,8 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         const totalAbsent = worksheets.filter(w => w.isAbsent).length;
         const totalRepeated = worksheets.filter(w => w.isRepeated).length;
         
-        const gradedWorksheets = worksheets.filter(w => w.grade !== null);
+        // Filter graded worksheets to only include non-absent ones for consistency
+        const gradedWorksheets = worksheets.filter(w => w.grade !== null && !w.isAbsent);
         const totalGraded = gradedWorksheets.length;
         const totalWorksheets = allWorksheets - totalAbsent; // Non-absent worksheets
         
@@ -58,6 +59,15 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         }).length;
         
         const highScorePercentage = totalGraded > 0 ? (highScoreCount / totalGraded) * 100 : 0;
+        
+        // Excellence score is 90% or higher of outOf
+        const excellenceScoreCount = gradedWorksheets.filter(w => {
+            const outOf = w.outOf || 40; // Default to 40 if outOf is not set
+            const minScore = outOf * 0.9; // 90% threshold
+            return w.grade !== null && w.grade >= minScore;
+        }).length;
+        
+        const excellenceScorePercentage = totalGraded > 0 ? (excellenceScoreCount / totalGraded) * 100 : 0;
         
         // Calculate needed repetition rate (worksheets that scored below 80% and should be repeated)
         const needsRepetitionCount = gradedWorksheets.filter(w => {
@@ -76,6 +86,8 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             repetitionRate,
             highScoreCount,
             highScorePercentage,
+            excellenceScoreCount,
+            excellenceScorePercentage,
             totalGraded,
             needsRepetitionCount,
             needsRepetitionPercentage
@@ -140,8 +152,8 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
         const allWorksheets = worksheets.length;
         const totalAbsent = worksheets.filter(w => w.isAbsent).length;
         const totalRepeated = worksheets.filter(w => w.isRepeated).length;
-          // Calculate graded vs ungraded
-        const gradedWorksheets = worksheets.filter(w => w.grade !== null);
+          // Calculate graded vs ungraded - only count non-absent graded worksheets for consistency
+        const gradedWorksheets = worksheets.filter(w => w.grade !== null && !w.isAbsent);
         const totalGraded = gradedWorksheets.length;
         const totalWorksheets = allWorksheets - totalAbsent; // Non-absent worksheets
         
@@ -194,7 +206,10 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
         if (classId) {
             filter.studentClasses = {
                 some: {
-                    classId: classId as string
+                    classId: classId as string,
+                    class: {
+                        isArchived: false // Only show students from active classes when filtering by class
+                    }
                 }
             };
         } 
@@ -215,6 +230,11 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                 tokenNumber: true,
                 isArchived: true,
                 studentClasses: {
+                    where: {
+                        class: {
+                            isArchived: false // Only include students from active classes
+                        }
+                    },
                     include: {
                         class: {
                             include: {
@@ -254,8 +274,8 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
             const absences = worksheets.filter(w => w.isAbsent).length;
             const repetitions = worksheets.filter(w => w.isRepeated).length;
             
-            // Calculate graded vs ungraded worksheets
-            const gradedWorksheets = worksheets.filter(w => w.grade !== null);
+            // Calculate graded vs ungraded worksheets - only count non-absent graded worksheets for consistency
+            const gradedWorksheets = worksheets.filter(w => w.grade !== null && !w.isAbsent);
             const totalWorksheets = allWorksheets - absences; // Non-absent worksheets
             
             // Get first and last worksheet dates
@@ -263,7 +283,7 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
             const firstWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[0] : null;
             const lastWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[worksheetsWithDates.length - 1] : null;
             
-            // Class and school info
+            // Class and school info (only from active classes)
             const primaryClass = student.studentClasses[0]?.class;
               return {
                 id: student.id,
@@ -271,8 +291,8 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                 username: student.username,
                 tokenNumber: student.tokenNumber,
                 isArchived: student.isArchived || false,
-                class: primaryClass ? primaryClass.name : 'No Class',
-                school: primaryClass ? primaryClass.school.name : 'No School',
+                class: primaryClass ? primaryClass.name : 'No Active Class',
+                school: primaryClass ? primaryClass.school.name : 'No Active School',
                 totalWorksheets,
                 absentCount: absences,
                 absentPercentage: allWorksheets > 0 ? (absences / allWorksheets) * 100 : 0,
@@ -296,14 +316,24 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
  */
 export const getAllSchools = async (req: Request, res: Response) => {
     try {
+        const { includeArchived = 'false' } = req.query;
+        const whereConditions: any = {};
+        
+        if (includeArchived !== 'true') {
+            whereConditions.isArchived = false;
+        }
+        
         const schools = await prisma.school.findMany({
+            where: whereConditions,
             select: {
                 id: true,
-                name: true
+                name: true,
+                isArchived: true
             },
-            orderBy: {
-                name: 'asc'
-            }
+            orderBy: [
+                { isArchived: 'asc' },
+                { name: 'asc' }
+            ]
         });
         
         return res.status(200).json(schools);
@@ -313,33 +343,45 @@ export const getAllSchools = async (req: Request, res: Response) => {
     }
 };
 
-/**
- * Get school and class dropdown options for filtering
- * @route GET /api/analytics/filter-options
- */
 export const getFilterOptions = async (req: Request, res: Response) => {
     try {
-        // Get all schools
-        const schools = await prisma.school.findMany({
-            select: {
-                id: true,
-                name: true
-            },
-            orderBy: {
-                name: 'asc'
-            }
-        });
+        const { includeArchived = 'false' } = req.query;
         
-        // Get all classes
-        const classes = await prisma.class.findMany({
+        const schoolWhereConditions: any = {};
+        if (includeArchived !== 'true') {
+            schoolWhereConditions.isArchived = false;
+        }
+        
+        const schools = await prisma.school.findMany({
+            where: schoolWhereConditions,
             select: {
                 id: true,
                 name: true,
-                schoolId: true
+                isArchived: true
             },
-            orderBy: {
-                name: 'asc'
-            }
+            orderBy: [
+                { isArchived: 'asc' },
+                { name: 'asc' }
+            ]
+        });
+        
+        const classWhereConditions: any = {};
+        if (includeArchived !== 'true') {
+            classWhereConditions.isArchived = false;
+        }
+        
+        const classes = await prisma.class.findMany({
+            where: classWhereConditions,
+            select: {
+                id: true,
+                name: true,
+                schoolId: true,
+                isArchived: true
+            },
+            orderBy: [
+                { isArchived: 'asc' },
+                { name: 'asc' }
+            ]
         });
         
         res.status(200).json({ schools, classes });
@@ -356,19 +398,30 @@ export const getFilterOptions = async (req: Request, res: Response) => {
 export const getClassesBySchool = async (req: Request, res: Response) => {
     try {
         const { schoolId } = req.params;
+        const { includeArchived = 'false' } = req.query;
+        
+        // Build filter conditions
+        const whereConditions: any = {
+            schoolId
+        };
+        
+        // Filter by archive status unless explicitly requesting archived classes
+        if (includeArchived !== 'true') {
+            whereConditions.isArchived = false;
+        }
         
         const classes = await prisma.class.findMany({
-            where: {
-                schoolId
-            },
+            where: whereConditions,
             select: {
                 id: true,
                 name: true,
-                schoolId: true
+                schoolId: true,
+                isArchived: true
             },
-            orderBy: {
-                name: 'asc'
-            }
+            orderBy: [
+                { isArchived: 'asc' }, // Show active classes first
+                { name: 'asc' }
+            ]
         });
         
         return res.status(200).json(classes);
@@ -560,13 +613,21 @@ export const addStudentToClass = async (req: Request, res: Response) => {
  * @route GET /api/analytics/students/download
  */
 export const downloadStudentAnalytics = async (req: Request, res: Response) => {
-    const { schoolId, classId, startDate, endDate, format = 'csv' } = req.query;
+    const { schoolId, classId, startDate, endDate, showArchived = 'active', format = 'csv' } = req.query;
     
     try {
         // Base filters for student query (same as getStudentAnalytics)
         const filter: any = {
             role: 'STUDENT',
         };
+
+        // Apply archive filter based on showArchived parameter
+        if (showArchived === 'active') {
+            filter.isArchived = false;
+        } else if (showArchived === 'archived') {
+            filter.isArchived = true;
+        }
+        // If showArchived === 'all', don't add isArchived filter
         
         // Apply class filter if provided
         if (classId) {
@@ -630,8 +691,8 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
             const absences = worksheets.filter(w => w.isAbsent).length;
             const repetitions = worksheets.filter(w => w.isRepeated).length;
             
-            // Calculate graded vs ungraded worksheets
-            const gradedWorksheets = worksheets.filter(w => w.grade !== null);
+            // Calculate graded vs ungraded worksheets - only count non-absent graded worksheets for consistency
+            const gradedWorksheets = worksheets.filter(w => w.grade !== null && !w.isAbsent);
             const totalWorksheets = allWorksheets - absences; // Non-absent worksheets
             
             // Get first and last worksheet dates

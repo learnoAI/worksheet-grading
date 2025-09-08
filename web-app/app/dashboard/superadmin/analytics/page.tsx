@@ -343,18 +343,18 @@ export default function AnalyticsDashboardPage() {
                     <Card>
                         <CardHeader>
                             <CardTitle>Performance Metrics</CardTitle>
-                            <CardDescription>Student performance analytics (passing criteria: ≥80%)</CardDescription>
+                            <CardDescription>Student performance analytics (≥80% passing, ≥90% excellence)</CardDescription>
                         </CardHeader>
                         <CardContent>
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">Passing Scores (≥80%)</span>
+                                    <span className="text-muted-foreground">Good Scores (≥80%)</span>
                                     <span className="font-medium text-lg">{analytics.highScoreCount}</span>
                                 </div>
                                 <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">Passing Rate</span>
-                                    <span className="font-medium text-lg" >
-                                        {analytics.highScorePercentage.toFixed(1)}%
+                                    <span className="text-muted-foreground">Excellence Scores (≥90%)</span>
+                                    <span className="font-medium text-lg">
+                                        {analytics.excellenceScoreCount}
                                     </span>
                                 </div>
                             </div>

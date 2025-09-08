@@ -295,15 +295,15 @@ export default function StudentAnalyticsPage() {
         return (
             <button
                 onClick={() => handleSort(field)}
-                className="flex items-center gap-1 hover:bg-gray-100 p-1 rounded transition-colors"
+                className="flex items-center gap-1 hover:bg-slate-200 p-2 rounded transition-colors font-semibold text-slate-700"
                 title={`Sort by ${title}`}
                 key={field}
             >
-                <span>{title}</span>
-                <Icon className={`h-4 w-4 ${isActive ? 'text-blue-600' : 'text-gray-400'}`} />
+                <span className="font-semibold">{title}</span>
+                <Icon className={`h-4 w-4 ${isActive ? 'text-blue-600' : 'text-slate-500'}`} />
             </button>
         );
-    }, [sortField, sortDirection, handleSort]);    // Handle download - memoized for performance
+    }, [sortField, sortDirection, handleSort]);
     const handleDownload = useCallback(async () => {
         setIsDownloading(true);
         try {
@@ -311,7 +311,8 @@ export default function StudentAnalyticsPage() {
                 schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
                 classId: selectedClassId !== 'all' ? selectedClassId : undefined,
                 startDate: enableDateFilter ? startDate : undefined,
-                endDate: enableDateFilter ? endDate : undefined
+                endDate: enableDateFilter ? endDate : undefined,
+                showArchived: showArchived
             });
             toast.success('Analytics data downloaded successfully');
         } catch (error) {
@@ -320,7 +321,7 @@ export default function StudentAnalyticsPage() {
         } finally {
             setIsDownloading(false);
         }
-    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate]);
+    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate, showArchived]);
 
     // Date range preset functions
     const setDateRange = useCallback((days: number) => {
@@ -495,18 +496,18 @@ export default function StudentAnalyticsPage() {
 
     return (
         <div className="space-y-6">
-            <h1 className="text-2xl font-bold">Student Analytics</h1>
+            <h1 className="text-3xl font-bold text-slate-800">Student Analytics</h1>
               {/* Filters */}
             <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                        <span>Filters</span>
+                <CardHeader className="bg-gradient-to-r border-b">
+                    <CardTitle className="flex items-center justify-between text-slate-800">
+                        <span className="text-lg font-bold">Filters & Export</span>
                         <div className="flex gap-2">
                             <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={clearAllFilters}
-                                className="flex items-center gap-2"
+                                className="flex items-center gap-2 border-slate-300 hover:bg-slate-100"
                             >
                                 <X className="h-4 w-4" />
                                 Clear Filters
@@ -526,12 +527,12 @@ export default function StudentAnalyticsPage() {
                 </CardHeader>                <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                         <div>
-                            <label className="block text-sm font-medium mb-1">School</label>
+                            <label className="block text-sm font-semibold mb-1 text-slate-700">School</label>
                             <Select
                                 value={selectedSchoolId}
                                 onValueChange={(value) => setSelectedSchoolId(value)}
                             >
-                                <SelectTrigger>
+                                <SelectTrigger className="border-slate-300 focus:border-blue-500">
                                     <SelectValue placeholder="Select a school" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -546,13 +547,13 @@ export default function StudentAnalyticsPage() {
                         </div>
                         
                         <div>
-                            <label className="block text-sm font-medium mb-1">Class</label>
+                            <label className="block text-sm font-semibold mb-1 text-slate-700">Class</label>
                             <Select
                                 value={selectedClassId}
                                 onValueChange={(value) => setSelectedClassId(value)}
                                 disabled={!selectedSchoolId || selectedSchoolId === 'all' || classes.length === 0}
                             >
-                                <SelectTrigger>
+                                <SelectTrigger className="border-slate-300 focus:border-blue-500">
                                     <SelectValue placeholder={!selectedSchoolId || selectedSchoolId === 'all' ? "Select a school first" : "Select a class"} />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -567,9 +568,9 @@ export default function StudentAnalyticsPage() {
                         </div>
                         
                         <div>
-                            <label className="block text-sm font-medium mb-1">Status</label>
+                            <label className="block text-sm font-semibold mb-1 text-slate-700">Status</label>
                             <Select value={showArchived} onValueChange={setShowArchived}>
-                                <SelectTrigger>
+                                <SelectTrigger className="border-slate-300 focus:border-blue-500">
                                     <SelectValue placeholder="Select status" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -581,17 +582,17 @@ export default function StudentAnalyticsPage() {
                         </div>
                         
                         <div>
-                            <label className="block text-sm font-medium mb-1">Search by Name or Token</label>
+                            <label className="block text-sm font-semibold mb-1 text-slate-700">Search by Name or Token</label>
                             <Input
                                 placeholder="Search students..."
                                 value={searchName}
                                 onChange={(e) => setSearchName(e.target.value)}
-                                className="flex items-center"
+                                className="flex items-center border-slate-300 focus:border-blue-500"
                             />
                         </div>
                     </div>
                     
-                    <div className="pt-4">
+                    <div className="pt-4 border-t border-slate-200">
                         <div className="space-y-4">
                             <div className="flex items-center gap-2">
                                 <input
@@ -599,32 +600,34 @@ export default function StudentAnalyticsPage() {
                                     id="enableDateFilter"
                                     checked={enableDateFilter}
                                     onChange={(e) => setEnableDateFilter(e.target.checked)}
-                                    className="rounded"
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                                 />
                                 <label htmlFor="enableDateFilter" className="text-sm font-medium">
-                                    Filter by date range (analyze worksheets within specific period)
+                                    Filter by date range
                                 </label>
                             </div>
                             
                             {enableDateFilter && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium mb-1">Start Date</label>
+                                        <label className="block text-sm font-semibold mb-1 text-slate-700">Start Date</label>
                                         <Input
                                             type="date"
                                             value={startDate}
                                             onChange={(e) => setStartDate(e.target.value)}
                                             max={endDate}
+                                            className="border-slate-300 focus:border-blue-500"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium mb-1">End Date</label>
+                                        <label className="block text-sm font-semibold mb-1 text-slate-700">End Date</label>
                                         <Input
                                             type="date"
                                             value={endDate}
                                             onChange={(e) => setEndDate(e.target.value)}
                                             min={startDate}
                                             max={new Date().toISOString().split('T')[0]}
+                                            className="border-slate-300 focus:border-blue-500"
                                         />
                                     </div>
                                 </div>
@@ -685,18 +688,19 @@ export default function StudentAnalyticsPage() {
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
-                                <label className="block text-sm font-medium mb-1">Min. Total Worksheets</label>
+                                <label className="block text-sm font-semibold mb-1 text-slate-700">Min. Total Worksheets</label>
                                 <Input
                                     type="number"
                                     placeholder="e.g., 5"
                                     value={minWorksheets}
                                     onChange={(e) => setMinWorksheets(e.target.value)}
                                     min="0"
+                                    className="border-slate-300 focus:border-blue-500"
                                 />
                             </div>
                             
                             <div>
-                                <label className="block text-sm font-medium mb-1">Max. Absent Rate (%)</label>
+                                <label className="block text-sm font-semibold mb-1 text-slate-700">Max. Absent Rate (%)</label>
                                 <Input
                                     type="number"
                                     placeholder="e.g., 20"
@@ -705,11 +709,12 @@ export default function StudentAnalyticsPage() {
                                     min="0"
                                     max="100"
                                     step="0.1"
+                                    className="border-slate-300 focus:border-blue-500"
                                 />
                             </div>
                             
                             <div>
-                                <label className="block text-sm font-medium mb-1">Min. Repetition Rate (%)</label>
+                                <label className="block text-sm font-semibold mb-1 text-slate-700">Min. Repetition Rate (%)</label>
                                 <Input
                                     type="number"
                                     placeholder="e.g., 10"
@@ -718,6 +723,7 @@ export default function StudentAnalyticsPage() {
                                     min="0"
                                     max="100"
                                     step="0.1"
+                                    className="border-slate-300 focus:border-blue-500"
                                 />
                             </div>
                         </div>
@@ -831,14 +837,14 @@ export default function StudentAnalyticsPage() {
             )}
               {/* Student Analytics Table */}
             <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                        <span>Student Performance Analytics</span>
-                        <span className="text-sm font-normal text-muted-foreground">
+                <CardHeader className="bg-gradient-to-r from-slate-50 to-gray-50 border-b">
+                    <CardTitle className="flex items-center justify-between text-slate-800">
+                        <span className="text-xl font-bold">Student Performance Analytics</span>
+                        <span className="text-sm font-normal text-slate-600 bg-blue-50 px-3 py-1 rounded-full">
                             Page {currentPage} of {totalPages} ({filteredStudents.length} total)
                         </span>
                     </CardTitle>
-                    <CardDescription>Detailed analytics for each student</CardDescription>
+                    <CardDescription className="text-slate-600 font-medium">Detailed analytics and performance metrics for each student</CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoading ? (
@@ -859,52 +865,52 @@ export default function StudentAnalyticsPage() {
                             {/* Desktop Table View */}
                             <div className="hidden md:block w-full overflow-x-auto">
                                 <Table>
-                                    <TableHeader>
+                                    <TableHeader className="bg-slate-50">
                                         <TableRow>
-                                            <TableHead className="w-[150px] min-w-[120px]">
+                                            <TableHead className="w-[150px] min-w-[120px] font-semibold text-slate-700">
                                                 <div className="flex items-center gap-1">
                                                     {renderSortButton('name', 'Name')}
                                                 </div>
                                             </TableHead>
-                                            <TableHead className="w-[100px] min-w-[80px]">
+                                            <TableHead className="w-[100px] min-w-[80px] font-semibold text-slate-700">
                                                 <div className="flex items-center gap-1">
                                                     {renderSortButton('tokenNumber', 'Token #')}
                                                 </div>
                                             </TableHead>
-                                            <TableHead className="w-[150px] min-w-[120px]">
+                                            <TableHead className="w-[150px] min-w-[120px] font-semibold text-slate-700">
                                                 <div className="flex items-center gap-1">
                                                     {renderSortButton('school', 'School')}
                                                 </div>
                                             </TableHead>
-                                            <TableHead className="w-[100px] min-w-[80px]">
+                                            <TableHead className="w-[100px] min-w-[80px] font-semibold text-slate-700">
                                                 <div className="flex items-center gap-1">
                                                     {renderSortButton('class', 'Class')}
                                                 </div>
                                             </TableHead>
-                                            <TableHead className="w-[80px] min-w-[60px] hidden lg:table-cell">
+                                            <TableHead className="w-[80px] min-w-[60px] hidden lg:table-cell font-semibold text-slate-700">
                                                 <div className="flex items-center gap-1">
                                                     {renderSortButton('totalWorksheets', 'Total Worksheets')}
                                                 </div>
                                             </TableHead>
-                                            <TableHead className="w-[90px] min-w-[70px] hidden lg:table-cell">
+                                            <TableHead className="w-[90px] min-w-[70px] hidden lg:table-cell font-semibold text-slate-700">
                                                 <div className="flex items-center gap-1">
                                                     {renderSortButton('repetitionRate', 'Repetition Rate')}
                                                 </div>
                                             </TableHead>
-                                            <TableHead className="w-[90px] min-w-[70px] hidden xl:table-cell">
+                                            <TableHead className="w-[90px] min-w-[70px] hidden xl:table-cell font-semibold text-slate-700">
                                                 <div className="flex items-center gap-1">
                                                     {renderSortButton('absentPercentage', 'Absent %')}
                                                 </div>
                                             </TableHead>
-                                            <TableHead className="w-[100px] min-w-[80px] hidden xl:table-cell">
+                                            <TableHead className="w-[100px] min-w-[80px] hidden xl:table-cell font-semibold text-slate-700">
                                                 <div className="flex items-center gap-1">
                                                     {renderSortButton('lastWorksheetDate', 'Last Worksheet')}
                                                 </div>
                                             </TableHead>
-                                            <TableHead className="w-[80px] min-w-[60px]">
+                                            <TableHead className="w-[80px] min-w-[60px] font-semibold text-slate-700">
                                                 <span className="truncate">Status</span>
                                             </TableHead>
-                                            <TableHead className="w-[120px] min-w-[100px]">
+                                            <TableHead className="w-[120px] min-w-[100px] font-semibold text-slate-700">
                                                 <span className="truncate">Actions</span>
                                             </TableHead>
                                         </TableRow>
