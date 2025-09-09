@@ -2,6 +2,23 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 
 /**
+ * Convert date strings to full day ranges
+ * If start and end dates are the same, includes the full day (00:00:00 to 23:59:59)
+ */
+function convertToFullDayRange(startDateStr: string, endDateStr: string) {
+    const start = new Date(startDateStr);
+    const end = new Date(endDateStr);
+    
+    // Set start date to beginning of day (00:00:00)
+    start.setHours(0, 0, 0, 0);
+    
+    // Set end date to end of day (23:59:59.999)
+    end.setHours(23, 59, 59, 999);
+    
+    return { start, end };
+}
+
+/**
  * Get overall analytics data within a date range
  * @route GET /api/analytics/overall
  */
@@ -13,9 +30,8 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Start date and end date are required' });
         }
 
-        // Parse date strings to Date objects
-        const start = new Date(startDate as string);
-        const end = new Date(endDate as string);
+        // Parse date strings to Date objects with full day range
+        const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
         
         // Build filter object
         const filter: any = {
@@ -110,8 +126,7 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
     }
     
     try {
-        const start = new Date(startDate as string);
-        const end = new Date(endDate as string);
+        const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
         
         // Base filter
         const dateFilter = {
@@ -251,13 +266,16 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                         isRepeated: true,
                         grade: true
                     },
-                    // Apply date filter if provided
-                    where: startDate && endDate ? {
-                        submittedOn: {
-                            gte: new Date(startDate as string),
-                            lte: new Date(endDate as string)
-                        }
-                    } : undefined,
+                    // Apply date filter if provided with full day range
+                    where: startDate && endDate ? (() => {
+                        const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
+                        return {
+                            submittedOn: {
+                                gte: start,
+                                lte: end
+                            }
+                        };
+                    })() : undefined,
                     orderBy: {
                         submittedOn: 'asc'
                     }
@@ -671,13 +689,16 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                         isRepeated: true,
                         grade: true
                     },
-                    // Apply date filter if provided
-                    where: startDate && endDate ? {
-                        submittedOn: {
-                            gte: new Date(startDate as string),
-                            lte: new Date(endDate as string)
-                        }
-                    } : undefined,
+                    // Apply date filter if provided with full day range
+                    where: startDate && endDate ? (() => {
+                        const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
+                        return {
+                            submittedOn: {
+                                gte: start,
+                                lte: end
+                            }
+                        };
+                    })() : undefined,
                     orderBy: {
                         submittedOn: 'asc'
                     }
