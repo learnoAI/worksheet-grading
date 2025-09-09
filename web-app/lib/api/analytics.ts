@@ -1,10 +1,9 @@
-import { fetchAPI } from './utils';
+import { fetchAPI, fetchWithRetry } from './utils';
 
-// Import API_BASE_URL to use for download
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5100/api';
 
 export interface OverallAnalytics {
-    totalWorksheets: number; // Non-absent worksheets (total - absent)
+    totalWorksheets: number;
     totalAbsent: number;
     absentPercentage: number;
     totalRepeated: number;
@@ -26,7 +25,7 @@ export interface StudentAnalytics {
     isArchived: boolean;
     class: string;
     school: string;
-    totalWorksheets: number; // Non-absent worksheets for this student
+    totalWorksheets: number;
     absentCount: number;
     absentPercentage: number;
     repeatedCount: number;
@@ -114,12 +113,12 @@ export const analyticsAPI = {
                 ?.split('=')[1] : null;
         
         try {
-            const response = await fetch(`${API_BASE_URL}${url}`, {
+            const response = await fetchWithRetry(`${API_BASE_URL}${url}`, {
                 method: 'GET',
                 headers: {
                     ...(token ? { Authorization: `Bearer ${token}` } : {})
                 }
-            });
+            }, { retries: 3, baseDelayMs: 300 });
 
             if (!response.ok) {
                 const error = await response.json();
