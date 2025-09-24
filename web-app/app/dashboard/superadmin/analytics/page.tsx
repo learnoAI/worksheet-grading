@@ -289,7 +289,7 @@ export default function AnalyticsDashboardPage() {
                                 </div>
                                 <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground">Total Graded</span>
-                                    <span className="font-medium text-lg">{analytics.totalGraded}</span>
+                                    <span className="font-medium text-lg">{analytics.totalGraded-analytics.totalAbsent}</span>
                                 </div>
                             </div>
                         </CardContent>
