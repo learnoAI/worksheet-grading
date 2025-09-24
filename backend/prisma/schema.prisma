@@ -186,6 +186,15 @@ model Worksheet {
   gradingDetails       Json?               // Store the detailed grading information from AI
   wrongQuestionNumbers String?             // Comma-separated wrong question numbers
   adminComments        String?             // Administrative comments for incorrect grading review
+
+  // Performance indexes for analytics queries
+  @@index([createdAt])
+  @@index([submittedOn])
+  @@index([classId, createdAt])
+  @@index([studentId, submittedOn])
+  @@index([isAbsent, createdAt])
+  @@index([isRepeated, createdAt])
+  @@index([grade, outOf, isAbsent])
 }
 
 model WorksheetImage {

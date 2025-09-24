@@ -1,5 +1,49 @@
 import { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
+
+// Simple in-memory cache for analytics results (5 minute TTL)
+interface CacheEntry {
+    data: any;
+    timestamp: number;
+}
+
+const analyticsCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getCacheKey(params: Record<string, any>): string {
+    return JSON.stringify(params);
+}
+
+function setCache(key: string, data: any): void {
+    analyticsCache.set(key, {
+        data,
+        timestamp: Date.now()
+    });
+}
+
+function getCache(key: string): any | null {
+    const entry = analyticsCache.get(key);
+    if (!entry) return null;
+    
+    // Check if cache entry is expired
+    if (Date.now() - entry.timestamp > CACHE_TTL) {
+        analyticsCache.delete(key);
+        return null;
+    }
+    
+    return entry.data;
+}
+
+// Clean expired cache entries every 10 minutes
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of analyticsCache.entries()) {
+        if (now - entry.timestamp > CACHE_TTL) {
+            analyticsCache.delete(key);
+        }
+    }
+}, 10 * 60 * 1000);
 
 /**
  * Convert date strings to full day ranges
@@ -30,6 +74,15 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Start date and end date are required' });
         }
 
+        // Create cache key from request parameters
+        const cacheKey = getCacheKey({ startDate, endDate, schoolIds });
+        
+        // Check cache first
+        const cachedResult = getCache(cacheKey);
+        if (cachedResult) {
+            return res.status(200).json(cachedResult);
+        }
+
         // Parse date strings to Date objects with full day range
         const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
         
@@ -51,51 +104,96 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             };
         }
         
-        // Get all worksheets in the date range with school filter
-        const worksheets = await prisma.worksheet.findMany({
-            where: filter
-        });        // Calculate analytics metrics
-        const allWorksheets = worksheets.length;
-        const totalAbsent = worksheets.filter(w => w.isAbsent).length;
-        const totalRepeated = worksheets.filter(w => w.isRepeated).length;
+        // Use parallel aggregation queries for better performance
+        const [
+            totalStats,
+            absentStats,
+            repeatedStats,
+            gradedStats,
+            highScoreStats,
+            excellenceStats
+        ] = await Promise.all([
+            // Total worksheets count
+            prisma.worksheet.count({
+                where: filter
+            }),
+            
+            // Absent worksheets count
+            prisma.worksheet.count({
+                where: {
+                    ...filter,
+                    isAbsent: true
+                }
+            }),
+            
+            // Repeated worksheets count
+            prisma.worksheet.count({
+                where: {
+                    ...filter,
+                    isRepeated: true
+                }
+            }),
+            
+            // Graded non-absent worksheets count
+            prisma.worksheet.count({
+                where: {
+                    ...filter,
+                    grade: { not: null },
+                    isAbsent: false
+                }
+            }),
+            
+            // High score count (≥80%) - use raw query for performance
+            prisma.$queryRaw<Array<{count: bigint}>>`
+                SELECT COUNT(*)::bigint as count
+                FROM "Worksheet" w
+                LEFT JOIN "Class" c ON w."classId" = c.id
+                WHERE w."createdAt" >= ${start}::timestamp
+                AND w."createdAt" <= ${end}::timestamp
+                AND w.grade IS NOT NULL
+                AND w."isAbsent" = false
+                AND w.grade >= (COALESCE(w."outOf", 40) * 0.8)
+                ${schoolIds ? 
+                    Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
+                    : Prisma.empty}
+            `,
+            
+            // Excellence score count (≥90%) - use raw query for performance
+            prisma.$queryRaw<Array<{count: bigint}>>`
+                SELECT COUNT(*)::bigint as count
+                FROM "Worksheet" w
+                LEFT JOIN "Class" c ON w."classId" = c.id
+                WHERE w."createdAt" >= ${start}::timestamp
+                AND w."createdAt" <= ${end}::timestamp
+                AND w.grade IS NOT NULL
+                AND w."isAbsent" = false
+                AND w.grade >= (COALESCE(w."outOf", 40) * 0.9)
+                ${schoolIds ? 
+                    Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
+                    : Prisma.empty}
+            `
+        ]);
+
+        // Calculate metrics from aggregated data
+        const totalWorksheets = totalStats;
+        const totalAbsent = absentStats;
+        const totalRepeated = repeatedStats;
+        const totalGraded = gradedStats;
         
-        // Filter graded worksheets to only include non-absent ones for consistency
-        const gradedWorksheets = worksheets.filter(w => w.grade !== null && !w.isAbsent);
-        const totalGraded = gradedWorksheets.length;
-        const totalWorksheets = allWorksheets - totalAbsent; // Non-absent worksheets
+        const absentPercentage = totalWorksheets > 0 ? (totalAbsent / totalWorksheets) * 100 : 0;
+        const repetitionRate = (totalWorksheets - totalAbsent) > 0 ? (totalRepeated / (totalWorksheets - totalAbsent)) * 100 : 0;
         
-        const absentPercentage = allWorksheets > 0 ? (totalAbsent / allWorksheets) * 100 : 0;
-        const repetitionRate = totalWorksheets > 0 ? (totalRepeated / totalWorksheets) * 100 : 0;
-        
-        // High score is 80% or higher of outOf
-        const highScoreCount = gradedWorksheets.filter(w => {
-            const outOf = w.outOf || 40; // Default to 40 if outOf is not set
-            const minScore = outOf * 0.8; // 80% threshold
-            return w.grade !== null && w.grade >= minScore;
-        }).length;
-        
+        const highScoreCount = Number(highScoreStats[0]?.count || 0);
         const highScorePercentage = totalGraded > 0 ? (highScoreCount / totalGraded) * 100 : 0;
         
-        // Excellence score is 90% or higher of outOf
-        const excellenceScoreCount = gradedWorksheets.filter(w => {
-            const outOf = w.outOf || 40; // Default to 40 if outOf is not set
-            const minScore = outOf * 0.9; // 90% threshold
-            return w.grade !== null && w.grade >= minScore;
-        }).length;
-        
+        const excellenceScoreCount = Number(excellenceStats[0]?.count || 0);
         const excellenceScorePercentage = totalGraded > 0 ? (excellenceScoreCount / totalGraded) * 100 : 0;
         
-        // Calculate needed repetition rate (worksheets that scored below 80% and should be repeated)
-        const needsRepetitionCount = gradedWorksheets.filter(w => {
-            const outOf = w.outOf || 40; // Default to 40 if outOf is not set
-            const minScore = outOf * 0.8; // 80% threshold
-            return w.grade !== null && w.grade < minScore;
-        }).length;
-        
+        const needsRepetitionCount = totalGraded - highScoreCount;
         const needsRepetitionPercentage = totalGraded > 0 ? (needsRepetitionCount / totalGraded) * 100 : 0;
         
-        return res.status(200).json({
-            totalWorksheets,
+        const result = {
+            totalWorksheets: totalWorksheets - totalAbsent, // Non-absent worksheets for consistency
             totalAbsent,
             absentPercentage,
             totalRepeated,
@@ -107,7 +205,12 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             totalGraded,
             needsRepetitionCount,
             needsRepetitionPercentage
-        });
+        };
+
+        // Cache the result
+        setCache(cacheKey, result);
+        
+        return res.status(200).json(result);
     } catch (error) {
         console.error('Error getting overall analytics:', error);
         return res.status(500).json({ message: 'Server error while retrieving analytics data' });
@@ -144,51 +247,66 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
             };
         }
         
-        // Get all worksheets within the date range
-        const worksheets = await prisma.worksheet.findMany({
-            where: filter,
-            include: {
-                class: {
-                    select: {
-                        id: true,
-                        name: true,
-                        schoolId: true,
-                        school: {
-                            select: {
-                                id: true,
-                                name: true
-                            }
-                        }
-                    }
+        // Use parallel aggregation queries for better performance
+        const [
+            totalStats,
+            absentStats,
+            repeatedStats,
+            highScoreStats
+        ] = await Promise.all([
+            // Total worksheets count
+            prisma.worksheet.count({
+                where: filter
+            }),
+            
+            // Absent worksheets count
+            prisma.worksheet.count({
+                where: {
+                    ...filter,
+                    isAbsent: true
                 }
-            }
-        });        
-        // Calculate analytics
-        const allWorksheets = worksheets.length;
-        const totalAbsent = worksheets.filter(w => w.isAbsent).length;
-        const totalRepeated = worksheets.filter(w => w.isRepeated).length;
-          // Calculate graded vs ungraded - only count non-absent graded worksheets for consistency
-        const gradedWorksheets = worksheets.filter(w => w.grade !== null && !w.isAbsent);
-        const totalGraded = gradedWorksheets.length;
+            }),
+            
+            // Repeated worksheets count  
+            prisma.worksheet.count({
+                where: {
+                    ...filter,
+                    isRepeated: true
+                }
+            }),
+            
+            // High score count (≥80%) - use raw query for performance
+            prisma.$queryRaw<Array<{count: bigint}>>`
+                SELECT COUNT(*)::bigint as count
+                FROM "Worksheet" w
+                LEFT JOIN "Class" c ON w."classId" = c.id
+                WHERE w."submittedOn" >= ${start}::timestamp
+                AND w."submittedOn" <= ${end}::timestamp
+                AND w."isAbsent" = false
+                AND w.grade IS NOT NULL
+                AND w.grade >= (COALESCE(w."outOf", 40) * 0.8)
+                ${schoolId ? 
+                    Prisma.sql`AND c."schoolId" = ${schoolId}`
+                    : Prisma.empty}
+            `
+        ]);
+        
+        // Calculate analytics from aggregated data
+        const allWorksheets = totalStats;
+        const totalAbsent = absentStats;
+        const totalRepeated = repeatedStats;
+        const highScores = Number(highScoreStats[0]?.count || 0);
+        
         const totalWorksheets = allWorksheets - totalAbsent; // Non-absent worksheets
-        
-        // Calculate high score percentage (≥80% of outOf)
-        const highScores = worksheets.filter(w => {
-            if (w.isAbsent || w.grade === null) return false;
-            const outOf = w.outOf || 40; // Default to 40 if outOf is not set
-            const minScore = outOf * 0.8; // 80% threshold
-            return w.grade >= minScore;
-        }).length;
-        const nonAbsentCount = allWorksheets - totalAbsent;
-        const highScorePercentage = nonAbsentCount > 0 ? (highScores / nonAbsentCount) * 100 : 0;
-        
-        // Calculate repetition rate
-        const repetitionRate = nonAbsentCount > 0 ? (totalRepeated / nonAbsentCount) * 100 : 0;
-          // Return compiled analytics
+        const absentPercentage = allWorksheets > 0 ? (totalAbsent / allWorksheets) * 100 : 0;
+        const repetitionRate = totalWorksheets > 0 ? (totalRepeated / totalWorksheets) * 100 : 0;
+        const highScorePercentage = totalWorksheets > 0 ? (highScores / totalWorksheets) * 100 : 0;
+          
+        // Return compiled analytics
         res.status(200).json({
             totalWorksheets,
             totalAbsent,
-            absentPercentage: allWorksheets > 0 ? (totalAbsent / allWorksheets) * 100 : 0,
+            absentPercentage,
             totalRepeated,
             repetitionRate,
             highScores,
