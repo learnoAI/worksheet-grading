@@ -276,14 +276,14 @@ export default function AnalyticsDashboardPage() {
                 skeleton
             ) : analytics ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Total Worksheets & Completion Card */}
                     <Card>
                         <CardHeader>
                             <CardTitle>Worksheet Statistics</CardTitle>
                             <CardDescription>Overall worksheet completion metrics</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <div className="space-y-4">                                <div className="flex justify-between items-center">
+                            <div className="space-y-4">                                
+                                <div className="flex justify-between items-center">
                                     <span className="text-muted-foreground">Total Worksheets</span>
                                     <span className="font-medium text-lg">{analytics.totalWorksheets}</span>
                                 </div>
@@ -295,7 +295,6 @@ export default function AnalyticsDashboardPage() {
                         </CardContent>
                     </Card>
                     
-                    {/* Absence Card */}
                     <Card>
                         <CardHeader>
                             <CardTitle>Student Absences</CardTitle>
@@ -317,7 +316,6 @@ export default function AnalyticsDashboardPage() {
                         </CardContent>
                     </Card>
                     
-                    {/* Repetition Card */}
                     <Card>
                         <CardHeader>
                             <CardTitle>Worksheet Repetition</CardTitle>
@@ -339,7 +337,6 @@ export default function AnalyticsDashboardPage() {
                         </CardContent>
                     </Card>
                     
-                    {/* Performance Card */}
                     <Card>
                         <CardHeader>
                             <CardTitle>Performance Metrics</CardTitle>

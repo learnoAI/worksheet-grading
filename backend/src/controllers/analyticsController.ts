@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
-import prisma from '../utils/prisma';
+import prisma, { withDatabaseRetry } from '../utils/prisma';
 
 // Simple in-memory cache for analytics results (5 minute TTL)
 interface CacheEntry {
@@ -88,7 +88,7 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         
         // Build filter object
         const filter: any = {
-            createdAt: {
+            submittedOn: {
                 gte: start,
                 lte: end
             }
@@ -104,7 +104,7 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             };
         }
         
-        // Use parallel aggregation queries for better performance
+        // Use parallel aggregation queries for better performance with retry
         const [
             totalStats,
             absentStats,
@@ -112,11 +112,12 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             gradedStats,
             highScoreStats,
             excellenceStats
-        ] = await Promise.all([
-            // Total worksheets count
-            prisma.worksheet.count({
-                where: filter
-            }),
+        ] = await withDatabaseRetry(async () => 
+            Promise.all([
+                // Total worksheets count
+                prisma.worksheet.count({
+                    where: filter
+                }),
             
             // Absent worksheets count
             prisma.worksheet.count({
@@ -148,8 +149,8 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
                 SELECT COUNT(*)::bigint as count
                 FROM "Worksheet" w
                 LEFT JOIN "Class" c ON w."classId" = c.id
-                WHERE w."createdAt" >= ${start}::timestamp
-                AND w."createdAt" <= ${end}::timestamp
+                WHERE w."submittedOn" >= ${start}::timestamp
+                AND w."submittedOn" <= ${end}::timestamp
                 AND w.grade IS NOT NULL
                 AND w."isAbsent" = false
                 AND w.grade >= (COALESCE(w."outOf", 40) * 0.8)
@@ -163,8 +164,8 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
                 SELECT COUNT(*)::bigint as count
                 FROM "Worksheet" w
                 LEFT JOIN "Class" c ON w."classId" = c.id
-                WHERE w."createdAt" >= ${start}::timestamp
-                AND w."createdAt" <= ${end}::timestamp
+                WHERE w."submittedOn" >= ${start}::timestamp
+                AND w."submittedOn" <= ${end}::timestamp
                 AND w.grade IS NOT NULL
                 AND w."isAbsent" = false
                 AND w.grade >= (COALESCE(w."outOf", 40) * 0.9)
@@ -172,7 +173,8 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
                     Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
                     : Prisma.empty}
             `
-        ]);
+        ])
+        );
 
         // Calculate metrics from aggregated data
         const totalWorksheets = totalStats;

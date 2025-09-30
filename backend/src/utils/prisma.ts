@@ -71,4 +71,48 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
+// Connection health check utility
+export const checkDatabaseConnection = async (): Promise<boolean> => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch (error) {
+    console.error('Database connection check failed:', error);
+    return false;
+  }
+};
+
+// Utility to safely execute database operations with retry
+export const withDatabaseRetry = async <T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3
+): Promise<T> => {
+  let lastError: Error;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Check if it's a connection-related error
+      if (error.code === 'P2037' || error.message?.includes('connection')) {
+        console.warn(`Database operation attempt ${attempt}/${maxRetries} failed:`, error.message);
+        
+        if (attempt < maxRetries) {
+          // Wait before retry with exponential backoff
+          const delay = Math.pow(2, attempt) * 1000;
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      }
+      
+      // For non-connection errors, throw immediately
+      throw error;
+    }
+  }
+  
+  throw lastError!;
+};
+
 export default prisma;

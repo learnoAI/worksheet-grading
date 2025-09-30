@@ -5,12 +5,9 @@
  * This script reads CSV files containing dropout student data and archives them in the database
  */
 
-import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
-
-// Initialize Prisma client
-const prisma = new PrismaClient();
+import prisma from '../utils/prisma';
 
 interface StudentData {
   tokenNumber: string;

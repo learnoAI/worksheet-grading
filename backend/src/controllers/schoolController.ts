@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { validationResult } from 'express-validator';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prisma';
 
 /**
  * Get all schools for superadmin with archive status
