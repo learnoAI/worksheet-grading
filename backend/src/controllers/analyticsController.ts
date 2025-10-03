@@ -75,13 +75,13 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         }
 
         // Create cache key from request parameters
-        const cacheKey = getCacheKey({ startDate, endDate, schoolIds });
+        // const cacheKey = getCacheKey({ startDate, endDate, schoolIds });
         
-        // Check cache first
-        const cachedResult = getCache(cacheKey);
-        if (cachedResult) {
-            return res.status(200).json(cachedResult);
-        }
+        // // Check cache first
+        // const cachedResult = getCache(cacheKey);
+        // if (cachedResult) {
+        //     return res.status(200).json(cachedResult);
+        // }
 
         // Parse date strings to Date objects with full day range
         const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
@@ -114,9 +114,17 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             excellenceStats
         ] = await withDatabaseRetry(async () => 
             Promise.all([
-                // Total worksheets count
+                // Total worksheets count - exclude ungraded non-absent worksheets
                 prisma.worksheet.count({
-                    where: filter
+                    where: {
+                        ...filter,
+                        NOT: {
+                            AND: [
+                                { isAbsent: false },
+                                { grade: null }
+                            ]
+                        }
+                    }
                 }),
             
             // Absent worksheets count
@@ -195,7 +203,7 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         const needsRepetitionPercentage = totalGraded > 0 ? (needsRepetitionCount / totalGraded) * 100 : 0;
         
         const result = {
-            totalWorksheets: totalWorksheets - totalAbsent, // Non-absent worksheets for consistency
+            totalWorksheets: totalWorksheets, // Non-absent worksheets for consistency
             totalAbsent,
             absentPercentage,
             totalRepeated,
@@ -210,7 +218,7 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         };
 
         // Cache the result
-        setCache(cacheKey, result);
+        // setCache(cacheKey, result);
         
         return res.status(200).json(result);
     } catch (error) {
