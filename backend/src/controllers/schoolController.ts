@@ -248,13 +248,56 @@ export const archiveSchool = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'School not found' });
         }
 
-        // Archive school by updating their status
-        await prisma.school.update({
-            where: { id },
-            data: { isArchived: true }
+        // Use a transaction to archive school, all its classes, and all associated students
+        await prisma.$transaction(async (tx) => {
+            // Archive the school
+            await tx.school.update({
+                where: { id },
+                data: { isArchived: true }
+            });
+
+            // Archive all classes belonging to this school
+            await tx.class.updateMany({
+                where: { schoolId: id },
+                data: { isArchived: true }
+            });
+
+            // Get all students associated with this school
+            const studentSchools = await tx.studentSchool.findMany({
+                where: { schoolId: id },
+                select: { studentId: true }
+            });
+
+            const studentIds = studentSchools.map(ss => ss.studentId);
+
+            // Archive all students who are only in this school (not in other active schools)
+            if (studentIds.length > 0) {
+                for (const studentId of studentIds) {
+                    // Check if student has any other active schools
+                    const activeSchoolCount = await tx.studentSchool.count({
+                        where: {
+                            studentId,
+                            school: {
+                                isArchived: false
+                            },
+                            schoolId: { not: id } // Exclude the current school being archived
+                        }
+                    });
+
+                    // If student has no other active schools, archive them
+                    if (activeSchoolCount === 0) {
+                        await tx.user.update({
+                            where: { id: studentId },
+                            data: { isArchived: true }
+                        });
+                    }
+                }
+            }
         });
 
-        return res.status(200).json({ message: 'School archived successfully' });
+        return res.status(200).json({ 
+            message: 'School and all associated classes and students archived successfully' 
+        });
     } catch (error) {
         console.error('Archive school error:', error);
         return res.status(500).json({ message: 'Server error during school archiving' });

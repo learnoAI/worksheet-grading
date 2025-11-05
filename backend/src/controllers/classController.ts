@@ -128,29 +128,66 @@ export const archiveClass = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Class is already archived' });
         }
         
-        // Archive the class
-        const archivedClass = await prisma.class.update({
-            where: { id },
-            data: { isArchived: true },
-            include: {
-                school: {
-                    select: {
-                        id: true,
-                        name: true
+        // Use a transaction to archive class and all its students
+        const archivedClass = await prisma.$transaction(async (tx) => {
+            // Archive the class
+            const archived = await tx.class.update({
+                where: { id },
+                data: { isArchived: true },
+                include: {
+                    school: {
+                        select: {
+                            id: true,
+                            name: true
+                        }
+                    },
+                    _count: {
+                        select: {
+                            studentClasses: true,
+                            teacherClasses: true,
+                            worksheets: true
+                        }
                     }
-                },
-                _count: {
-                    select: {
-                        studentClasses: true,
-                        teacherClasses: true,
-                        worksheets: true
+                }
+            });
+
+            // Get all students in this class
+            const studentClasses = await tx.studentClass.findMany({
+                where: { classId: id },
+                select: { studentId: true }
+            });
+
+            const studentIds = studentClasses.map(sc => sc.studentId);
+
+            // Archive students who are only in this class (not in other active classes)
+            if (studentIds.length > 0) {
+                for (const studentId of studentIds) {
+                    // Check if student has any other active classes
+                    const activeClassCount = await tx.studentClass.count({
+                        where: {
+                            studentId,
+                            class: {
+                                isArchived: false
+                            },
+                            classId: { not: id } // Exclude the current class being archived
+                        }
+                    });
+
+                    // If student has no other active classes, archive them
+                    if (activeClassCount === 0) {
+                        await tx.user.update({
+                            where: { id: studentId },
+                            data: { isArchived: true }
+                        });
                     }
                 }
             }
+
+            return archived;
         });
         
         return res.status(200).json({
-            message: `Class "${existingClass.name}" from ${existingClass.school.name} has been archived`,
+            message: `Class "${existingClass.name}" from ${existingClass.school.name} and all associated students have been archived`,
             class: archivedClass
         });
     } catch (error) {

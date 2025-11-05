@@ -86,18 +86,25 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         // Parse date strings to Date objects with full day range
         const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
         
-        // Build filter object
+        // Build filter object - always exclude archived schools and classes
         const filter: any = {
             submittedOn: {
                 gte: start,
                 lte: end
+            },
+            class: {
+                isArchived: false, // Only include worksheets from active classes
+                school: {
+                    isArchived: false // Only include worksheets from active schools
+                }
             }
         };
 
-        // Add school filter if provided
+        // Add school filter if provided (and merge with isArchived filter)
         if (schoolIds) {
             const schoolIdArray = Array.isArray(schoolIds) ? schoolIds : [schoolIds];
             filter.class = {
+                ...filter.class,
                 schoolId: {
                     in: schoolIdArray as string[]
                 }
@@ -157,11 +164,14 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
                 SELECT COUNT(*)::bigint as count
                 FROM "Worksheet" w
                 LEFT JOIN "Class" c ON w."classId" = c.id
+                LEFT JOIN "School" s ON c."schoolId" = s.id
                 WHERE w."submittedOn" >= ${start}::timestamp
                 AND w."submittedOn" <= ${end}::timestamp
                 AND w.grade IS NOT NULL
                 AND w."isAbsent" = false
                 AND w.grade >= (COALESCE(w."outOf", 40) * 0.8)
+                AND c."isArchived" = false
+                AND s."isArchived" = false
                 ${schoolIds ? 
                     Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
                     : Prisma.empty}
@@ -172,11 +182,14 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
                 SELECT COUNT(*)::bigint as count
                 FROM "Worksheet" w
                 LEFT JOIN "Class" c ON w."classId" = c.id
+                LEFT JOIN "School" s ON c."schoolId" = s.id
                 WHERE w."submittedOn" >= ${start}::timestamp
                 AND w."submittedOn" <= ${end}::timestamp
                 AND w.grade IS NOT NULL
                 AND w."isAbsent" = false
                 AND w.grade >= (COALESCE(w."outOf", 40) * 0.9)
+                AND c."isArchived" = false
+                AND s."isArchived" = false
                 ${schoolIds ? 
                     Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
                     : Prisma.empty}
@@ -351,7 +364,10 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                 some: {
                     classId: classId as string,
                     class: {
-                        isArchived: false // Only show students from active classes when filtering by class
+                        isArchived: false, // Only show students from active classes when filtering by class
+                        school: {
+                            isArchived: false // Only show students from classes in active schools
+                        }
                     }
                 }
             };
@@ -360,7 +376,10 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
         else if (schoolId) {
             filter.studentSchools = {
                 some: {
-                    schoolId: schoolId as string
+                    schoolId: schoolId as string,
+                    school: {
+                        isArchived: false // Only show students from active schools
+                    }
                 }
             };
         }        // Get all students with their class information
@@ -375,7 +394,10 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                 studentClasses: {
                     where: {
                         class: {
-                            isArchived: false // Only include students from active classes
+                            isArchived: false, // Only include students from active classes
+                            school: {
+                                isArchived: false // Only include classes from active schools
+                            }
                         }
                     },
                     include: {
@@ -395,15 +417,24 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                         grade: true
                     },
                     // Apply date filter if provided with full day range
-                    where: startDate && endDate ? (() => {
-                        const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
-                        return {
-                            submittedOn: {
-                                gte: start,
-                                lte: end
+                    // Also filter out worksheets from archived classes/schools
+                    where: {
+                        ...(startDate && endDate ? (() => {
+                            const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
+                            return {
+                                submittedOn: {
+                                    gte: start,
+                                    lte: end
+                                }
+                            };
+                        })() : {}),
+                        class: {
+                            isArchived: false, // Only include worksheets from active classes
+                            school: {
+                                isArchived: false // Only include worksheets from active schools
                             }
-                        };
-                    })() : undefined,
+                        }
+                    },
                     orderBy: {
                         submittedOn: 'asc'
                     }
@@ -514,6 +545,10 @@ export const getFilterOptions = async (req: Request, res: Response) => {
         const classWhereConditions: any = {};
         if (includeArchived !== 'true') {
             classWhereConditions.isArchived = false;
+            // Also filter out classes from archived schools
+            classWhereConditions.school = {
+                isArchived: false
+            };
         }
         
         const classes = await prisma.class.findMany({
@@ -554,6 +589,10 @@ export const getClassesBySchool = async (req: Request, res: Response) => {
         // Filter by archive status unless explicitly requesting archived classes
         if (includeArchived !== 'true') {
             whereConditions.isArchived = false;
+            // Also ensure the school itself is not archived
+            whereConditions.school = {
+                isArchived: false
+            };
         }
         
         const classes = await prisma.class.findMany({
@@ -762,35 +801,30 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
     const { schoolId, classId, startDate, endDate, showArchived = 'active', format = 'csv' } = req.query;
     
     try {
-        // Base filters for student query (same as getStudentAnalytics)
+        // Base filters for student query
         const filter: any = {
             role: 'STUDENT',
         };
 
-        // Apply archive filter based on showArchived parameter
-        if (showArchived === 'active') {
-            filter.isArchived = false;
-        } else if (showArchived === 'archived') {
-            filter.isArchived = true;
-        }
-        // If showArchived === 'all', don't add isArchived filter
+        // IMPORTANT: Always filter out archived students for CSV downloads
+        // Only active (non-archived) students should be included in downloads
+        filter.isArchived = false;
         
-        // Apply class filter if provided
-        if (classId) {
-            filter.studentClasses = {
-                some: {
-                    classId: classId as string
+        // CRITICAL: Only include students who have at least one active class in an active school
+        // This prevents "No School" and "No Class" entries in the CSV
+        filter.studentClasses = {
+            some: {
+                class: {
+                    isArchived: false, // Class must be active
+                    school: {
+                        isArchived: false // School must be active
+                    },
+                    // Additional filter if specific classId or schoolId is provided
+                    ...(classId ? { id: classId as string } : {}),
+                    ...(schoolId && !classId ? { schoolId: schoolId as string } : {})
                 }
-            };
-        } 
-        // Otherwise apply school filter if provided
-        else if (schoolId) {
-            filter.studentSchools = {
-                some: {
-                    schoolId: schoolId as string
-                }
-            };
-        }
+            }
+        };
           // Get all students with their class information
         const students = await prisma.user.findMany({
             where: filter,
@@ -801,6 +835,14 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 tokenNumber: true,
                 isArchived: true,
                 studentClasses: {
+                    where: {
+                        class: {
+                            isArchived: false, // Only include non-archived classes
+                            school: {
+                                isArchived: false // Only include classes from non-archived schools
+                            }
+                        }
+                    },
                     include: {
                         class: {
                             include: {
@@ -815,18 +857,37 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                         submittedOn: true,
                         isAbsent: true,
                         isRepeated: true,
-                        grade: true
+                        grade: true,
+                        class: {
+                            select: {
+                                isArchived: true,
+                                school: {
+                                    select: {
+                                        isArchived: true
+                                    }
+                                }
+                            }
+                        }
                     },
                     // Apply date filter if provided with full day range
-                    where: startDate && endDate ? (() => {
-                        const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
-                        return {
-                            submittedOn: {
-                                gte: start,
-                                lte: end
+                    // Also filter out worksheets from archived classes/schools
+                    where: {
+                        ...(startDate && endDate ? (() => {
+                            const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
+                            return {
+                                submittedOn: {
+                                    gte: start,
+                                    lte: end
+                                }
+                            };
+                        })() : {}),
+                        class: {
+                            isArchived: false, // Only include worksheets from non-archived classes
+                            school: {
+                                isArchived: false // Only include worksheets from non-archived schools
                             }
-                        };
-                    })() : undefined,
+                        }
+                    },
                     orderBy: {
                         submittedOn: 'asc'
                     }
@@ -834,47 +895,55 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
             }
         });
           // Calculate analytics for each student
-        const studentsWithAnalytics = students.map(student => {
-            const worksheets = student.studentWorksheets;
-            const allWorksheets = worksheets.length;
-            const absences = worksheets.filter(w => w.isAbsent).length;
-            const repetitions = worksheets.filter(w => w.isRepeated).length;
-            
-            // Calculate graded vs ungraded worksheets - only count non-absent graded worksheets for consistency
-            const gradedWorksheets = worksheets.filter(w => w.grade !== null && !w.isAbsent);
-            const totalWorksheets = allWorksheets - absences; // Non-absent worksheets
-            
-            // Get first and last worksheet dates
-            const worksheetsWithDates = worksheets.filter(w => w.submittedOn !== null);
-            const firstWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[0] : null;
-            const lastWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[worksheetsWithDates.length - 1] : null;
-            
-            // Class and school info
-            const primaryClass = student.studentClasses[0]?.class;
-            
-            // Calculate average grade (excluding absent worksheets)
-            const gradedNonAbsentWorksheets = worksheets.filter(w => !w.isAbsent && w.grade !== null);
-            const averageGrade = gradedNonAbsentWorksheets.length > 0 
-                ? gradedNonAbsentWorksheets.reduce((sum, w) => sum + (w.grade || 0), 0) / gradedNonAbsentWorksheets.length 
-                : 0;
-              return {
-                id: student.id,
-                name: student.name,
-                username: student.username,
-                tokenNumber: student.tokenNumber || '',
-                isArchived: student.isArchived || false,
-                class: primaryClass ? primaryClass.name : 'No Class',
-                school: primaryClass ? primaryClass.school.name : 'No School',
-                totalWorksheets,
-                absentCount: absences,
-                absentPercentage: allWorksheets > 0 ? Number((absences / allWorksheets * 100).toFixed(2)) : 0,
-                repeatedCount: repetitions,
-                repetitionRate: (allWorksheets - absences) > 0 ? Number((repetitions / (allWorksheets - absences) * 100).toFixed(2)) : 0,
-                averageGrade: Number(averageGrade.toFixed(2)),
-                firstWorksheetDate: firstWorksheet?.submittedOn ? firstWorksheet.submittedOn.toISOString().split('T')[0] : '',
-                lastWorksheetDate: lastWorksheet?.submittedOn ? lastWorksheet.submittedOn.toISOString().split('T')[0] : '',
-            };
-        });
+        const studentsWithAnalytics = students
+            .map(student => {
+                const worksheets = student.studentWorksheets;
+                const allWorksheets = worksheets.length;
+                const absences = worksheets.filter(w => w.isAbsent).length;
+                const repetitions = worksheets.filter(w => w.isRepeated).length;
+                
+                // Calculate graded vs ungraded worksheets - only count non-absent graded worksheets for consistency
+                const gradedWorksheets = worksheets.filter(w => w.grade !== null && !w.isAbsent);
+                const totalWorksheets = allWorksheets - absences; // Non-absent worksheets
+                
+                // Get first and last worksheet dates
+                const worksheetsWithDates = worksheets.filter(w => w.submittedOn !== null);
+                const firstWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[0] : null;
+                const lastWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[worksheetsWithDates.length - 1] : null;
+                
+                // Class and school info - only use the first active class from an active school
+                const primaryClass = student.studentClasses[0]?.class;
+                
+                // CRITICAL: Skip students without proper class/school assignment
+                // This should not happen due to our query filter, but adding as safety check
+                if (!primaryClass || !primaryClass.school) {
+                    return null;
+                }
+                
+                // Calculate average grade (excluding absent worksheets)
+                const gradedNonAbsentWorksheets = worksheets.filter(w => !w.isAbsent && w.grade !== null);
+                const averageGrade = gradedNonAbsentWorksheets.length > 0 
+                    ? gradedNonAbsentWorksheets.reduce((sum, w) => sum + (w.grade || 0), 0) / gradedNonAbsentWorksheets.length 
+                    : 0;
+                  return {
+                    id: student.id,
+                    name: student.name,
+                    username: student.username,
+                    tokenNumber: student.tokenNumber || '',
+                    isArchived: student.isArchived || false,
+                    class: primaryClass.name,
+                    school: primaryClass.school.name,
+                    totalWorksheets,
+                    absentCount: absences,
+                    absentPercentage: allWorksheets > 0 ? Number((absences / allWorksheets * 100).toFixed(2)) : 0,
+                    repeatedCount: repetitions,
+                    repetitionRate: (allWorksheets - absences) > 0 ? Number((repetitions / (allWorksheets - absences) * 100).toFixed(2)) : 0,
+                    averageGrade: Number(averageGrade.toFixed(2)),
+                    firstWorksheetDate: firstWorksheet?.submittedOn ? firstWorksheet.submittedOn.toISOString().split('T')[0] : '',
+                    lastWorksheetDate: lastWorksheet?.submittedOn ? lastWorksheet.submittedOn.toISOString().split('T')[0] : '',
+                };
+            })
+            .filter((student): student is NonNullable<typeof student> => student !== null); // Remove any null entries
           if (format === 'csv') {
             // Generate CSV
             const csvHeaders = [
