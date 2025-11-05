@@ -266,7 +266,10 @@ export const worksheetAPI = {
 
     getTotalAiGraded: async (params?: { startDate?: string; endDate?: string }): Promise<{ total_ai_graded: number }> => {
         try {
-            const body: { startDate?: string; endDate?: string } = {};
+            const body: { full: boolean; startDate?: string; endDate?: string } = {
+                full: !params?.startDate && !params?.endDate, // full is true if no dates provided
+            };
+            
             if (params?.startDate) {
                 body.startDate = params.startDate;
             }

@@ -874,7 +874,10 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
         const { startDate, endDate } = req.body;
         
         // Build the request body for Python API
-        const requestBody: { start_time?: string; end_time?: string } = {};
+        const requestBody: { full: boolean; start_time?: string; end_time?: string } = {
+            full: !startDate && !endDate, // full is true if no dates provided
+        };
+        
         if (startDate) {
             requestBody.start_time = startDate;
         }
