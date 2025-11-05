@@ -138,7 +138,7 @@ router.post(
 );
 
 // Get total AI graded worksheets count via Python API
-router.get(
+router.post(
     '/total-ai-graded',
     [
         auth,

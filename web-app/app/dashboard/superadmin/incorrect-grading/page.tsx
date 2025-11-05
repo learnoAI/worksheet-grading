@@ -67,7 +67,10 @@ export default function IncorrectGradingPage() {
 
     const loadTotalAiGraded = async () => {
         try {
-            const response = await worksheetAPI.getTotalAiGraded();
+            const response = await worksheetAPI.getTotalAiGraded({
+                startDate: startDate || undefined,
+                endDate: endDate || undefined
+            });
             setTotalAiGraded(response.total_ai_graded);
         } catch (error) {
             console.error('Error loading total AI graded count:', error);
@@ -112,6 +115,7 @@ export default function IncorrectGradingPage() {
     useEffect(() => {
         if (!isLoading && user?.role === UserRole.SUPERADMIN) {
             loadIncorrectGradingWorksheets();
+            loadTotalAiGraded();
         }
     }, [page, pageSize, startDate, endDate]);
 

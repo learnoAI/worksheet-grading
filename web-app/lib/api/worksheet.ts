@@ -264,9 +264,20 @@ export const worksheetAPI = {
         }
     },
 
-    getTotalAiGraded: async (): Promise<{ total_ai_graded: number }> => {
+    getTotalAiGraded: async (params?: { startDate?: string; endDate?: string }): Promise<{ total_ai_graded: number }> => {
         try {
-            return fetchAPI<{ total_ai_graded: number }>('/worksheets/total-ai-graded');
+            const body: { startDate?: string; endDate?: string } = {};
+            if (params?.startDate) {
+                body.startDate = params.startDate;
+            }
+            if (params?.endDate) {
+                body.endDate = params.endDate;
+            }
+            
+            return fetchAPI<{ total_ai_graded: number }>('/worksheets/total-ai-graded', {
+                method: 'POST',
+                body: JSON.stringify(body),
+            });
         } catch (error) {
             console.error('Error fetching total AI graded count:', error);
             throw error;

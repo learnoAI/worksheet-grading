@@ -871,7 +871,24 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
     }
 
     try {
-        const response = await fetch(`${pythonApiUrl}/total-ai-graded`);
+        const { startDate, endDate } = req.body;
+        
+        // Build the request body for Python API
+        const requestBody: { start_time?: string; end_time?: string } = {};
+        if (startDate) {
+            requestBody.start_time = startDate;
+        }
+        if (endDate) {
+            requestBody.end_time = endDate;
+        }
+
+        const response = await fetch(`${pythonApiUrl}/total-ai-graded`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+        });
 
         if (!response.ok) {
             const error = await response.json();
