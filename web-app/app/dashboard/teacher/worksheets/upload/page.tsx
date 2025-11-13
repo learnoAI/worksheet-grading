@@ -526,9 +526,7 @@ export default function UploadWorksheetPage() {
         }
     };    
     const handleBatchProcess = async () => {
-        // Use filtered worksheets when search is active, otherwise use all worksheets
-        const worksheetsToProcess = searchTerm.trim() ? filteredStudentWorksheets : studentWorksheets;
-        const studentsWithFiles = worksheetsToProcess.filter(sw => 
+        const studentsWithFiles = studentWorksheets.filter(sw => 
             !sw.isAbsent && (sw.page1File || sw.page2File) && sw.worksheetNumber
         );
           if (studentsWithFiles.length === 0) {
@@ -544,39 +542,23 @@ export default function UploadWorksheetPage() {
         ));
         
         try {
+            toast.info(`Processing ${studentsWithFiles.length} worksheet${studentsWithFiles.length !== 1 ? 's' : ''}`);
+            const results = await Promise.allSettled(
+                studentsWithFiles.map(worksheet => handleUpload(worksheet))
+            );
+            
             let successful = 0;
             let failed = 0;
             
-            // Process worksheets sequentially (one by one)
-            for (let i = 0; i < studentsWithFiles.length; i++) {
-                const worksheet = studentsWithFiles[i];
-                const currentNumber = i + 1;
-                const totalCount = studentsWithFiles.length;
-                
-                // Show progress toast
-                toast.info(`Processing worksheet ${currentNumber} of ${totalCount}: ${worksheet.name}`, {
-                    duration: 2000
-                });
-                
-                try {
-                    const result = await handleUpload(worksheet);
-                    if (result && result.success) {
-                        successful++;
-                    } else {
-                        failed++;
-                        toast.error(`Failed to process worksheet for ${worksheet.name}`);
-                    }
-                } catch (error) {
+            results.forEach((result, index) => {
+                if (result.status === 'fulfilled' && result.value?.success) {
+                    successful++;
+                } else {
                     failed++;
-                    console.error(`Error processing worksheet for ${worksheet.name}:`, error);
-                    toast.error(`Error processing ${worksheet.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    const worksheet = studentsWithFiles[index];
+                    console.error(`Error processing worksheet for ${worksheet.name}:`, result);
                 }
-                
-                // Add a small delay between requests to avoid overwhelming the server
-                if (i < studentsWithFiles.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-            }
+            });
             
             if (successful > 0) {
                 toast.success(`Successfully processed ${successful} worksheet${successful !== 1 ? 's' : ''}!`);
@@ -800,17 +782,19 @@ export default function UploadWorksheetPage() {
         setIsSaving(true);
         
         try {
-            const worksheetsToCheck = searchTerm.trim() ? filteredStudentWorksheets : studentWorksheets;
-            const studentsToSave = worksheetsToCheck.filter(worksheet => {
+            const studentsToSave = studentWorksheets.filter(worksheet => {
                 if (worksheet.isAbsent) {
                     return true;
                 }
                 
-                return worksheet.worksheetNumber > 0;
+                const gradeValue = typeof worksheet.grade === 'string' ? worksheet.grade.trim() : '';
+                const hasValidGrade = gradeValue !== '' && !isNaN(parseFloat(gradeValue));
+                
+                return worksheet.worksheetNumber > 0 && hasValidGrade;
             });
 
             if (studentsToSave.length === 0) {
-                toast.error('No students to save. Please mark students as absent or assign worksheet numbers.');
+                toast.error('No students to save. Please mark students as absent or assign worksheet numbers with grades.');
                 setIsSaving(false);
                 return;
             }
@@ -822,7 +806,6 @@ export default function UploadWorksheetPage() {
             await Promise.all(studentsToSave.map(async (worksheet) => {
                 try {
                     if (worksheet.isAbsent) {
-                        
                         const data = {
                             classId: selectedClass,
                             studentId: worksheet.studentId,
@@ -1108,16 +1091,21 @@ export default function UploadWorksheetPage() {
                                 <Button
                                     onClick={handleBatchProcess}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) || 
-                                             !filteredStudentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
+                                             !studentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
                                     variant="secondary"
                                 >
-                                    AI Grade All {searchTerm.trim() ? `(${filteredStudentWorksheets.length})` : ''}
+                                    AI Grade All {(() => {
+                                        const eligibleCount = studentWorksheets.filter(ws => 
+                                            !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber
+                                        ).length;
+                                        return eligibleCount > 0 ? `(${eligibleCount})` : '';
+                                    })()}
                                 </Button>
                                 <Button
                                     onClick={handleSaveAllChanges}
                                     disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
                                 >
-                                    {isSaving ? 'Saving Changes...' : `Save All Changes ${searchTerm.trim() ? `(${filteredStudentWorksheets.length})` : ''}`}
+                                    {isSaving ? 'Saving Changes...' : 'Save All Changes'}
                                 </Button>
                             </div>
 
@@ -1134,7 +1122,7 @@ export default function UploadWorksheetPage() {
                                         <Button
                                             onClick={handleBatchProcess}
                                             disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) || 
-                                                     !filteredStudentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
+                                                     !studentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
                                             className="flex-1 h-12 text-sm font-medium"
                                             variant="secondary"
                                         >

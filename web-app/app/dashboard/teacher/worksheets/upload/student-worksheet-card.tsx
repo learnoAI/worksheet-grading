@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UploadIcon, Camera, Info, CheckCircle, XCircle, AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { usePostHog } from 'posthog-js/react';
 
 interface QuestionScore {
@@ -71,6 +71,36 @@ export function StudentWorksheetCard({
 }: StudentWorksheetCardProps) {
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const posthog = usePostHog();
+    
+    const page1Preview = useMemo(() => {
+        if (!worksheet.page1File) return null;
+        try {
+            return URL.createObjectURL(worksheet.page1File);
+        } catch (error) {
+            console.error('Error creating page1 blob URL:', error);
+            return null;
+        }
+    }, [worksheet.page1File]);
+    
+    const page2Preview = useMemo(() => {
+        if (!worksheet.page2File) return null;
+        try {
+            return URL.createObjectURL(worksheet.page2File);
+        } catch (error) {
+            console.error('Error creating page2 blob URL:', error);
+            return null;
+        }
+    }, [worksheet.page2File]);
+    
+    useEffect(() => {
+        const url1 = page1Preview;
+        const url2 = page2Preview;
+        
+        return () => {
+            if (url1) URL.revokeObjectURL(url1);
+            if (url2) URL.revokeObjectURL(url2);
+        };
+    }, [page1Preview, page2Preview]);
     
     const avatarLetters = worksheet.name
         .split(' ')
@@ -296,11 +326,15 @@ export function StudentWorksheetCard({
                                     {worksheet.page1File ? (
                                         <div className="space-y-1 md:space-y-2">
                                             <div className="relative w-full h-16 md:h-24 bg-gray-100 rounded overflow-hidden">
-                                                <img
-                                                    src={URL.createObjectURL(worksheet.page1File)}
-                                                    alt="Page 1 preview"
-                                                    className="w-full h-full object-cover"
-                                                />
+                                                {page1Preview ? (
+                                                    <img
+                                                        src={page1Preview}
+                                                        alt="Page 1 preview"
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                ) : (
+                                                    <div className="text-xs text-red-500 p-2">Failed to create preview</div>
+                                                )}
                                             </div>
                                             <div className="text-xs text-green-600">
                                                 ✓ Uploaded
@@ -342,11 +376,15 @@ export function StudentWorksheetCard({
                                     {worksheet.page2File ? (
                                         <div className="space-y-1 md:space-y-2">
                                             <div className="relative w-full h-16 md:h-24 bg-gray-100 rounded overflow-hidden">
-                                                <img
-                                                    src={URL.createObjectURL(worksheet.page2File)}
-                                                    alt="Page 2 preview"
-                                                    className="w-full h-full object-cover"
-                                                />
+                                                {page2Preview ? (
+                                                    <img
+                                                        src={page2Preview}
+                                                        alt="Page 2 preview"
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                ) : (
+                                                    <div className="text-xs text-red-500 p-2">Failed to create preview</div>
+                                                )}
                                             </div>
                                             <div className="text-xs text-green-600">
                                                 ✓ Uploaded
@@ -390,7 +428,8 @@ export function StudentWorksheetCard({
                                 id={`absent-${worksheet.studentId}`}
                                 checked={worksheet.isAbsent}
                                 onChange={(e) => handleAbsentChange(e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                disabled={worksheet.isUploading}
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             />
                             <Label htmlFor={`absent-${worksheet.studentId}`} className="text-sm">Absent</Label>
                         </div>
@@ -401,7 +440,7 @@ export function StudentWorksheetCard({
                                 checked={worksheet.isIncorrectGrade || false}
                                 onChange={(e) => handleIncorrectGradeChange(e.target.checked)}
                                 disabled={worksheet.isAbsent || worksheet.isUploading}
-                                className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                                className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             />
                             <Label htmlFor={`incorrect-grade-${worksheet.studentId}`} className="text-sm">Incorrect Grade</Label>
                         </div>

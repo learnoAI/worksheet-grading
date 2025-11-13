@@ -4,7 +4,7 @@ import { auth, authorizeRoles } from '../middleware/utils';
 import { asHandler } from '../middleware/utils';
 import { UserRole } from '@prisma/client';
 import multer from 'multer';
-import { processWorksheets, createGradedWorksheetWithMongoId } from '../controllers/worksheetProcessingController';
+import { processWorksheets } from '../controllers/worksheetProcessingController';
 
 const router = express.Router();
 
@@ -33,22 +33,6 @@ router.post(
         body('worksheet_name').notEmpty().withMessage('Worksheet name is required')
     ],
     asHandler(processWorksheets)
-);
-
-// Create graded worksheet with MongoDB ID
-router.post(
-    '/grade-with-mongo-id',
-    [
-        auth,
-        authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
-        body('classId').notEmpty().withMessage('Class ID is required'),
-        body('studentId').notEmpty().withMessage('Student ID is required'),
-        body('worksheetNumber').isInt({ min: 0 }).withMessage('Valid worksheet number is required'),
-        body('grade').isFloat({ min: 0, max: 40 }).withMessage('Valid grade between 0 and 40 is required'),
-        body('submittedOn').notEmpty().withMessage('Submission date is required'),
-        body('mongoDbId').optional()
-    ],
-    asHandler(createGradedWorksheetWithMongoId)
 );
 
 export default router;
