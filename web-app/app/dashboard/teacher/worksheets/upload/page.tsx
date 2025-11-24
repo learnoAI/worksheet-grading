@@ -7,7 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { classAPI, worksheetAPI } from '@/lib/api';
+import { gradingJobsAPI } from '@/lib/api/gradingJobs';
 import { StudentWorksheetCard } from './student-worksheet-card';
+import { JobStatusHeader } from '@/components/grading-jobs/JobStatusHeader';
 import { usePostHog } from 'posthog-js/react';
 
 const PROGRESSION_THRESHOLD = 32;
@@ -59,6 +61,9 @@ interface StudentWorksheet {
     wrongQuestionNumbers?: string;
     id?: string;
     existing?: boolean;
+    jobId?: string;
+    gradingStatus?: 'idle' | 'uploading' | 'queued' | 'processing' | 'completed' | 'failed';
+    gradingError?: string;
 }
 
 
@@ -116,6 +121,7 @@ export default function UploadWorksheetPage() {
     const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
+    const [jobStatusKey, setJobStatusKey] = useState(0);
 
     
     const sortedStudentWorksheets = useMemo(() => {
@@ -431,21 +437,25 @@ export default function UploadWorksheetPage() {
 
         
         setStudentWorksheets(prev => prev.map(sw => 
-            sw.studentId === worksheet.studentId ? { ...sw, isUploading: true } : sw
-        ));        try {
+            sw.studentId === worksheet.studentId 
+                ? { ...sw, isUploading: true, gradingStatus: 'uploading' } 
+                : sw
+        ));        
+        try {
             
             const formData = new FormData();
             
-            
-            formData.append('classId', selectedClass);
+            formData.append('tokenNo', worksheet.tokenNumber);
+            formData.append('worksheetName', worksheet.worksheetNumber.toString());
             formData.append('studentId', worksheet.studentId);
+            formData.append('studentName', worksheet.name);
             formData.append('worksheetNumber', worksheet.worksheetNumber.toString());
+            formData.append('isRepeated', worksheet.isRepeated ? 'true' : 'false');
+            formData.append('classId', selectedClass);
             formData.append('submittedOn', submittedOn);
             
-            
-            formData.append('token_no', worksheet.tokenNumber);
-            formData.append('worksheet_name', worksheet.worksheetNumber.toString());
-            
+            if (worksheet.isCorrectGrade) formData.append('isCorrectGrade', 'true');
+            if (worksheet.isIncorrectGrade) formData.append('isIncorrectGrade', 'true');
             
             if (worksheet.page1File) {
                 formData.append('files', worksheet.page1File);
@@ -454,68 +464,131 @@ export default function UploadWorksheetPage() {
                 formData.append('files', worksheet.page2File);
             }
 
+            const response = await gradingJobsAPI.createJob(formData);
             
-            const API_URL = process.env.NEXT_PUBLIC_API_URL;
-            const response = await fetch(`${API_URL}/worksheet-processing/process`, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to process worksheet');
+            if (!response.success) {
+                throw new Error('Failed to create grading job');
             }
-
-            const result = await response.json();
-            
-            if (!result.success) {
-                throw new Error(result.error || 'Error processing worksheet');
-            }
-              
-            const grade = result.grade || result.totalScore || 0;
-            
-            const gradingDetails: GradingDetails = {
-                total_possible: result.total_possible || 0,
-                grade_percentage: result.grade_percentage || 0,
-                total_questions: result.total_questions || 0,
-                correct_answers: result.correct_answers || 0,
-                wrong_answers: result.wrong_answers || 0,
-                unanswered: result.unanswered || 0,
-                question_scores: result.question_scores || [],
-                wrong_questions: result.wrong_questions || [],
-                correct_questions: result.correct_questions || [],
-                unanswered_questions: result.unanswered_questions || [],
-                overall_feedback: result.overall_feedback || ''
-            };
-            
-            const wrongNumbers = [...(result.wrong_questions || []).map((q: any) => q.question_number), 
-                                  ...(result.unanswered_questions || []).map((q: any) => q.question_number)]
-                                  .sort((a, b) => a - b);
-            const wrongQuestionNumbers = wrongNumbers.length > 0 ? wrongNumbers.join(', ') : '';
-            const roundedGrade = Math.max(0, Math.min(40, Math.round(grade)));
             
             setStudentWorksheets(prev => prev.map(sw => 
                 sw.studentId === worksheet.studentId 
                     ? { 
                         ...sw, 
-                        grade: roundedGrade.toString(), 
                         isUploading: false,
-                        gradingDetails: gradingDetails,
-                        wrongQuestionNumbers: wrongQuestionNumbers,
+                        gradingStatus: 'queued',
+                        jobId: response.jobId,
                         page1File: null,
                         page2File: null
                     } 
                     : sw
             ));
             
-            toast.success(`Worksheet for ${worksheet.name} processed successfully! Grade: ${roundedGrade}`);
+            toast.success(`Worksheet for ${worksheet.name} queued for grading`);
+            
+            gradingJobsAPI.pollJobStatus(
+                response.jobId,
+                (job) => {
+                    // Update job status header
+                    setJobStatusKey(prev => prev + 1);
+                    
+                    setStudentWorksheets(prev => prev.map(sw => {
+                        if (sw.studentId !== worksheet.studentId) return sw;
+                        
+                        // Update status
+                        if (job.status === 'processing') {
+                            return { ...sw, gradingStatus: 'processing' };
+                        }
+                        
+                        if (job.status === 'completed' && job.result) {
+                            const grade = job.result.grade || 0;
+                            const roundedGrade = Math.max(0, Math.min(40, Math.round(grade)));
+                            
+                            const gradingDetails: GradingDetails = {
+                                total_possible: job.result.total_possible || 0,
+                                grade_percentage: job.result.grade_percentage || 0,
+                                total_questions: job.result.total_questions || 0,
+                                correct_answers: job.result.correct_answers || 0,
+                                wrong_answers: job.result.wrong_answers || 0,
+                                unanswered: job.result.unanswered || 0,
+                                question_scores: job.result.question_scores || [],
+                                wrong_questions: job.result.wrong_questions || [],
+                                correct_questions: job.result.correct_questions || [],
+                                unanswered_questions: job.result.unanswered_questions || [],
+                                overall_feedback: job.result.overall_feedback || ''
+                            };
+                            
+                            const wrongNumbers = [
+                                ...(job.result.wrong_questions || []).map((q: any) => q.question_number), 
+                                ...(job.result.unanswered_questions || []).map((q: any) => q.question_number)
+                            ].sort((a, b) => a - b);
+                            
+                            const wrongQuestionNumbers = wrongNumbers.length > 0 ? wrongNumbers.join(', ') : '';
+                            
+                            toast.success(`Worksheet for ${worksheet.name} graded! Score: ${roundedGrade}`);
+                            
+                            // Fetch updated worksheet from database asynchronously
+                            if (job.postgresId && selectedClass) {
+                                worksheetAPI.getWorksheetByClassStudentDate(
+                                    selectedClass,
+                                    worksheet.studentId,
+                                    submittedOn
+                                ).then(updatedWorksheet => {
+                                    if (updatedWorksheet) {
+                                        setStudentWorksheets(current => current.map(s => {
+                                            if (s.studentId !== worksheet.studentId) return s;
+                                            return {
+                                                ...s,
+                                                id: updatedWorksheet.id || job.postgresId,
+                                                grade: updatedWorksheet.grade?.toString() || roundedGrade.toString(),
+                                                gradingStatus: 'completed',
+                                                gradingDetails: updatedWorksheet.gradingDetails || gradingDetails,
+                                                wrongQuestionNumbers: updatedWorksheet.wrongQuestionNumbers || wrongQuestionNumbers,
+                                                existing: true,
+                                                isAbsent: !!updatedWorksheet.isAbsent,
+                                                isRepeated: updatedWorksheet.isRepeated || false,
+                                                isCorrectGrade: updatedWorksheet.isCorrectGrade || false,
+                                                isIncorrectGrade: updatedWorksheet.isIncorrectGrade || false
+                                            };
+                                        }));
+                                    }
+                                }).catch(error => {
+                                    console.error('Failed to fetch updated worksheet:', error);
+                                });
+                            }
+                            
+                            return {
+                                ...sw,
+                                grade: roundedGrade.toString(),
+                                gradingStatus: 'completed',
+                                gradingDetails,
+                                wrongQuestionNumbers,
+                                id: job.postgresId,
+                                existing: true
+                            };
+                        }
+                        
+                        if (job.status === 'failed') {
+                            toast.error(`Grading failed for ${worksheet.name}: ${job.error || 'Unknown error'}`);
+                            return {
+                                ...sw,
+                                gradingStatus: 'failed',
+                                gradingError: job.error
+                            };
+                        }
+                        
+                        return sw;
+                    }));
+                },
+                120, // 10 minutes max
+                5000 // Poll every 5 seconds
+            ).catch(error => {
+                console.error('Polling error:', error);
+                toast.error(`Failed to track grading status for ${worksheet.name}`);
+            });
+            
             return { success: true };
         } catch (error) {
-            toast.error('Failed to upload or grade worksheet');
+            toast.error('Failed to create grading job');
             
             
             setStudentWorksheets(prev => prev.map(sw => 
@@ -960,6 +1033,19 @@ export default function UploadWorksheetPage() {
                 <p className="text-sm text-gray-600 mb-6">
                     Select class and date, then upload and grade worksheets for each student.
                 </p>
+
+                {/* Background Job Status Header - Always visible */}
+                <div className="mb-6">
+                    <JobStatusHeader 
+                        key={jobStatusKey}
+                        classId={selectedClass || undefined}
+                        date={submittedOn}
+                        onRefresh={() => {
+                            setJobStatusKey(prev => prev + 1);
+                        }}
+                    />
+                </div>
+
                 {selectedClass && (
                     <div className="mb-6 space-y-3 md:space-y-0 md:flex md:items-center md:space-x-6 text-sm">
                         <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">

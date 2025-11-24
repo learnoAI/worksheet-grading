@@ -10,6 +10,8 @@ import analyticsRoutes from './routes/analyticsRoutes';
 import worksheetProcessingRoutes from './routes/worksheetProcessingRoutes';
 import classRoutes from './routes/classRoutes';
 import schoolRoutes from './routes/schoolRoutes';
+import gradingJobsRoutes from './routes/gradingJobsRoutes';
+import internalRoutes from './routes/internalRoutes';
 import config from './config/env';
 import './services/queueService'; // Initialize queue
 
@@ -38,6 +40,8 @@ app.use('/api/analytics', analyticsRoutes); // Add analytics routes
 app.use('/api/worksheet-processing', worksheetProcessingRoutes); // Add worksheet processing routes
 app.use('/api/classes', classRoutes); // Add class management routes
 app.use('/api/schools', schoolRoutes); // Add school management routes
+app.use('/api/grading-jobs', gradingJobsRoutes); // Add grading jobs routes
+app.use('/internal', internalRoutes); // Add internal routes (Worker only)
 
 // Health check route
 app.get('/health', (req: Request, res: Response) => {

@@ -17,6 +17,7 @@ interface GradedWorksheetData {
     isIncorrectGrade?: boolean;
     mongoDbId?: string;
     gradingDetails?: any;
+    wrongQuestionNumbers?: string;
 }
 
 interface CreateGradedWorksheetData {

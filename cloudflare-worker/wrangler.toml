@@ -1,0 +1,35 @@
+name = "saarthi-grading-worker"
+main = "src/index.ts"
+compatibility_date = "2024-11-24"
+
+# KV Namespace binding
+[[kv_namespaces]]
+binding = "SAARTHI_JOBS"
+id = "de092eab1c3949a6a98a40325ce51994"
+
+# Cron Triggers
+[triggers]
+crons = ["* * * * *"]  # Every 1 minute (Cloudflare Workers minimum interval)
+
+# Environment variables
+[vars]
+PYTHON_API_URL = "https://saarthi-api-jzugp.ondigitalocean.app"
+NODE_BACKEND_URL = "https://orca-app-7je3q.ondigitalocean.app/backend"
+INTERNAL_TOKEN = "gvkCeol7N0RXLs2WfwJBdPZHQrYiGqjMA5UmTn3KuacIE64zpDbySO18VF9thx"
+MAX_CONCURRENT_JOBS = "10"
+MAX_RETRY_ATTEMPTS = "3"
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1

@@ -1,0 +1,19 @@
+{
+  "name": "saarthi-grading-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for background worksheet grading jobs",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20251121.0",
+    "@types/uuid": "^10.0.0",
+    "wrangler": "^4.50.0"
+  },
+  "dependencies": {
+    "uuid": "^13.0.0"
+  }
+}
