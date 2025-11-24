@@ -14,7 +14,7 @@ crons = ["* * * * *"]  # Every 1 minute (Cloudflare Workers minimum interval)
 # Environment variables
 [vars]
 PYTHON_API_URL = "https://saarthi-api-jzugp.ondigitalocean.app"
-NODE_BACKEND_URL = "https://orca-app-7je3q.ondigitalocean.app/backend"
+NODE_BACKEND_URL = "https://worksheet-grading-dev-5au4q.ondigitalocean.app/backend"
 INTERNAL_TOKEN = "gvkCeol7N0RXLs2WfwJBdPZHQrYiGqjMA5UmTn3KuacIE64zpDbySO18VF9thx"
 MAX_CONCURRENT_JOBS = "10"
 MAX_RETRY_ATTEMPTS = "3"

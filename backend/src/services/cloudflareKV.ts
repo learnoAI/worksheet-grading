@@ -2,8 +2,8 @@ import config from '../config/env';
 
 interface KVGetOptions {
   type?: 'text' | 'json' | 'arrayBuffer' | 'stream';
-}
 
+}
 interface KVPutOptions {
   expirationTtl?: number;
   expiration?: number;
