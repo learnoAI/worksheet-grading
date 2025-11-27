@@ -1,4 +1,5 @@
 import config from '../config/env';
+import { QueueJobMessage } from '../types/gradingJob';
 
 interface KVGetOptions {
   type?: 'text' | 'json' | 'arrayBuffer' | 'stream';
@@ -33,6 +34,56 @@ class CloudflareKVService {
     }
     
     this.baseUrl = `https://api.cloudflare.com/client/v4/accounts/${this.accountId}/storage/kv/namespaces/${this.namespaceId}`;
+  }
+
+  // NEW: Add job to Cloudflare Queue via worker endpoint
+  async addToQueue(message: QueueJobMessage): Promise<void> {
+    if (!this.workerUrl) {
+      throw new Error('Worker URL not configured - cannot add to queue');
+    }
+    
+    const response = await fetch(`${this.workerUrl}/queue/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to add job to queue: ${response.status} - ${errorText}`);
+    }
+    
+    const result = await response.json() as { success: boolean; jobId: string };
+    if (!result.success) {
+      throw new Error('Queue add returned success: false');
+    }
+    
+    console.log(`📤 Job ${message.jobId} added to queue`);
+  }
+
+  // NEW: Add batch of jobs to Cloudflare Queue
+  async addBatchToQueue(messages: QueueJobMessage[]): Promise<void> {
+    if (!this.workerUrl) {
+      throw new Error('Worker URL not configured - cannot add to queue');
+    }
+    
+    const response = await fetch(`${this.workerUrl}/queue/add-batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(messages),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to add batch to queue: ${response.status} - ${errorText}`);
+    }
+    
+    const result = await response.json() as { success: boolean; count: number; jobIds: string[] };
+    if (!result.success) {
+      throw new Error('Queue addBatch returned success: false');
+    }
+    
+    console.log(`📤 Batch of ${messages.length} jobs added to queue`);
   }
 
   private async makeRequest(

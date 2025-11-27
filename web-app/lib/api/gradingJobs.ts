@@ -1,6 +1,14 @@
 import { fetchAPI, API_BASE_URL } from './utils';
 import { GradingJob, BatchJobStatus, ClassJobsStatus } from './types';
 
+export interface TeacherJobsSummary {
+    pending: number;
+    processing: number;
+    completed: number;
+    failed: number;
+    total: number;
+}
+
 export const gradingJobsAPI = {
     // Create single grading job (with file upload)
     createJob: async (formData: FormData): Promise<{ success: boolean; jobId: string; status: string }> => {
@@ -62,6 +70,11 @@ export const gradingJobsAPI = {
     // Get jobs by class and date
     getJobsByClass: async (classId: string, date: string): Promise<{ success: boolean } & ClassJobsStatus> => {
         return fetchAPI(`/grading-jobs/by-class/${classId}?date=${encodeURIComponent(date)}`);
+    },
+
+    // Get teacher's jobs summary (across all classes)
+    getMyJobsSummary: async (): Promise<{ success: boolean } & TeacherJobsSummary> => {
+        return fetchAPI('/grading-jobs/my-summary');
     },
 
     // Poll job status until completion

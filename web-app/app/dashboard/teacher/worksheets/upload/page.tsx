@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { classAPI, worksheetAPI } from '@/lib/api';
 import { gradingJobsAPI } from '@/lib/api/gradingJobs';
 import { StudentWorksheetCard } from './student-worksheet-card';
-import { JobStatusHeader } from '@/components/grading-jobs/JobStatusHeader';
+import { AIGradingStatusBar } from '@/components/grading-jobs/AIGradingStatusBar';
 import { usePostHog } from 'posthog-js/react';
 
 const PROGRESSION_THRESHOLD = 32;
@@ -1030,21 +1030,16 @@ export default function UploadWorksheetPage() {
         <div className="bg-white rounded-lg shadow-sm">
             <div className="p-4 md:p-6">
                 <h2 className="text-lg font-semibold mb-1">Upload Worksheet Images</h2>
-                <p className="text-sm text-gray-600 mb-6">
+                <p className="text-sm text-gray-600 mb-4">
                     Select class and date, then upload and grade worksheets for each student.
                 </p>
 
-                {/* Background Job Status Header - Always visible */}
-                <div className="mb-6">
-                    <JobStatusHeader 
-                        key={jobStatusKey}
-                        classId={selectedClass || undefined}
-                        date={submittedOn}
-                        onRefresh={() => {
-                            setJobStatusKey(prev => prev + 1);
-                        }}
-                    />
-                </div>
+                <AIGradingStatusBar 
+                    refreshKey={jobStatusKey}
+                    onRefresh={() => {
+                        setJobStatusKey(prev => prev + 1);
+                    }}
+                />
 
                 {selectedClass && (
                     <div className="mb-6 space-y-3 md:space-y-0 md:flex md:items-center md:space-x-6 text-sm">

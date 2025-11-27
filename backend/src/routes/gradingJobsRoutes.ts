@@ -6,7 +6,8 @@ import {
   createBatchGradingJobs,
   getJobStatus,
   getBatchStatus,
-  getJobsByClass
+  getJobsByClass,
+  getTeacherJobsSummary
 } from '../controllers/gradingJobsController';
 import { auth, asHandler } from '../middleware/utils';
 
@@ -88,6 +89,13 @@ router.get(
     query('date').notEmpty().withMessage('Date query parameter is required')
   ],
   asHandler(getJobsByClass)
+);
+
+// Get teacher's jobs summary (all classes, for status bar)
+router.get(
+  '/my-summary',
+  [auth],
+  asHandler(getTeacherJobsSummary)
 );
 
 export default router;

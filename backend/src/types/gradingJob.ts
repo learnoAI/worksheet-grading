@@ -77,6 +77,28 @@ export interface GradingJob {
   postgresError?: string;
 }
 
+// Lightweight message for Cloudflare Queue (no files - stays under 128KB limit)
+export interface QueueJobMessage {
+  jobId: string;
+  batchId?: string;
+  filesKey: string;  // KV key where files are stored: "files:{jobId}"
+  payload: {
+    tokenNo: string;
+    worksheetName: string;
+    studentId: string;
+    studentName: string;
+    classId: string;
+    submittedOn: string;
+    worksheetNumber: number;
+    isRepeated: boolean;
+    isCorrectGrade?: boolean;
+    isIncorrectGrade?: boolean;
+    submittedById: string;
+    // Note: files are stored separately in KV, not in queue message
+  };
+  createdAt: string;
+}
+
 export interface BatchJob {
   batchId: string;
   classId: string;

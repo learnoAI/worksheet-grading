@@ -1,10 +1,29 @@
 export interface Env {
   SAARTHI_JOBS: KVNamespace;
+  GRADING_QUEUE: Queue<QueueJobMessage>;
   PYTHON_API_URL: string;
   NODE_BACKEND_URL: string;
   INTERNAL_TOKEN: string;
-  MAX_CONCURRENT_JOBS: string;
-  MAX_RETRY_ATTEMPTS: string;
+}
+
+export interface QueueJobMessage {
+  jobId: string;
+  batchId?: string;
+  filesKey: string;
+  payload: {
+    tokenNo: string;
+    worksheetName: string;
+    studentId: string;
+    studentName: string;
+    classId: string;
+    submittedOn: string;
+    worksheetNumber: number;
+    isRepeated: boolean;
+    isCorrectGrade?: boolean;
+    isIncorrectGrade?: boolean;
+    submittedById: string;
+  };
+  createdAt: string;
 }
 
 export interface GradingJob {

@@ -1,0 +1,53 @@
+name = "saarthi-grading-worker"
+main = "src/index.ts"
+compatibility_date = "2024-11-24"
+
+# KV Namespace binding (for status polling + file storage)
+[[kv_namespaces]]
+binding = "SAARTHI_JOBS"
+id = "f15f512158fe443fb73b3084727dd3d2"
+
+# Queue Producer (to send jobs)
+[[queues.producers]]
+queue = "grading-jobs"
+binding = "GRADING_QUEUE"
+
+# Queue Consumer (to receive and process jobs)
+[[queues.consumers]]
+queue = "grading-jobs"
+max_batch_size = 50           # Smaller batches for faster processing
+max_batch_timeout = 0         # No wait - process immediately as jobs arrive
+max_retries = 3
+dead_letter_queue = "grading-jobs-dlq"
+
+# DLQ Consumer (auto-handle permanently failed jobs)
+[[queues.consumers]]
+queue = "grading-jobs-dlq"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 0
+
+# Cron Triggers - cleanup every 5 minutes
+[triggers]
+crons = ["*/5 * * * *"]  # Every 5 minutes for cleanup
+
+# Environment variables
+[vars]
+PYTHON_API_URL = "https://saarthi-api-jzugp.ondigitalocean.app"
+NODE_BACKEND_URL = "https://worksheet-grading-dev-5au4q.ondigitalocean.app/backend"
+INTERNAL_TOKEN = "gvkCeol7N0RXLs2WfwJBdPZHQrYiGqjMA5UmTn3KuacIE64zpDbySO18VF9thx"
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1

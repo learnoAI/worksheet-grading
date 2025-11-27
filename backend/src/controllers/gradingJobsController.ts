@@ -8,7 +8,8 @@ import {
   BatchJob,
   CreateJobRequest,
   CreateBatchJobRequest,
-  GradingJobStatus
+  GradingJobStatus,
+  QueueJobMessage
 } from '../types/gradingJob';
 
 // Create single grading job (with file upload)
@@ -55,13 +56,19 @@ export const createGradingJob = async (req: Request, res: Response) => {
     const jobId = uuidv4();
     const now = new Date().toISOString();
     
-    // Store files as base64 in job payload for Worker to process
+    // Store files as base64 in separate KV key (for queue to fetch later)
     const fileData = files.map(file => ({
       filename: file.originalname,
       mimetype: file.mimetype,
       buffer: file.buffer.toString('base64')
     }));
 
+    // 1. Store files separately in KV (can be large, 24h TTL)
+    await kvService.putJSON(`files:${jobId}`, fileData, {
+      expirationTtl: 24 * 60 * 60 // 24 hours
+    });
+
+    // 2. Create job status entry in KV (for frontend polling)
     const job: GradingJob = {
       jobId,
       status: 'pending',
@@ -79,15 +86,14 @@ export const createGradingJob = async (req: Request, res: Response) => {
         isCorrectGrade: isCorrectGrade || false,
         isIncorrectGrade: isIncorrectGrade || false,
         submittedById: req.user?.userId || '',
-        files: fileData
+        // Note: files NOT stored in job entry - stored separately
       },
       retryCount: 0
     };
 
-    // Store job in KV
     await kvService.putJSON(`job:${jobId}`, job);
 
-    // Add to class-date index for quick lookup
+    // 3. Add to class-date index for quick lookup
     const indexKey = `class-date:${classId}:${submittedOn}`;
     const existingIndex = await kvService.getJSON<string[]>(indexKey) || [];
     existingIndex.push(jobId);
@@ -95,7 +101,40 @@ export const createGradingJob = async (req: Request, res: Response) => {
       expirationTtl: 24 * 60 * 60 // 24 hours
     });
 
-    console.log(`Created grading job ${jobId} for student ${studentName}`);
+    // 3.5. Add to teacher-jobs index for teacher-wide summary
+    const teacherId = req.user?.userId;
+    if (teacherId) {
+      const teacherIndexKey = `teacher-jobs:${teacherId}`;
+      const teacherJobIds = await kvService.getJSON<string[]>(teacherIndexKey) || [];
+      teacherJobIds.push(jobId);
+      await kvService.putJSON(teacherIndexKey, teacherJobIds, {
+        expirationTtl: 24 * 60 * 60 // 24 hours
+      });
+    }
+
+    // 4. Send lightweight message to Cloudflare Queue (triggers processing)
+    const queueMessage: QueueJobMessage = {
+      jobId,
+      filesKey: `files:${jobId}`,
+      payload: {
+        tokenNo,
+        worksheetName,
+        studentId,
+        studentName,
+        classId,
+        submittedOn,
+        worksheetNumber,
+        isRepeated: isRepeated || false,
+        isCorrectGrade: isCorrectGrade || false,
+        isIncorrectGrade: isIncorrectGrade || false,
+        submittedById: req.user?.userId || '',
+      },
+      createdAt: now,
+    };
+
+    await kvService.addToQueue(queueMessage);
+
+    console.log(`Created grading job ${jobId} for student ${studentName} (queued)`);
 
     res.json({
       success: true,
@@ -134,12 +173,14 @@ export const createBatchGradingJobs = async (req: Request, res: Response) => {
     const batchId = uuidv4();
     const now = new Date().toISOString();
     const jobIds: string[] = [];
+    const queueMessages: QueueJobMessage[] = [];
 
     // Create all jobs
     for (const jobData of jobs) {
       const jobId = uuidv4();
       jobIds.push(jobId);
 
+      // Create job status entry in KV
       const job: GradingJob = {
         jobId,
         batchId,
@@ -148,12 +189,37 @@ export const createBatchGradingJobs = async (req: Request, res: Response) => {
         updatedAt: now,
         payload: {
           ...jobData,
+          classId,
+          submittedOn,
           submittedById: req.user?.userId || ''
         },
         retryCount: 0
       };
 
       await kvService.putJSON(`job:${jobId}`, job);
+
+      // Prepare queue message (batch jobs don't have files attached via this endpoint)
+      const queueMessage: QueueJobMessage = {
+        jobId,
+        batchId,
+        filesKey: `files:${jobId}`, // Files would need to be uploaded separately or not required
+        payload: {
+          tokenNo: jobData.tokenNo,
+          worksheetName: jobData.worksheetName,
+          studentId: jobData.studentId,
+          studentName: jobData.studentName,
+          classId,
+          submittedOn,
+          worksheetNumber: jobData.worksheetNumber,
+          isRepeated: jobData.isRepeated || false,
+          isCorrectGrade: jobData.isCorrectGrade || false,
+          isIncorrectGrade: jobData.isIncorrectGrade || false,
+          submittedById: req.user?.userId || '',
+        },
+        createdAt: now,
+      };
+
+      queueMessages.push(queueMessage);
     }
 
     // Create batch tracking entry
@@ -183,7 +249,10 @@ export const createBatchGradingJobs = async (req: Request, res: Response) => {
       expirationTtl: 24 * 60 * 60
     });
 
-    console.log(`Created batch ${batchId} with ${jobs.length} jobs`);
+    // Send all jobs to queue in a single batch call
+    await kvService.addBatchToQueue(queueMessages);
+
+    console.log(`Created batch ${batchId} with ${jobs.length} jobs (queued)`);
 
     res.json({
       success: true,
@@ -358,6 +427,66 @@ export const getJobsByClass = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Error getting jobs'
+    });
+  }
+};
+
+// Get all active jobs summary for a teacher (across all classes)
+export const getTeacherJobsSummary = async (req: Request, res: Response) => {
+  try {
+    const teacherId = req.user?.userId;
+    
+    if (!teacherId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User not authenticated'
+      });
+    }
+
+    // Get all keys matching job:* pattern to find active jobs
+    // Since KV doesn't support pattern matching directly, we'll use a teacher index
+    const teacherIndexKey = `teacher-jobs:${teacherId}`;
+    const jobIds = await kvService.getJSON<string[]>(teacherIndexKey) || [];
+
+    if (jobIds.length === 0) {
+      return res.json({
+        success: true,
+        pending: 0,
+        processing: 0,
+        completed: 0,
+        failed: 0,
+        total: 0
+      });
+    }
+
+    // Get all jobs
+    const jobs = await Promise.all(
+      jobIds.map(async (jobId) => {
+        const job = await kvService.getJSON<GradingJob>(`job:${jobId}`);
+        return job;
+      })
+    );
+
+    const validJobs = jobs.filter(j => j !== null);
+    const pending = validJobs.filter(j => j.status === 'pending').length;
+    const processing = validJobs.filter(j => j.status === 'processing').length;
+    const completed = validJobs.filter(j => j.status === 'completed').length;
+    const failed = validJobs.filter(j => j.status === 'failed').length;
+
+    res.json({
+      success: true,
+      pending,
+      processing,
+      completed,
+      failed,
+      total: validJobs.length
+    });
+
+  } catch (error) {
+    console.error('Error getting teacher jobs summary:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Error getting jobs summary'
     });
   }
 };
