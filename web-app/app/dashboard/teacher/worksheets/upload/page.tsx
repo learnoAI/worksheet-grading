@@ -64,10 +64,13 @@ interface StudentWorksheet {
     jobId?: string;
     gradingStatus?: 'idle' | 'uploading' | 'queued' | 'processing' | 'completed' | 'failed';
     gradingError?: string;
+    // Multi-worksheet support
+    worksheetEntryId: string; // Unique identifier for this worksheet entry
+    worksheetEntryIndex: number; // 0 for first worksheet, 1 for second, etc.
 }
 
 
-const sortStudentsByTokenNumber = <T extends { tokenNumber: string }>(students: T[]): T[] => {
+const sortStudentsByTokenNumber = <T extends { tokenNumber: string; worksheetEntryIndex?: number }>(students: T[]): T[] => {
     return [...students].sort((a, b) => {
         const parseToken = (token: string) => {
             const yearSMatch = token.match(/^(\d+)S(\d+)$/);
@@ -97,16 +100,29 @@ const sortStudentsByTokenNumber = <T extends { tokenNumber: string }>(students: 
         }
         
         if (aParsed.type === 'number' && bParsed.type === 'number') {
-            return aParsed.number - bParsed.number;
+            if (aParsed.number !== bParsed.number) {
+                return aParsed.number - bParsed.number;
+            }
         } else if (aParsed.type === 'yearS' && bParsed.type === 'yearS') {
             if (aParsed.year !== bParsed.year) {
                 return aParsed.year - bParsed.year;
             }
-            return aParsed.number - bParsed.number;
+            if (aParsed.number !== bParsed.number) {
+                return aParsed.number - bParsed.number;
+            }
         } else {
-            return aParsed.original.localeCompare(bParsed.original);
+            const strCompare = aParsed.original.localeCompare(bParsed.original);
+            if (strCompare !== 0) return strCompare;
         }
+        
+        // If same student (same token), sort by worksheetEntryIndex
+        return (a.worksheetEntryIndex || 0) - (b.worksheetEntryIndex || 0);
     });
+};
+
+// Helper to generate unique worksheet entry IDs
+const generateWorksheetEntryId = (studentId: string, index: number): string => {
+    return `${studentId}-entry-${index}`;
 };
 
 
@@ -185,18 +201,19 @@ export default function UploadWorksheetPage() {
                 
                 const studentsWithHistory = new Map<string, boolean>();
                 
-                const worksheets = await Promise.all(sortedStudents.map(async (student) => {
+                // Use flatMap to handle multiple worksheets per student
+                const worksheets: StudentWorksheet[] = (await Promise.all(sortedStudents.map(async (student) => {
                     try {
-                        
-                        const worksheet = await worksheetAPI.getWorksheetByClassStudentDate(
+                        // Get ALL worksheets for this student on this date
+                        const existingWorksheets = await worksheetAPI.getAllWorksheetsByClassStudentDate(
                             selectedClass,
                             student.id,
                             submittedOn
                         );
                         
-                        if (worksheet) {
-                            
-                            return {
+                        if (existingWorksheets && existingWorksheets.length > 0) {
+                            // Return all existing worksheets as separate entries
+                            return existingWorksheets.map((worksheet, idx) => ({
                                 studentId: student.id,
                                 name: student.name,
                                 tokenNumber: student.tokenNumber,
@@ -212,8 +229,11 @@ export default function UploadWorksheetPage() {
                                 isUploading: false,
                                 page1File: null,
                                 page2File: null,
-                                gradingDetails: worksheet.gradingDetails || undefined
-                            };
+                                gradingDetails: worksheet.gradingDetails || undefined,
+                                wrongQuestionNumbers: worksheet.wrongQuestionNumbers || undefined,
+                                worksheetEntryId: generateWorksheetEntryId(student.id, idx),
+                                worksheetEntryIndex: idx
+                            }));
                         }
                         
                         // Get all worksheets up to the selected date (not a future date)
@@ -289,7 +309,8 @@ export default function UploadWorksheetPage() {
                             }
                         }
                         
-                        return {
+                        // Return single worksheet entry for new student
+                        return [{
                             studentId: student.id,
                             name: student.name,
                             tokenNumber: student.tokenNumber,
@@ -304,10 +325,12 @@ export default function UploadWorksheetPage() {
                             isNew: !hasHistory,
                             isUploading: false,
                             page1File: null,
-                            page2File: null
-                        };
+                            page2File: null,
+                            worksheetEntryId: generateWorksheetEntryId(student.id, 0),
+                            worksheetEntryIndex: 0
+                        }];
                     } catch (error) {
-                        return {
+                        return [{
                             studentId: student.id,
                             name: student.name,
                             tokenNumber: student.tokenNumber,
@@ -322,10 +345,12 @@ export default function UploadWorksheetPage() {
                             isNew: !studentsWithHistory.get(student.id),
                             isUploading: false,
                             page1File: null,
-                            page2File: null
-                        };
+                            page2File: null,
+                            worksheetEntryId: generateWorksheetEntryId(student.id, 0),
+                            worksheetEntryIndex: 0
+                        }];
                     }
-                }));
+                }))).flat();
 
                 setStudentWorksheets(worksheets);
             } catch (error) {
@@ -336,9 +361,82 @@ export default function UploadWorksheetPage() {
         };
 
         fetchStudentsAndWorksheets();
-    }, [selectedClass, submittedOn]);    const handlePageFileChange = (studentId: string, pageNumber: number, file: File | null) => {
+    }, [selectedClass, submittedOn]);    
+
+    // Handler for adding a new worksheet entry for a student
+    const handleAddWorksheetEntry = (studentId: string) => {
+        setStudentWorksheets(prev => {
+            // Find all existing entries for this student
+            const studentEntries = prev.filter(w => w.studentId === studentId);
+            const maxIndex = Math.max(...studentEntries.map(e => e.worksheetEntryIndex), -1);
+            const newIndex = maxIndex + 1;
+            
+            // Get the student's info from first entry
+            const firstEntry = studentEntries[0];
+            if (!firstEntry) return prev;
+            
+            // Get the last entry to auto-increment worksheet number
+            const lastEntry = studentEntries[studentEntries.length - 1];
+            const nextWorksheetNumber = lastEntry && lastEntry.worksheetNumber > 0 
+                ? lastEntry.worksheetNumber + 1 
+                : 0;
+            
+            // Create new empty worksheet entry with incremented worksheet number
+            const newEntry: StudentWorksheet = {
+                studentId: firstEntry.studentId,
+                name: firstEntry.name,
+                tokenNumber: firstEntry.tokenNumber,
+                id: '',
+                worksheetNumber: nextWorksheetNumber,
+                grade: '',
+                existing: false,
+                isAbsent: false,
+                isRepeated: false,
+                isCorrectGrade: false,
+                isIncorrectGrade: false,
+                isUploading: false,
+                page1File: null,
+                page2File: null,
+                worksheetEntryId: generateWorksheetEntryId(studentId, newIndex),
+                worksheetEntryIndex: newIndex
+            };
+            
+            // Insert after the last entry for this student
+            const lastStudentEntryIndex = prev.findIndex(w => w.worksheetEntryId === studentEntries[studentEntries.length - 1].worksheetEntryId);
+            const newWorksheets = [...prev];
+            newWorksheets.splice(lastStudentEntryIndex + 1, 0, newEntry);
+            
+            return newWorksheets;
+        });
+        
+        toast.success('Added new worksheet entry');
+    };
+
+    const handleRemoveWorksheetEntry = async (worksheetEntryId: string) => {
+        const worksheet = studentWorksheets.find(w => w.worksheetEntryId === worksheetEntryId);
+        if (!worksheet) return;
+        
+        if (worksheet.worksheetEntryIndex === 0) {
+            toast.error('Cannot remove the primary worksheet entry');
+            return;
+        }
+        
+        if (worksheet.id && worksheet.existing) {
+            try {
+                await worksheetAPI.deleteGradedWorksheet(worksheet.id);
+                toast.success('Worksheet removed');
+            } catch (error) {
+                toast.error('Failed to remove worksheet');
+                return;
+            }
+        }
+        
+        setStudentWorksheets(prev => prev.filter(w => w.worksheetEntryId !== worksheetEntryId));
+    };
+
+    const handlePageFileChange = (worksheetEntryId: string, pageNumber: number, file: File | null) => {
         setStudentWorksheets(prev => prev.map(sw => {
-            if (sw.studentId === studentId) {
+            if (sw.worksheetEntryId === worksheetEntryId) {
                 const updated = { ...sw };
                 
                 
@@ -355,7 +453,7 @@ export default function UploadWorksheetPage() {
     };    const handleUpdateWorksheet = async (sortedIndex: number, field: string, value: any) => {
         
         const sortedWorksheet = sortedStudentWorksheets[sortedIndex];
-        const originalIndex = studentWorksheets.findIndex(w => w.studentId === sortedWorksheet.studentId);
+        const originalIndex = studentWorksheets.findIndex(w => w.worksheetEntryId === sortedWorksheet.worksheetEntryId);
         
         if (originalIndex === -1) return;
         
@@ -399,6 +497,18 @@ export default function UploadWorksheetPage() {
                                pw.template?.worksheetNumber === newWorksheetNumber &&
                                worksheetDate < selectedDateObj; // Only check dates before the selected date
                     });
+                    
+                    if (!isRepeated) {
+                        const otherEntriesWithSameNumber = newWorksheets.filter(w => 
+                            w.studentId === sortedWorksheet.studentId &&
+                            w.worksheetEntryId !== sortedWorksheet.worksheetEntryId &&
+                            w.worksheetNumber === newWorksheetNumber &&
+                            !w.isAbsent
+                        );
+                        if (otherEntriesWithSameNumber.length > 0) {
+                            isRepeated = true;
+                        }
+                    }
                 } catch (error) {
                     console.error('Error checking if worksheet is repeated:', error);
                 }
@@ -437,7 +547,7 @@ export default function UploadWorksheetPage() {
 
         
         setStudentWorksheets(prev => prev.map(sw => 
-            sw.studentId === worksheet.studentId 
+            sw.worksheetEntryId === worksheet.worksheetEntryId 
                 ? { ...sw, isUploading: true, gradingStatus: 'uploading' } 
                 : sw
         ));        
@@ -471,7 +581,7 @@ export default function UploadWorksheetPage() {
             }
             
             setStudentWorksheets(prev => prev.map(sw => 
-                sw.studentId === worksheet.studentId 
+                sw.worksheetEntryId === worksheet.worksheetEntryId 
                     ? { 
                         ...sw, 
                         isUploading: false,
@@ -483,7 +593,7 @@ export default function UploadWorksheetPage() {
                     : sw
             ));
             
-            toast.success(`Worksheet for ${worksheet.name} queued for grading`);
+            toast.success(`Worksheet #${worksheet.worksheetNumber} for ${worksheet.name} queued for grading`);
             
             gradingJobsAPI.pollJobStatus(
                 response.jobId,
@@ -492,7 +602,7 @@ export default function UploadWorksheetPage() {
                     setJobStatusKey(prev => prev + 1);
                     
                     setStudentWorksheets(prev => prev.map(sw => {
-                        if (sw.studentId !== worksheet.studentId) return sw;
+                        if (sw.worksheetEntryId !== worksheet.worksheetEntryId) return sw;
                         
                         // Update status
                         if (job.status === 'processing') {
@@ -524,51 +634,21 @@ export default function UploadWorksheetPage() {
                             
                             const wrongQuestionNumbers = wrongNumbers.length > 0 ? wrongNumbers.join(', ') : '';
                             
-                            toast.success(`Worksheet for ${worksheet.name} graded! Score: ${roundedGrade}`);
-                            
-                            // Fetch updated worksheet from database asynchronously
-                            if (job.postgresId && selectedClass) {
-                                worksheetAPI.getWorksheetByClassStudentDate(
-                                    selectedClass,
-                                    worksheet.studentId,
-                                    submittedOn
-                                ).then(updatedWorksheet => {
-                                    if (updatedWorksheet) {
-                                        setStudentWorksheets(current => current.map(s => {
-                                            if (s.studentId !== worksheet.studentId) return s;
-                                            return {
-                                                ...s,
-                                                id: updatedWorksheet.id || job.postgresId,
-                                                grade: updatedWorksheet.grade?.toString() || roundedGrade.toString(),
-                                                gradingStatus: 'completed',
-                                                gradingDetails: updatedWorksheet.gradingDetails || gradingDetails,
-                                                wrongQuestionNumbers: updatedWorksheet.wrongQuestionNumbers || wrongQuestionNumbers,
-                                                existing: true,
-                                                isAbsent: !!updatedWorksheet.isAbsent,
-                                                isRepeated: updatedWorksheet.isRepeated || false,
-                                                isCorrectGrade: updatedWorksheet.isCorrectGrade || false,
-                                                isIncorrectGrade: updatedWorksheet.isIncorrectGrade || false
-                                            };
-                                        }));
-                                    }
-                                }).catch(error => {
-                                    console.error('Failed to fetch updated worksheet:', error);
-                                });
-                            }
+                            toast.success(`Worksheet #${worksheet.worksheetNumber} for ${worksheet.name} graded! Score: ${roundedGrade}`);
                             
                             return {
                                 ...sw,
+                                id: job.postgresId,
                                 grade: roundedGrade.toString(),
                                 gradingStatus: 'completed',
                                 gradingDetails,
                                 wrongQuestionNumbers,
-                                id: job.postgresId,
                                 existing: true
                             };
                         }
                         
                         if (job.status === 'failed') {
-                            toast.error(`Grading failed for ${worksheet.name}: ${job.error || 'Unknown error'}`);
+                            toast.error(`Grading failed for ${worksheet.name} (WS #${worksheet.worksheetNumber}): ${job.error || 'Unknown error'}`);
                             return {
                                 ...sw,
                                 gradingStatus: 'failed',
@@ -583,7 +663,7 @@ export default function UploadWorksheetPage() {
                 5000 // Poll every 5 seconds
             ).catch(error => {
                 console.error('Polling error:', error);
-                toast.error(`Failed to track grading status for ${worksheet.name}`);
+                toast.error(`Failed to track grading status for ${worksheet.name} (WS #${worksheet.worksheetNumber})`);
             });
             
             return { success: true };
@@ -592,7 +672,7 @@ export default function UploadWorksheetPage() {
             
             
             setStudentWorksheets(prev => prev.map(sw => 
-                sw.studentId === worksheet.studentId ? { ...sw, isUploading: false } : sw
+                sw.worksheetEntryId === worksheet.worksheetEntryId ? { ...sw, isUploading: false } : sw
             ));
             
             return { success: false };
@@ -609,7 +689,7 @@ export default function UploadWorksheetPage() {
         
         
         setStudentWorksheets(prev => prev.map(sw => 
-            studentsWithFiles.some(s => s.studentId === sw.studentId) 
+            studentsWithFiles.some(s => s.worksheetEntryId === sw.worksheetEntryId) 
                 ? { ...sw, isUploading: true } 
                 : sw
         ));
@@ -657,8 +737,8 @@ export default function UploadWorksheetPage() {
         }
 
         try {
-            // Get the most up-to-date data for this student from the main state
-            const currentStudentData = studentWorksheets.find(w => w.studentId === worksheet.studentId);
+            // Get the most up-to-date data for this worksheet entry from the main state
+            const currentStudentData = studentWorksheets.find(w => w.worksheetEntryId === worksheet.worksheetEntryId);
             if (!currentStudentData) {
                 toast.error('Student data not found');
                 return;
@@ -686,13 +766,7 @@ export default function UploadWorksheetPage() {
                 shouldSave = true;
             } else if (!isValidWorksheetNumber && !isValidGrade) {
                 // Both fields are empty/invalid
-                const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                    selectedClass,
-                    currentStudentData.studentId,
-                    submittedOn
-                );
-                
-                if (existingWorksheet && existingWorksheet.id) {
+                if (currentStudentData.id && currentStudentData.existing) {
                     // Delete existing record if both fields are cleared
                     shouldDelete = true;
                 } else {
@@ -708,19 +782,14 @@ export default function UploadWorksheetPage() {
 
             // Handle deletion case
             if (shouldDelete) {
-                const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                    selectedClass,
-                    currentStudentData.studentId,
-                    submittedOn
-                );
-                
-                if (existingWorksheet && existingWorksheet.id) {
-                    await worksheetAPI.deleteGradedWorksheet(existingWorksheet.id);
+                // For multi-worksheet support, we use the existing worksheet id if available
+                if (currentStudentData.id) {
+                    await worksheetAPI.deleteGradedWorksheet(currentStudentData.id);
                     toast.success(`Record for ${currentStudentData.name} removed successfully`);
                     
                     // Update local state to reflect deletion
                     setStudentWorksheets(prevWorksheets => prevWorksheets.map(w => {
-                        if (w.studentId === currentStudentData.studentId) {
+                        if (w.worksheetEntryId === currentStudentData.worksheetEntryId) {
                             return {
                                 ...w,
                                 id: '',
@@ -733,6 +802,9 @@ export default function UploadWorksheetPage() {
                         }
                         return w;
                     }));
+                } else {
+                    // No existing worksheet to delete
+                    toast.info(`No existing record found for ${currentStudentData.name}`);
                 }
                 return;
             }
@@ -754,14 +826,9 @@ export default function UploadWorksheetPage() {
                         notes: 'Student absent'
                     };
 
-                    const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                        selectedClass, 
-                        currentStudentData.studentId, 
-                        submittedOn
-                    );
-
-                    if (existingWorksheet && existingWorksheet.id) {
-                        await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                    // Use existing worksheet id if available
+                    if (currentStudentData.id) {
+                        await worksheetAPI.updateGradedWorksheet(currentStudentData.id, data);
                     } else {
                         await worksheetAPI.createGradedWorksheet(data);
                     }
@@ -792,14 +859,9 @@ export default function UploadWorksheetPage() {
                         wrongQuestionNumbers: currentStudentData.wrongQuestionNumbers || ''
                     };
 
-                    const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                        selectedClass, 
-                        currentStudentData.studentId, 
-                        submittedOn
-                    );
-
-                    if (existingWorksheet && existingWorksheet.id) {
-                        await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                    // Use existing worksheet id if available
+                    if (currentStudentData.id) {
+                        await worksheetAPI.updateGradedWorksheet(currentStudentData.id, data);
                     } else {
                         await worksheetAPI.createGradedWorksheet(data);
                     }
@@ -813,7 +875,7 @@ export default function UploadWorksheetPage() {
                             grade: data.grade,
                             is_absent: data.isAbsent,
                             is_repeated: data.isRepeated,
-                            action: existingWorksheet ? 'update' : 'create',
+                            action: currentStudentData.id ? 'update' : 'create',
                             page: 'upload_worksheet_individual'
                         });
                     }
@@ -823,7 +885,7 @@ export default function UploadWorksheetPage() {
 
                 // Update local state to reflect the saved data
                 setStudentWorksheets(prevWorksheets => prevWorksheets.map(w =>
-                    w.studentId === currentStudentData.studentId ? { ...currentStudentData, existing: true } : w
+                    w.worksheetEntryId === currentStudentData.worksheetEntryId ? { ...currentStudentData, existing: true } : w
                 ));
             }
 
@@ -855,7 +917,7 @@ export default function UploadWorksheetPage() {
         setIsSaving(true);
         
         try {
-            const studentsToSave = studentWorksheets.filter(worksheet => {
+            const worksheetsToSave = studentWorksheets.filter(worksheet => {
                 if (worksheet.isAbsent) {
                     return true;
                 }
@@ -866,8 +928,8 @@ export default function UploadWorksheetPage() {
                 return worksheet.worksheetNumber > 0 && hasValidGrade;
             });
 
-            if (studentsToSave.length === 0) {
-                toast.error('No students to save. Please mark students as absent or assign worksheet numbers with grades.');
+            if (worksheetsToSave.length === 0) {
+                toast.error('No worksheets to save. Please mark students as absent or assign worksheet numbers with grades.');
                 setIsSaving(false);
                 return;
             }
@@ -876,7 +938,7 @@ export default function UploadWorksheetPage() {
             let failedCount = 0;
 
             
-            await Promise.all(studentsToSave.map(async (worksheet) => {
+            await Promise.all(worksheetsToSave.map(async (worksheet) => {
                 try {
                     if (worksheet.isAbsent) {
                         const data = {
@@ -892,14 +954,9 @@ export default function UploadWorksheetPage() {
                             notes: 'Student absent'
                         };
                         
-                        const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                            selectedClass, 
-                            worksheet.studentId, 
-                            submittedOn
-                        );
-
-                        if (existingWorksheet && existingWorksheet.id) {
-                            await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                        // Use existing worksheet id if available
+                        if (worksheet.id) {
+                            await worksheetAPI.updateGradedWorksheet(worksheet.id, data);
                         } else {
                             await worksheetAPI.createGradedWorksheet(data);
                         }
@@ -925,14 +982,9 @@ export default function UploadWorksheetPage() {
                             isIncorrectGrade: worksheet.isIncorrectGrade || false
                         };
                         
-                        const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                            selectedClass, 
-                            worksheet.studentId, 
-                            submittedOn
-                        );
-                        
-                        if (existingWorksheet && existingWorksheet.id) {
-                            await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                        // Use existing worksheet id if available
+                        if (worksheet.id) {
+                            await worksheetAPI.updateGradedWorksheet(worksheet.id, data);
                         } else {
                             await worksheetAPI.createGradedWorksheet(data);
                         }
@@ -945,7 +997,7 @@ export default function UploadWorksheetPage() {
                                 grade: data.grade,
                                 is_absent: data.isAbsent,
                                 is_repeated: data.isRepeated,
-                                action: existingWorksheet ? 'update' : 'create',
+                                action: worksheet.id ? 'update' : 'create',
                                 page: 'upload_worksheet_bulk'
                             });
                         }
@@ -958,7 +1010,7 @@ export default function UploadWorksheetPage() {
             }));
             
             if (savedCount > 0) {
-                let message = `Successfully saved ${savedCount} student${savedCount !== 1 ? 's' : ''}`;
+                let message = `Successfully saved ${savedCount} worksheet${savedCount !== 1 ? 's' : ''}`;
                 
                 if (failedCount > 0) {
                     message += `. ${failedCount} failed to save`;
@@ -966,10 +1018,10 @@ export default function UploadWorksheetPage() {
                 
                 toast.success(message);
                 
-                const incorrectGradeCount = studentsToSave.filter(w => w.isIncorrectGrade).length;
+                const incorrectGradeCount = worksheetsToSave.filter(w => w.isIncorrectGrade).length;
                 if (incorrectGradeCount > 0) {
                     posthog.capture('incorrect_grade_bulk_save', {
-                        total_students_saved: savedCount,
+                        total_worksheets_saved: savedCount,
                         incorrect_grade_count: incorrectGradeCount,
                         total_failed: failedCount,
                         page: 'upload_worksheet_bulk'
@@ -978,7 +1030,7 @@ export default function UploadWorksheetPage() {
             }
             
             if (failedCount > 0 && savedCount === 0) {
-                toast.error(`Failed to save ${failedCount} student${failedCount !== 1 ? 's' : ''}`);
+                toast.error(`Failed to save ${failedCount} worksheet${failedCount !== 1 ? 's' : ''}`);
             }
             
         } catch (error) {
@@ -990,18 +1042,18 @@ export default function UploadWorksheetPage() {
 
     const handleMarkAllWithoutGradeAsAbsent = () => {
         const worksheetsToCheck = searchTerm.trim() ? filteredStudentWorksheets : studentWorksheets;
-        const studentsWithoutGrades = worksheetsToCheck.filter(worksheet => 
+        const worksheetsWithoutGrades = worksheetsToCheck.filter(worksheet => 
             !worksheet.isAbsent && 
             (!worksheet.grade || worksheet.grade.trim() === '')
         );
 
-        if (studentsWithoutGrades.length === 0) {
-            toast.info('No students without grades found to mark as absent.');
+        if (worksheetsWithoutGrades.length === 0) {
+            toast.info('No worksheets without grades found to mark as absent.');
             return;
         }
 
         setStudentWorksheets(prev => prev.map(worksheet => {
-            const shouldMarkAbsent = studentsWithoutGrades.some(s => s.studentId === worksheet.studentId);
+            const shouldMarkAbsent = worksheetsWithoutGrades.some(w => w.worksheetEntryId === worksheet.worksheetEntryId);
             if (shouldMarkAbsent) {
                 return {
                     ...worksheet,
@@ -1018,7 +1070,7 @@ export default function UploadWorksheetPage() {
             return worksheet;
         }));
 
-        toast.success(`Marked ${studentsWithoutGrades.length} student${studentsWithoutGrades.length !== 1 ? 's' : ''} as absent.`);
+        toast.success(`Marked ${worksheetsWithoutGrades.length} worksheet${worksheetsWithoutGrades.length !== 1 ? 's' : ''} as absent.`);
     };
 
 
@@ -1146,20 +1198,51 @@ export default function UploadWorksheetPage() {
                             <div>
                                 {filteredStudentWorksheets.length > 0 ? (
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 p-2 md:p-0">
-                                        {filteredStudentWorksheets.map((worksheet) => {
-                                            const originalSortedIndex = sortedStudentWorksheets.findIndex(w => w.studentId === worksheet.studentId);
-                                            return (
-                                                <StudentWorksheetCard 
-                                                    key={worksheet.studentId}
-                                                    worksheet={worksheet}
-                                                    index={originalSortedIndex}
-                                                    onUpdate={handleUpdateWorksheet}
-                                                    onPageFileChange={handlePageFileChange}
-                                                    onUpload={handleUpload}
-                                                    onSave={handleSaveStudent}
-                                                />
-                                            );
-                                        })}
+                                        {(() => {
+                                            // Group worksheets by studentId for swipe navigation
+                                            const groupedByStudent = filteredStudentWorksheets.reduce((acc, worksheet) => {
+                                                if (!acc[worksheet.studentId]) {
+                                                    acc[worksheet.studentId] = [];
+                                                }
+                                                acc[worksheet.studentId].push(worksheet);
+                                                return acc;
+                                            }, {} as Record<string, typeof filteredStudentWorksheets>);
+                                            
+                                            // Get unique students in order (first occurrence)
+                                            const seenStudents = new Set<string>();
+                                            const uniqueStudentIds = filteredStudentWorksheets
+                                                .filter(w => {
+                                                    if (seenStudents.has(w.studentId)) return false;
+                                                    seenStudents.add(w.studentId);
+                                                    return true;
+                                                })
+                                                .map(w => w.studentId);
+                                            
+                                            return uniqueStudentIds.map(studentId => {
+                                                const studentWorksheetsList = groupedByStudent[studentId];
+                                                // Sort by entry index to ensure correct order
+                                                studentWorksheetsList.sort((a, b) => a.worksheetEntryIndex - b.worksheetEntryIndex);
+                                                
+                                                // Get indices in sortedStudentWorksheets for each worksheet
+                                                const indices = studentWorksheetsList.map(w => 
+                                                    sortedStudentWorksheets.findIndex(sw => sw.worksheetEntryId === w.worksheetEntryId)
+                                                );
+                                                
+                                                return (
+                                                    <StudentWorksheetCard 
+                                                        key={studentId}
+                                                        worksheets={studentWorksheetsList}
+                                                        indices={indices}
+                                                        onUpdate={handleUpdateWorksheet}
+                                                        onPageFileChange={handlePageFileChange}
+                                                        onUpload={handleUpload}
+                                                        onSave={handleSaveStudent}
+                                                        onAddWorksheet={handleAddWorksheetEntry}
+                                                        onRemoveWorksheet={handleRemoveWorksheetEntry}
+                                                    />
+                                                );
+                                            });
+                                        })()}
                                     </div>
                                 ) : (
                                     <div className="flex justify-center items-center h-40 text-gray-500">
@@ -1221,11 +1304,16 @@ export default function UploadWorksheetPage() {
                             </div>
                             
                             <div className="text-sm text-muted-foreground px-2 md:px-0">
-                                {searchTerm.trim() ? (
-                                    <>Showing {filteredStudentWorksheets.length} of {sortedStudentWorksheets.length} students</>
-                                ) : (
-                                    <>Showing {sortedStudentWorksheets.length} students</>
-                                )}
+                                {(() => {
+                                    const uniqueStudentCount = new Set(sortedStudentWorksheets.map(w => w.studentId)).size;
+                                    const totalWorksheets = sortedStudentWorksheets.length;
+                                    const filteredUniqueCount = new Set(filteredStudentWorksheets.map(w => w.studentId)).size;
+                                    
+                                    if (searchTerm.trim()) {
+                                        return <>Showing {filteredUniqueCount} of {uniqueStudentCount} students ({totalWorksheets} worksheets)</>;
+                                    }
+                                    return <>Showing {uniqueStudentCount} students ({totalWorksheets} worksheets)</>;
+                                })()}
                             </div>
                         </>
                     )}

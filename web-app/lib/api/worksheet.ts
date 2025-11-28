@@ -73,6 +73,21 @@ export const worksheetAPI = {
         }
     },
 
+    // Get ALL worksheets for a student on a specific date (for multiple worksheets per day)
+    getAllWorksheetsByClassStudentDate: async (classId: string, studentId: string, submittedOn: string): Promise<GradedWorksheetData[]> => {
+        const date = new Date(submittedOn);
+        const startDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const endDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() + 1));
+        
+        try {
+            return await fetchAPI<GradedWorksheetData[]>(
+                `/worksheets/find-all?classId=${encodeURIComponent(classId)}&studentId=${encodeURIComponent(studentId)}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
+            );
+        } catch (error) {
+            return [];
+        }
+    },
+
     updateGradedWorksheet: async (id: string, data: CreateGradedWorksheetData): Promise<GradedWorksheetData> => {
         const requestData = { ...data };
         

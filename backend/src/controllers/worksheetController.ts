@@ -457,18 +457,62 @@ export const findWorksheetByClassStudentDate = async (req: Request, res: Respons
             }
         });
 
-        // Debug logging to check if gradingDetails is present
         if (worksheet) {
             console.log(`Found worksheet ${worksheet.id}, gradingDetails present: ${!!worksheet.gradingDetails}`);
-            if (worksheet.gradingDetails) {
-                console.log('GradingDetails keys:', Object.keys(worksheet.gradingDetails));
-            }
         }
 
         return res.status(200).json(worksheet);
     } catch (error) {
         console.error('Find worksheet error:', error);
         return res.status(500).json({ message: 'Server error while finding worksheet' });
+    }
+};
+
+// Find ALL worksheets by class, student, and date range (for multiple worksheets per day)
+export const findAllWorksheetsByClassStudentDate = async (req: Request, res: Response) => {
+    const { classId, studentId, startDate, endDate } = req.query;
+
+    if (!classId || !studentId || !startDate || !endDate) {
+        return res.status(400).json({ message: 'Missing required query parameters' });
+    }
+
+    try {
+        const worksheets = await prisma.worksheet.findMany({
+            where: {
+                classId: classId as string,
+                studentId: studentId as string,
+                submittedOn: {
+                    gte: new Date(startDate as string),
+                    lt: new Date(endDate as string)
+                }
+            },
+            include: {
+                submittedBy: {
+                    select: {
+                        id: true,
+                        username: true,
+                        role: true
+                    }
+                },
+                class: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                },
+                template: true
+            },
+            orderBy: {
+                createdAt: 'asc' // Order by creation time so first worksheet comes first
+            }
+        });
+
+        console.log(`Found ${worksheets.length} worksheets for student ${studentId} on date range`);
+
+        return res.status(200).json(worksheets);
+    } catch (error) {
+        console.error('Find all worksheets error:', error);
+        return res.status(500).json({ message: 'Server error while finding worksheets' });
     }
 };
 

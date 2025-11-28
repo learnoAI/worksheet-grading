@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UploadIcon, Camera, Info, CheckCircle, XCircle, AlertCircle } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
+import { UploadIcon, Camera, Info, CheckCircle, XCircle, AlertCircle, Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useEffect, useMemo, useRef, TouchEvent } from "react";
 import { usePostHog } from 'posthog-js/react';
 
 interface QuestionScore {
@@ -36,6 +36,8 @@ interface GradingDetails {
 
 interface StudentWorksheet {
     studentId: string;
+    worksheetEntryId: string;
+    worksheetEntryIndex: number;
     name: string;
     tokenNumber: string;
     worksheetNumber: number;
@@ -57,24 +59,107 @@ interface StudentWorksheet {
 }
 
 interface StudentWorksheetCardProps {
-    worksheet: StudentWorksheet;
-    index: number;
+    worksheets: StudentWorksheet[];  // All worksheets for this student
+    indices: number[];  // Indices in the main array for each worksheet
     onUpdate: (index: number, field: string, value: any) => void;
-    onPageFileChange?: (studentId: string, pageNumber: number, file: File | null) => void;
+    onPageFileChange?: (worksheetEntryId: string, pageNumber: number, file: File | null) => void;
     onUpload: (worksheet: StudentWorksheet) => void;
     onSave: (worksheet: StudentWorksheet) => void;
+    onAddWorksheet?: (studentId: string) => void;
+    onRemoveWorksheet?: (worksheetEntryId: string) => void;
 }
 
 export function StudentWorksheetCard({ 
-    worksheet, 
-    index,
+    worksheets,
+    indices,
     onUpdate,
     onPageFileChange,
     onUpload,
-    onSave
+    onSave,
+    onAddWorksheet,
+    onRemoveWorksheet
 }: StudentWorksheetCardProps) {
+    const [currentEntryIndex, setCurrentEntryIndex] = useState(0);
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+    const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
     const posthog = usePostHog();
+    const carouselRef = useRef<HTMLDivElement>(null);
+    
+    // Touch handling for swipe
+    const touchStartX = useRef<number | null>(null);
+    const touchEndX = useRef<number | null>(null);
+    const minSwipeDistance = 50;
+    
+    const totalEntriesForStudent = worksheets.length;
+    
+    // Ensure currentEntryIndex is valid when worksheets change
+    useEffect(() => {
+        if (currentEntryIndex >= worksheets.length) {
+            setCurrentEntryIndex(Math.max(0, worksheets.length - 1));
+        }
+    }, [worksheets.length, currentEntryIndex]);
+    
+    // Get current worksheet based on selected entry
+    const worksheet = worksheets[currentEntryIndex] || worksheets[0];
+    const index = indices[currentEntryIndex] ?? indices[0];
+    
+    // Handle swipe navigation
+    const handleTouchStart = (e: TouchEvent) => {
+        touchStartX.current = e.touches[0].clientX;
+        touchEndX.current = null;
+    };
+    
+    const handleTouchMove = (e: TouchEvent) => {
+        touchEndX.current = e.touches[0].clientX;
+    };
+    
+    const handleTouchEnd = () => {
+        if (!touchStartX.current || !touchEndX.current) return;
+        
+        const distance = touchStartX.current - touchEndX.current;
+        const isLeftSwipe = distance > minSwipeDistance;
+        const isRightSwipe = distance < -minSwipeDistance;
+        
+        if (isLeftSwipe && currentEntryIndex < totalEntriesForStudent - 1) {
+            setSlideDirection('left');
+            setCurrentEntryIndex(prev => prev + 1);
+        } else if (isRightSwipe && currentEntryIndex > 0) {
+            setSlideDirection('right');
+            setCurrentEntryIndex(prev => prev - 1);
+        }
+        
+        touchStartX.current = null;
+        touchEndX.current = null;
+    };
+    
+    const goToPrevEntry = () => {
+        if (currentEntryIndex > 0) {
+            setSlideDirection('right');
+            setCurrentEntryIndex(prev => prev - 1);
+        }
+    };
+    
+    const goToNextEntry = () => {
+        if (currentEntryIndex < totalEntriesForStudent - 1) {
+            setSlideDirection('left');
+            setCurrentEntryIndex(prev => prev + 1);
+        }
+    };
+    
+    const goToEntry = (entryIndex: number) => {
+        if (entryIndex !== currentEntryIndex) {
+            setSlideDirection(entryIndex > currentEntryIndex ? 'left' : 'right');
+            setCurrentEntryIndex(entryIndex);
+        }
+    };
+    
+    // Reset slide direction after animation
+    useEffect(() => {
+        if (slideDirection) {
+            const timer = setTimeout(() => setSlideDirection(null), 300);
+            return () => clearTimeout(timer);
+        }
+    }, [slideDirection, currentEntryIndex]);
     
     const page1Preview = useMemo(() => {
         if (!worksheet.page1File) return null;
@@ -177,7 +262,7 @@ export function StudentWorksheetCard({
         input.onchange = (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
             if (file && onPageFileChange) {
-                onPageFileChange(worksheet.studentId, pageNumber, file);
+                onPageFileChange(worksheet.worksheetEntryId, pageNumber, file);
             }
         };
         input.click();
@@ -192,7 +277,7 @@ export function StudentWorksheetCard({
         input.onchange = (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
             if (file && onPageFileChange) {
-                onPageFileChange(worksheet.studentId, pageNumber, file);
+                onPageFileChange(worksheet.worksheetEntryId, pageNumber, file);
             }
         };
         input.click();
@@ -204,8 +289,49 @@ export function StudentWorksheetCard({
                 worksheet.isAbsent ? 'bg-gray-50 border-gray-200' : 
                 worksheet.grade ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'
             } p-3 md:p-4`}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
         >
-            <div className="absolute top-2 right-2 flex gap-1">
+            {/* Swipe Navigation Indicator - only show when multiple entries exist */}
+            {totalEntriesForStudent > 1 && (
+                <div className="absolute top-2 left-2 flex items-center gap-1 z-10">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={goToPrevEntry}
+                        disabled={currentEntryIndex === 0}
+                    >
+                        <ChevronLeft size={16} className={currentEntryIndex === 0 ? 'text-gray-300' : 'text-gray-600'} />
+                    </Button>
+                    <div className="flex gap-1">
+                        {worksheets.map((ws, i) => (
+                            <button
+                                key={ws.worksheetEntryId}
+                                onClick={() => goToEntry(i)}
+                                className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
+                                    i === currentEntryIndex 
+                                        ? 'bg-purple-600 scale-110' 
+                                        : 'bg-gray-300 hover:bg-gray-400'
+                                }`}
+                                title={`Worksheet ${i + 1}`}
+                            />
+                        ))}
+                    </div>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={goToNextEntry}
+                        disabled={currentEntryIndex === totalEntriesForStudent - 1}
+                    >
+                        <ChevronRight size={16} className={currentEntryIndex === totalEntriesForStudent - 1 ? 'text-gray-300' : 'text-gray-600'} />
+                    </Button>
+                </div>
+            )}
+            
+            <div className={`absolute top-2 right-2 flex gap-1 ${totalEntriesForStudent > 1 ? 'mt-0' : ''}`}>
                 {worksheet.existing && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                         Saved
@@ -243,25 +369,79 @@ export function StudentWorksheetCard({
                 )}
             </div>
 
-            <div className="flex items-center space-x-3 mb-3">
+            <div className={`flex items-center space-x-3 mb-3 ${totalEntriesForStudent > 1 ? 'mt-6' : ''}`}>
                 <div className="flex-shrink-0">
                     <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full ${getInitialsBgColor(worksheet.name)} text-white flex items-center justify-center text-sm md:text-lg font-semibold`}>
                         {avatarLetters}
                     </div>
                 </div>
                 <div className="flex-1 min-w-0">
-                    <h3 className="text-base md:text-lg font-semibold text-gray-900 truncate">{worksheet.name}</h3>
+                    <div className="flex items-center gap-2">
+                        <h3 className="text-base md:text-lg font-semibold text-gray-900 truncate">{worksheet.name}</h3>
+                        {totalEntriesForStudent > 1 && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                WS {currentEntryIndex + 1}
+                            </span>
+                        )}
+                    </div>
                     <p className="text-xs md:text-sm text-gray-500">
                         Token: {worksheet.tokenNumber}
                     </p>
                 </div>
+                <div className="flex-shrink-0 flex gap-1">
+                    {/* Add worksheet button - show on all entries */}
+                    {onAddWorksheet && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            title="Add another worksheet for this student"
+                            onClick={() => {
+                                onAddWorksheet(worksheet.studentId);
+                                // Navigate to the new entry after a brief delay
+                                setTimeout(() => setCurrentEntryIndex(totalEntriesForStudent), 100);
+                            }}
+                            disabled={worksheet.isUploading}
+                        >
+                            <Plus size={16} className="text-green-600" />
+                        </Button>
+                    )}
+                    {/* Remove worksheet button - only show for additional entries (index > 0) */}
+                    {onRemoveWorksheet && worksheet.worksheetEntryIndex > 0 && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            title="Remove this worksheet entry"
+                            onClick={() => {
+                                onRemoveWorksheet(worksheet.worksheetEntryId);
+                                // Navigate to previous entry after removal
+                                if (currentEntryIndex > 0) {
+                                    setCurrentEntryIndex(currentEntryIndex - 1);
+                                }
+                            }}
+                            disabled={worksheet.isUploading}
+                        >
+                            <Trash2 size={16} className="text-red-600" />
+                        </Button>
+                    )}
+                </div>
             </div>
 
+            {/* Carousel Content Area - animated on swipe */}
+            <div 
+                ref={carouselRef}
+                className={`transition-all duration-200 ease-in-out ${
+                    slideDirection === 'left' ? 'animate-slide-left' : 
+                    slideDirection === 'right' ? 'animate-slide-right' : ''
+                }`}
+                key={worksheet.worksheetEntryId}
+            >
             <div className="grid grid-cols-2 gap-2 md:gap-4 mb-3">
                 <div className="space-y-1">
-                    <Label htmlFor={`worksheet-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">Worksheet #</Label>
+                    <Label htmlFor={`worksheet-${worksheet.worksheetEntryId}`} className="text-xs md:text-sm font-medium">Worksheet #</Label>
                     <Input
-                        id={`worksheet-${worksheet.studentId}`}
+                        id={`worksheet-${worksheet.worksheetEntryId}`}
                         type="number"
                         min="1"
                         step="1"
@@ -273,7 +453,7 @@ export function StudentWorksheetCard({
                     />
                 </div>
                 <div className="space-y-1">
-                    <Label htmlFor={`grade-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">Grade</Label>
+                    <Label htmlFor={`grade-${worksheet.worksheetEntryId}`} className="text-xs md:text-sm font-medium">Grade</Label>
                     <div className="flex items-center space-x-1">
                         <Select
                             value={worksheet.grade || ''}
@@ -321,11 +501,11 @@ export function StudentWorksheetCard({
             </div>
 
             <div className="space-y-1 mb-3">
-                <Label htmlFor={`wrong-questions-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">
+                <Label htmlFor={`wrong-questions-${worksheet.worksheetEntryId}`} className="text-xs md:text-sm font-medium">
                     Wrong Questions
                 </Label>
                 <Input
-                    id={`wrong-questions-${worksheet.studentId}`}
+                    id={`wrong-questions-${worksheet.worksheetEntryId}`}
                     type="text"
                     value={displayedWrongQuestionNumbers}
                     onChange={(e) => handleWrongQuestionNumbersChange(e.target.value)}
@@ -454,24 +634,24 @@ export function StudentWorksheetCard({
                         <div className="flex items-center space-x-2">
                             <input
                                 type="checkbox"
-                                id={`absent-${worksheet.studentId}`}
+                                id={`absent-${worksheet.worksheetEntryId}`}
                                 checked={worksheet.isAbsent}
                                 onChange={(e) => handleAbsentChange(e.target.checked)}
                                 disabled={worksheet.isUploading}
                                 className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             />
-                            <Label htmlFor={`absent-${worksheet.studentId}`} className="text-sm">Absent</Label>
+                            <Label htmlFor={`absent-${worksheet.worksheetEntryId}`} className="text-sm">Absent</Label>
                         </div>
                         <div className="flex items-center space-x-2">
                             <input
                                 type="checkbox"
-                                id={`incorrect-grade-${worksheet.studentId}`}
+                                id={`incorrect-grade-${worksheet.worksheetEntryId}`}
                                 checked={worksheet.isIncorrectGrade || false}
                                 onChange={(e) => handleIncorrectGradeChange(e.target.checked)}
                                 disabled={worksheet.isAbsent || worksheet.isUploading}
                                 className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             />
-                            <Label htmlFor={`incorrect-grade-${worksheet.studentId}`} className="text-sm">Incorrect Grade</Label>
+                            <Label htmlFor={`incorrect-grade-${worksheet.worksheetEntryId}`} className="text-sm">Incorrect Grade</Label>
                         </div>
                     </div>
 
@@ -495,6 +675,7 @@ export function StudentWorksheetCard({
                         </Button>
                     </div>
                 </div>
+            </div> {/* End of carousel content */}
 
             {worksheet.gradingDetails && (
                 <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
