@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UploadIcon, Camera, Info, CheckCircle, XCircle, AlertCircle, Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
-import { useState, useEffect, useMemo, useRef, TouchEvent } from "react";
+import { useState, useEffect, useMemo, useRef, TouchEvent, memo } from "react";
 import { usePostHog } from 'posthog-js/react';
 
 interface QuestionScore {
@@ -69,7 +69,41 @@ interface StudentWorksheetCardProps {
     onRemoveWorksheet?: (worksheetEntryId: string) => void;
 }
 
-export function StudentWorksheetCard({ 
+// Custom comparison function for memo - only re-render if worksheets data actually changed
+const arePropsEqual = (prevProps: StudentWorksheetCardProps, nextProps: StudentWorksheetCardProps) => {
+    // Check if worksheets array length changed
+    if (prevProps.worksheets.length !== nextProps.worksheets.length) return false;
+    
+    // Check if indices changed
+    if (prevProps.indices.length !== nextProps.indices.length) return false;
+    for (let i = 0; i < prevProps.indices.length; i++) {
+        if (prevProps.indices[i] !== nextProps.indices[i]) return false;
+    }
+    
+    // Check if any worksheet data changed (compare by worksheetEntryId and key fields)
+    for (let i = 0; i < prevProps.worksheets.length; i++) {
+        const prev = prevProps.worksheets[i];
+        const next = nextProps.worksheets[i];
+        if (
+            prev.worksheetEntryId !== next.worksheetEntryId ||
+            prev.worksheetNumber !== next.worksheetNumber ||
+            prev.grade !== next.grade ||
+            prev.isAbsent !== next.isAbsent ||
+            prev.isUploading !== next.isUploading ||
+            prev.gradingStatus !== next.gradingStatus ||
+            prev.page1File !== next.page1File ||
+            prev.page2File !== next.page2File ||
+            prev.isRepeated !== next.isRepeated ||
+            prev.existing !== next.existing
+        ) {
+            return false;
+        }
+    }
+    
+    return true;
+};
+
+export const StudentWorksheetCard = memo(function StudentWorksheetCard({ 
     worksheets,
     indices,
     onUpdate,
@@ -788,4 +822,4 @@ export function StudentWorksheetCard({
                       
         </div>
     );
-}
+}, arePropsEqual);

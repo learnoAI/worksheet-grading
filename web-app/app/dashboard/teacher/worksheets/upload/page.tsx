@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -161,6 +161,41 @@ export default function UploadWorksheetPage() {
             worksheet.tokenNumber.toLowerCase().includes(lowercaseSearch)
         );
     }, [sortedStudentWorksheets, searchTerm]);
+
+    // Memoized index map for O(1) lookup instead of O(n) findIndex
+    const worksheetIndexMap = useMemo(() => {
+        const map = new Map<string, number>();
+        sortedStudentWorksheets.forEach((w, idx) => {
+            map.set(w.worksheetEntryId, idx);
+        });
+        return map;
+    }, [sortedStudentWorksheets]);
+
+    // Memoized grouped worksheets by student
+    const groupedWorksheetData = useMemo(() => {
+        const groupedByStudent: Record<string, StudentWorksheet[]> = {};
+        const seenStudents = new Set<string>();
+        const uniqueStudentIds: string[] = [];
+        
+        filteredStudentWorksheets.forEach(worksheet => {
+            if (!groupedByStudent[worksheet.studentId]) {
+                groupedByStudent[worksheet.studentId] = [];
+            }
+            groupedByStudent[worksheet.studentId].push(worksheet);
+            
+            if (!seenStudents.has(worksheet.studentId)) {
+                seenStudents.add(worksheet.studentId);
+                uniqueStudentIds.push(worksheet.studentId);
+            }
+        });
+        
+        // Sort each group by entry index
+        Object.values(groupedByStudent).forEach(group => {
+            group.sort((a, b) => a.worksheetEntryIndex - b.worksheetEntryIndex);
+        });
+        
+        return { groupedByStudent, uniqueStudentIds };
+    }, [filteredStudentWorksheets]);
 
     
     useEffect(() => {
@@ -529,20 +564,24 @@ export default function UploadWorksheetPage() {
         }
         
         setStudentWorksheets(newWorksheets);
-    };const handleUpload = async (worksheet: StudentWorksheet) => {
+    };const handleUpload = async (worksheet: StudentWorksheet): Promise<{ success: boolean; skipped?: boolean; reason?: string }> => {
+        if (worksheet.gradingStatus === 'queued' || worksheet.gradingStatus === 'processing' || worksheet.gradingStatus === 'uploading') {
+            return { success: false, skipped: true, reason: 'already_processing' };
+        }
+
         if (worksheet.isAbsent) {
-            return;
+            return { success: false, skipped: true, reason: 'absent' };
         }
 
         if (!worksheet.worksheetNumber) {
-            toast.error('Please enter a worksheet number');
-            return;
+            toast.error(`${worksheet.name}: Please enter a worksheet number`);
+            return { success: false, reason: 'missing_worksheet_number' };
         }
 
         
         if (!worksheet.page1File && !worksheet.page2File) {
-            toast.error('Please upload at least one page image');
-            return;
+            toast.error(`${worksheet.name}: Please upload at least one page image`);
+            return { success: false, reason: 'missing_files' };
         }
 
         
@@ -659,30 +698,50 @@ export default function UploadWorksheetPage() {
                         return sw;
                     }));
                 },
-                120, // 10 minutes max
-                5000 // Poll every 5 seconds
+                120,
+                5000
             ).catch(error => {
                 console.error('Polling error:', error);
-                toast.error(`Failed to track grading status for ${worksheet.name} (WS #${worksheet.worksheetNumber})`);
+                const errorMsg = error instanceof Error ? error.message : 'Connection lost';
+                toast.error(`Failed to track grading status for ${worksheet.name} (WS #${worksheet.worksheetNumber}): ${errorMsg}`);
+                
+                setStudentWorksheets(prev => prev.map(sw => 
+                    sw.worksheetEntryId === worksheet.worksheetEntryId 
+                        ? { 
+                            ...sw, 
+                            gradingStatus: 'failed', 
+                            gradingError: `Polling failed: ${errorMsg}` 
+                        } 
+                        : sw
+                ));
             });
             
             return { success: true };
         } catch (error) {
-            toast.error('Failed to create grading job');
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            toast.error(`Failed to queue ${worksheet.name} (WS #${worksheet.worksheetNumber}): ${errorMessage}`);
             
             
             setStudentWorksheets(prev => prev.map(sw => 
-                sw.worksheetEntryId === worksheet.worksheetEntryId ? { ...sw, isUploading: false } : sw
+                sw.worksheetEntryId === worksheet.worksheetEntryId 
+                    ? { ...sw, isUploading: false, gradingStatus: 'failed', gradingError: errorMessage } 
+                    : sw
             ));
             
-            return { success: false };
+            return { success: false, reason: errorMessage };
         }
     };    
     const handleBatchProcess = async () => {
         const studentsWithFiles = studentWorksheets.filter(sw => 
-            !sw.isAbsent && (sw.page1File || sw.page2File) && sw.worksheetNumber
+            !sw.isAbsent && 
+            (sw.page1File || sw.page2File) && 
+            sw.worksheetNumber &&
+            sw.gradingStatus !== 'queued' &&
+            sw.gradingStatus !== 'processing' &&
+            sw.gradingStatus !== 'uploading'
         );
-          if (studentsWithFiles.length === 0) {
+        
+        if (studentsWithFiles.length === 0) {
             toast.error('No worksheets to process. Please upload page images and assign worksheet numbers.');
             return;
         }
@@ -695,33 +754,47 @@ export default function UploadWorksheetPage() {
         ));
         
         try {
-            toast.info(`Processing ${studentsWithFiles.length} worksheet${studentsWithFiles.length !== 1 ? 's' : ''}`);
+            toast.info(`Queuing ${studentsWithFiles.length} worksheet${studentsWithFiles.length !== 1 ? 's' : ''} for AI grading...`);
             const results = await Promise.allSettled(
                 studentsWithFiles.map(worksheet => handleUpload(worksheet))
             );
             
-            let successful = 0;
+            let queued = 0;
             let failed = 0;
+            let skipped = 0;
             
             results.forEach((result, index) => {
-                if (result.status === 'fulfilled' && result.value?.success) {
-                    successful++;
+                if (result.status === 'fulfilled') {
+                    const value = result.value;
+                    if (value?.success) {
+                        queued++;
+                    } else if (value?.skipped) {
+                        skipped++;
+                    } else {
+                        failed++;
+                        const worksheet = studentsWithFiles[index];
+                        console.error(`Error processing worksheet for ${worksheet.name}:`, value?.reason || 'Unknown error');
+                    }
                 } else {
                     failed++;
                     const worksheet = studentsWithFiles[index];
-                    console.error(`Error processing worksheet for ${worksheet.name}:`, result);
+                    console.error(`Error processing worksheet for ${worksheet.name}:`, result.reason);
                 }
             });
             
-            if (successful > 0) {
-                toast.success(`Successfully processed ${successful} worksheet${successful !== 1 ? 's' : ''}!`);
+            if (queued > 0) {
+                toast.success(`${queued} worksheet${queued !== 1 ? 's' : ''} queued for grading!`);
             }
             
             if (failed > 0) {
-                toast.error(`Failed to process ${failed} worksheet${failed !== 1 ? 's' : ''}.`);
+                toast.error(`Failed to queue ${failed} worksheet${failed !== 1 ? 's' : ''}.`);
             }
             
-            if (successful === 0 && failed === 0) {
+            if (skipped > 0) {
+                toast.info(`${skipped} worksheet${skipped !== 1 ? 's' : ''} skipped (already processing or absent).`);
+            }
+            
+            if (queued === 0 && failed === 0 && skipped === 0) {
                 toast.info('No worksheets were processed.');
             }
         } catch (error) {
@@ -1198,51 +1271,28 @@ export default function UploadWorksheetPage() {
                             <div>
                                 {filteredStudentWorksheets.length > 0 ? (
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 p-2 md:p-0">
-                                        {(() => {
-                                            // Group worksheets by studentId for swipe navigation
-                                            const groupedByStudent = filteredStudentWorksheets.reduce((acc, worksheet) => {
-                                                if (!acc[worksheet.studentId]) {
-                                                    acc[worksheet.studentId] = [];
-                                                }
-                                                acc[worksheet.studentId].push(worksheet);
-                                                return acc;
-                                            }, {} as Record<string, typeof filteredStudentWorksheets>);
+                                        {groupedWorksheetData.uniqueStudentIds.map(studentId => {
+                                            const studentWorksheetsList = groupedWorksheetData.groupedByStudent[studentId];
                                             
-                                            // Get unique students in order (first occurrence)
-                                            const seenStudents = new Set<string>();
-                                            const uniqueStudentIds = filteredStudentWorksheets
-                                                .filter(w => {
-                                                    if (seenStudents.has(w.studentId)) return false;
-                                                    seenStudents.add(w.studentId);
-                                                    return true;
-                                                })
-                                                .map(w => w.studentId);
+                                            // Use memoized index map for O(1) lookup
+                                            const indices = studentWorksheetsList.map(w => 
+                                                worksheetIndexMap.get(w.worksheetEntryId) ?? -1
+                                            );
                                             
-                                            return uniqueStudentIds.map(studentId => {
-                                                const studentWorksheetsList = groupedByStudent[studentId];
-                                                // Sort by entry index to ensure correct order
-                                                studentWorksheetsList.sort((a, b) => a.worksheetEntryIndex - b.worksheetEntryIndex);
-                                                
-                                                // Get indices in sortedStudentWorksheets for each worksheet
-                                                const indices = studentWorksheetsList.map(w => 
-                                                    sortedStudentWorksheets.findIndex(sw => sw.worksheetEntryId === w.worksheetEntryId)
-                                                );
-                                                
-                                                return (
-                                                    <StudentWorksheetCard 
-                                                        key={studentId}
-                                                        worksheets={studentWorksheetsList}
-                                                        indices={indices}
-                                                        onUpdate={handleUpdateWorksheet}
-                                                        onPageFileChange={handlePageFileChange}
-                                                        onUpload={handleUpload}
-                                                        onSave={handleSaveStudent}
-                                                        onAddWorksheet={handleAddWorksheetEntry}
-                                                        onRemoveWorksheet={handleRemoveWorksheetEntry}
-                                                    />
-                                                );
-                                            });
-                                        })()}
+                                            return (
+                                                <StudentWorksheetCard 
+                                                    key={studentId}
+                                                    worksheets={studentWorksheetsList}
+                                                    indices={indices}
+                                                    onUpdate={handleUpdateWorksheet}
+                                                    onPageFileChange={handlePageFileChange}
+                                                    onUpload={handleUpload}
+                                                    onSave={handleSaveStudent}
+                                                    onAddWorksheet={handleAddWorksheetEntry}
+                                                    onRemoveWorksheet={handleRemoveWorksheetEntry}
+                                                />
+                                            );
+                                        })}
                                     </div>
                                 ) : (
                                     <div className="flex justify-center items-center h-40 text-gray-500">
