@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UploadIcon, Camera, Info, CheckCircle, XCircle, AlertCircle, Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
-import { useState, useEffect, useMemo, useRef, TouchEvent, memo } from "react";
+import { useState, useEffect, useMemo, useRef, TouchEvent } from "react";
 import { usePostHog } from 'posthog-js/react';
 
 interface QuestionScore {
@@ -107,7 +107,7 @@ const arePropsEqual = (prevProps: StudentWorksheetCardProps, nextProps: StudentW
     return true;
 };
 
-export const StudentWorksheetCard = memo(function StudentWorksheetCard({ 
+export function StudentWorksheetCard({ 
     worksheets,
     indices,
     onUpdate,
@@ -826,4 +826,4 @@ export const StudentWorksheetCard = memo(function StudentWorksheetCard({
                       
         </div>
     );
-}, arePropsEqual);
+}
