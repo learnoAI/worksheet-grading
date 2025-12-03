@@ -1274,7 +1274,6 @@ export default function UploadWorksheetPage() {
                                         {groupedWorksheetData.uniqueStudentIds.map(studentId => {
                                             const studentWorksheetsList = groupedWorksheetData.groupedByStudent[studentId];
                                             
-                                            // Use memoized index map for O(1) lookup
                                             const indices = studentWorksheetsList.map(w => 
                                                 worksheetIndexMap.get(w.worksheetEntryId) ?? -1
                                             );

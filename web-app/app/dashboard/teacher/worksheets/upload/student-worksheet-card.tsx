@@ -94,7 +94,11 @@ const arePropsEqual = (prevProps: StudentWorksheetCardProps, nextProps: StudentW
             prev.page1File !== next.page1File ||
             prev.page2File !== next.page2File ||
             prev.isRepeated !== next.isRepeated ||
-            prev.existing !== next.existing
+            prev.existing !== next.existing ||
+            prev.isIncorrectGrade !== next.isIncorrectGrade ||
+            prev.wrongQuestionNumbers !== next.wrongQuestionNumbers ||
+            prev.id !== next.id ||
+            prev.gradingDetails !== next.gradingDetails
         ) {
             return false;
         }
