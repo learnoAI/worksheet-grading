@@ -69,154 +69,89 @@ function convertToFullDayRange(startDateStr: string, endDateStr: string) {
 export const getOverallAnalytics = async (req: Request, res: Response) => {
     try {
         const { startDate, endDate, schoolIds } = req.query;
-        
+
         if (!startDate || !endDate) {
             return res.status(400).json({ message: 'Start date and end date are required' });
         }
 
-        // Create cache key from request parameters
-        // const cacheKey = getCacheKey({ startDate, endDate, schoolIds });
-        
-        // // Check cache first
-        // const cachedResult = getCache(cacheKey);
-        // if (cachedResult) {
-        //     return res.status(200).json(cachedResult);
-        // }
+        const startDateStr = String(startDate);
+        const endDateStr = String(endDate);
+
+        // Validate incoming dates early to avoid bad queries
+        const parsedStart = new Date(startDateStr);
+        const parsedEnd = new Date(endDateStr);
+        if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
+            return res.status(400).json({ message: 'Invalid start or end date' });
+        }
+
+        // Parse and sanitize schoolIds into a string array (or undefined)
+        const schoolIdArray = (() => {
+            if (!schoolIds) return undefined;
+            const arr = Array.isArray(schoolIds) ? schoolIds : [schoolIds];
+            const cleaned = arr
+                .map(id => (id ?? '').toString().trim())
+                .filter(id => id.length > 0);
+            return cleaned.length > 0 ? cleaned : undefined;
+        })();
 
         // Parse date strings to Date objects with full day range
-        const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
-        
-        // Build filter object - always exclude archived schools and classes
-        const filter: any = {
-            submittedOn: {
-                gte: start,
-                lte: end
-            },
-            class: {
-                isArchived: false, // Only include worksheets from active classes
-                school: {
-                    isArchived: false // Only include worksheets from active schools
-                }
-            }
-        };
+        const { start, end } = convertToFullDayRange(startDateStr, endDateStr);
 
-        // Add school filter if provided (and merge with isArchived filter)
-        if (schoolIds) {
-            const schoolIdArray = Array.isArray(schoolIds) ? schoolIds : [schoolIds];
-            filter.class = {
-                ...filter.class,
-                schoolId: {
-                    in: schoolIdArray as string[]
-                }
-            };
-        }
-        
-        // Use parallel aggregation queries for better performance with retry
-        const [
-            totalStats,
-            absentStats,
-            repeatedStats,
-            gradedStats,
-            highScoreStats,
-            excellenceStats
-        ] = await withDatabaseRetry(async () => 
-            Promise.all([
-                // Total worksheets count - exclude ungraded non-absent worksheets
-                prisma.worksheet.count({
-                    where: {
-                        ...filter,
-                        NOT: {
-                            AND: [
-                                { isAbsent: false },
-                                { grade: null }
-                            ]
-                        }
-                    }
-                }),
-            
-            // Absent worksheets count
-            prisma.worksheet.count({
-                where: {
-                    ...filter,
-                    isAbsent: true
-                }
-            }),
-            
-            // Repeated worksheets count
-            prisma.worksheet.count({
-                where: {
-                    ...filter,
-                    isRepeated: true
-                }
-            }),
-            
-            // Graded non-absent worksheets count
-            prisma.worksheet.count({
-                where: {
-                    ...filter,
-                    grade: { not: null },
-                    isAbsent: false
-                }
-            }),
-            
-            // High score count (≥80%) - use raw query for performance
-            prisma.$queryRaw<Array<{count: bigint}>>`
-                SELECT COUNT(*)::bigint as count
+        // Build reusable WHERE clause parts
+        const baseWhere = Prisma.sql`
+            w."submittedOn" >= ${start}::timestamp AND
+            w."submittedOn" <= ${end}::timestamp AND
+            c."isArchived" = false AND
+            s."isArchived" = false
+        `;
+
+        const schoolFilter = schoolIdArray
+            ? Prisma.sql`AND c."schoolId" = ANY(${schoolIdArray}::text[])`
+            : Prisma.empty;
+
+        // Single aggregated query for all metrics to reduce round-trips
+        const [aggregates] = await withDatabaseRetry(async () =>
+            prisma.$queryRaw<Array<{
+                total_submissions: bigint;
+                total_absent: bigint;
+                total_repeated: bigint;
+                total_graded: bigint;
+                high_score: bigint;
+                excellence_score: bigint;
+            }>>`
+                SELECT
+                    COUNT(*)::bigint                               AS total_submissions,
+                    COUNT(*) FILTER (WHERE w."isAbsent")::bigint AS total_absent,
+                    COUNT(*) FILTER (WHERE w."isRepeated")::bigint AS total_repeated,
+                    COUNT(*) FILTER (WHERE w.grade IS NOT NULL AND w."isAbsent" = false)::bigint AS total_graded,
+                    COUNT(*) FILTER (WHERE w.grade IS NOT NULL AND w."isAbsent" = false AND w.grade >= (COALESCE(w."outOf", 40) * 0.8))::bigint AS high_score,
+                    COUNT(*) FILTER (WHERE w.grade IS NOT NULL AND w."isAbsent" = false AND w.grade >= (COALESCE(w."outOf", 40) * 0.9))::bigint AS excellence_score
                 FROM "Worksheet" w
-                LEFT JOIN "Class" c ON w."classId" = c.id
-                LEFT JOIN "School" s ON c."schoolId" = s.id
-                WHERE w."submittedOn" >= ${start}::timestamp
-                AND w."submittedOn" <= ${end}::timestamp
-                AND w.grade IS NOT NULL
-                AND w."isAbsent" = false
-                AND w.grade >= (COALESCE(w."outOf", 40) * 0.8)
-                AND c."isArchived" = false
-                AND s."isArchived" = false
-                ${schoolIds ? 
-                    Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
-                    : Prisma.empty}
-            `,
-            
-            // Excellence score count (≥90%) - use raw query for performance
-            prisma.$queryRaw<Array<{count: bigint}>>`
-                SELECT COUNT(*)::bigint as count
-                FROM "Worksheet" w
-                LEFT JOIN "Class" c ON w."classId" = c.id
-                LEFT JOIN "School" s ON c."schoolId" = s.id
-                WHERE w."submittedOn" >= ${start}::timestamp
-                AND w."submittedOn" <= ${end}::timestamp
-                AND w.grade IS NOT NULL
-                AND w."isAbsent" = false
-                AND w.grade >= (COALESCE(w."outOf", 40) * 0.9)
-                AND c."isArchived" = false
-                AND s."isArchived" = false
-                ${schoolIds ? 
-                    Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
-                    : Prisma.empty}
+                JOIN "Class" c ON w."classId" = c.id
+                JOIN "School" s ON c."schoolId" = s.id
+                WHERE ${baseWhere}
+                ${schoolFilter}
             `
-        ])
         );
 
-        // Calculate metrics from aggregated data
-        const totalWorksheets = totalStats;
-        const totalAbsent = absentStats;
-        const totalRepeated = repeatedStats;
-        const totalGraded = gradedStats;
-        
-        const absentPercentage = totalWorksheets > 0 ? (totalAbsent / totalWorksheets) * 100 : 0;
-        const repetitionRate = (totalWorksheets - totalAbsent) > 0 ? (totalRepeated / (totalWorksheets - totalAbsent)) * 100 : 0;
-        
-        const highScoreCount = Number(highScoreStats[0]?.count || 0);
+        const totalSubmissions = Number(aggregates?.total_submissions ?? 0);
+        const totalAbsent = Number(aggregates?.total_absent ?? 0);
+        const totalRepeated = Number(aggregates?.total_repeated ?? 0);
+        const totalGraded = Number(aggregates?.total_graded ?? 0);
+        const highScoreCount = Number(aggregates?.high_score ?? 0);
+        const excellenceScoreCount = Number(aggregates?.excellence_score ?? 0);
+
+        // Derived metrics
+        const totalPresent = Math.max(totalSubmissions - totalAbsent, 0);
+        const absentPercentage = totalSubmissions > 0 ? (totalAbsent / totalSubmissions) * 100 : 0;
+        const repetitionRate = totalPresent > 0 ? (totalRepeated / totalPresent) * 100 : 0;
         const highScorePercentage = totalGraded > 0 ? (highScoreCount / totalGraded) * 100 : 0;
-        
-        const excellenceScoreCount = Number(excellenceStats[0]?.count || 0);
         const excellenceScorePercentage = totalGraded > 0 ? (excellenceScoreCount / totalGraded) * 100 : 0;
-        
-        const needsRepetitionCount = totalGraded - highScoreCount;
+        const needsRepetitionCount = Math.max(totalGraded - highScoreCount, 0);
         const needsRepetitionPercentage = totalGraded > 0 ? (needsRepetitionCount / totalGraded) * 100 : 0;
-        
+
         const result = {
-            totalWorksheets: totalWorksheets, // Non-absent worksheets for consistency
+            totalWorksheets: totalSubmissions,
             totalAbsent,
             absentPercentage,
             totalRepeated,
@@ -231,8 +166,9 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         };
 
         // Cache the result
+        // const cacheKey = getCacheKey({ startDate: startDateStr, endDate: endDateStr, schoolIds: schoolIdArray });
         // setCache(cacheKey, result);
-        
+
         return res.status(200).json(result);
     } catch (error) {
         console.error('Error getting overall analytics:', error);
