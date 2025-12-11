@@ -63,7 +63,41 @@ export const storeGradingResult = async (req: Request, res: Response) => {
       return Boolean(value);
     };
 
-    // Create worksheet in Postgres
+    const submittedOnDate = new Date(submittedOn);
+    const dayStart = new Date(submittedOnDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(submittedOnDate);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const existingWorksheet = await prisma.worksheet.findFirst({
+      where: {
+        studentId,
+        classId,
+        templateId: template.id,
+        submittedOn: {
+          gte: dayStart,
+          lte: dayEnd
+        }
+      }
+    });
+
+    if (existingWorksheet) {
+      console.log(`⚠️ Idempotency: Worksheet already exists for job ${jobId} -> Worksheet ${existingWorksheet.id} (skipping duplicate creation)`);
+      
+      const job = await kvService.getJSON<GradingJob>(`job:${jobId}`);
+      if (job) {
+        job.postgresId = existingWorksheet.id;
+        job.updatedAt = new Date().toISOString();
+        await kvService.putJSON(`job:${jobId}`, job);
+      }
+
+      return res.json({
+        success: true,
+        worksheetId: existingWorksheet.id,
+        duplicate: true
+      });
+    }
+
     const worksheet = await prisma.worksheet.create({
       data: {
         classId,
@@ -74,7 +108,7 @@ export const storeGradingResult = async (req: Request, res: Response) => {
         outOf: gradingDetails?.total_possible || 40,
         notes: 'Auto-graded via background job',
         status: ProcessingStatus.COMPLETED,
-        submittedOn: new Date(submittedOn),
+        submittedOn: submittedOnDate,
         isAbsent: false,
         isRepeated: isRepeated !== undefined ? toBoolean(isRepeated) : false,
         isCorrectGrade: isCorrectGrade !== undefined ? toBoolean(isCorrectGrade) : false,
@@ -84,7 +118,7 @@ export const storeGradingResult = async (req: Request, res: Response) => {
       }
     });
 
-    console.log(`Stored grading result for job ${jobId} -> Worksheet ${worksheet.id}`);
+    console.log(`✅ Stored grading result for job ${jobId} -> Worksheet ${worksheet.id}`);
 
     // Update job in KV with Postgres ID
     const job = await kvService.getJSON<GradingJob>(`job:${jobId}`);
