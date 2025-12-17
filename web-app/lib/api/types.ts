@@ -91,8 +91,10 @@ export interface ClassJobsStatus {
     failed: number;
     jobs: Array<{
         jobId: string;
+        studentId: string;
         studentName: string;
         tokenNo: string;
+        worksheetNumber: number;
         status: GradingJobStatus;
         result?: GradingJobResult;
         postgresId?: string;

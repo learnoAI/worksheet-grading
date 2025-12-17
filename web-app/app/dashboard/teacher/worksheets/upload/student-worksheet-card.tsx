@@ -54,7 +54,7 @@ interface StudentWorksheet {
     existing?: boolean;
     // Background job fields
     jobId?: string;
-    gradingStatus?: 'idle' | 'uploading' | 'queued' | 'processing' | 'completed' | 'failed';
+    gradingStatus?: 'idle' | 'uploading' | 'queued' | 'pending' | 'processing' | 'completed' | 'failed';
     gradingError?: string;
 }
 
@@ -381,7 +381,7 @@ export function StudentWorksheetCard({
                     </span>
                 )}
                 {/* Grading Status Badge */}
-                {worksheet.gradingStatus === 'queued' && (
+                {(worksheet.gradingStatus === 'queued' || worksheet.gradingStatus === 'pending') && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                         Queued
                     </span>
@@ -696,11 +696,21 @@ export function StudentWorksheetCard({
                     <div className="flex w-full md:w-auto space-x-2">
                         <Button 
                             onClick={() => onUpload(worksheet)}
-                            disabled={worksheet.isAbsent || worksheet.isUploading || (!worksheet.page1File && !worksheet.page2File) || !worksheet.worksheetNumber}
+                            disabled={
+                                worksheet.isAbsent || 
+                                worksheet.isUploading || 
+                                (!worksheet.page1File && !worksheet.page2File) || 
+                                !worksheet.worksheetNumber ||
+                                worksheet.gradingStatus === 'queued' ||
+                                worksheet.gradingStatus === 'pending' ||
+                                worksheet.gradingStatus === 'processing'
+                            }
                             className="bg-blue-600 hover:bg-blue-700 text-white flex-1 md:flex-none"
                             size="sm"
                         >
-                            {worksheet.isUploading ? "Processing..." : "AI Grade"}
+                            {worksheet.isUploading ? "Processing..." : 
+                             (worksheet.gradingStatus === 'queued' || worksheet.gradingStatus === 'pending') ? "Queued" :
+                             worksheet.gradingStatus === 'processing' ? "Grading..." : "AI Grade"}
                         </Button>
                         <Button
                             onClick={() => onSave(worksheet)}

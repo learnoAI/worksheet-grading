@@ -62,7 +62,7 @@ interface StudentWorksheet {
     id?: string;
     existing?: boolean;
     jobId?: string;
-    gradingStatus?: 'idle' | 'uploading' | 'queued' | 'processing' | 'completed' | 'failed';
+    gradingStatus?: 'idle' | 'uploading' | 'queued' | 'pending' | 'processing' | 'completed' | 'failed';
     gradingError?: string;
     // Multi-worksheet support
     worksheetEntryId: string; // Unique identifier for this worksheet entry
@@ -224,8 +224,24 @@ export default function UploadWorksheetPage() {
             try {
                 setIsFetchingTableData(true);
                 
-                const studentsData = await classAPI.getClassStudents(selectedClass);
+                // Fetch students and pending jobs in parallel
+                const [studentsData, pendingJobsResponse] = await Promise.all([
+                    classAPI.getClassStudents(selectedClass),
+                    gradingJobsAPI.getJobsByClass(selectedClass, submittedOn).catch(() => ({ jobs: [] }))
+                ]);
                 
+                // Create a map of pending/processing jobs by studentId+worksheetNumber
+                const pendingJobsMap = new Map<string, { jobId: string; status: 'pending' | 'processing' | 'completed' | 'failed'; worksheetNumber: number }>();
+                for (const job of (pendingJobsResponse.jobs || [])) {
+                    if (job.status === 'pending' || job.status === 'processing') {
+                        const key = `${job.studentId}-${job.worksheetNumber}`;
+                        pendingJobsMap.set(key, { 
+                            jobId: job.jobId, 
+                            status: job.status,
+                            worksheetNumber: job.worksheetNumber
+                        });
+                    }
+                }
                 
                 const sortedStudents = sortStudentsByTokenNumber(studentsData);
 
@@ -248,27 +264,36 @@ export default function UploadWorksheetPage() {
                         
                         if (existingWorksheets && existingWorksheets.length > 0) {
                             // Return all existing worksheets as separate entries
-                            return existingWorksheets.map((worksheet, idx) => ({
-                                studentId: student.id,
-                                name: student.name,
-                                tokenNumber: student.tokenNumber,
-                                id: worksheet.id || '',
-                                worksheetNumber: worksheet.isAbsent ? 0 : (worksheet.template?.worksheetNumber || 0),
-                                grade: worksheet.isAbsent ? '' : (worksheet.grade?.toString() || ''),
-                                existing: true,
-                                isAbsent: !!worksheet.isAbsent,
-                                isRepeated: worksheet.isAbsent ? false : (worksheet.isRepeated || false),
-                                isCorrectGrade: worksheet.isCorrectGrade || false,
-                                isIncorrectGrade: worksheet.isIncorrectGrade || false,
-                                isNew: false,
-                                isUploading: false,
-                                page1File: null,
-                                page2File: null,
-                                gradingDetails: worksheet.gradingDetails || undefined,
-                                wrongQuestionNumbers: worksheet.wrongQuestionNumbers || undefined,
-                                worksheetEntryId: generateWorksheetEntryId(student.id, idx),
-                                worksheetEntryIndex: idx
-                            }));
+                            return existingWorksheets.map((worksheet, idx) => {
+                                const wsNumber = worksheet.isAbsent ? 0 : (worksheet.template?.worksheetNumber || 0);
+                                const pendingJobKey = `${student.id}-${wsNumber}`;
+                                const pendingJob = pendingJobsMap.get(pendingJobKey);
+                                
+                                return {
+                                    studentId: student.id,
+                                    name: student.name,
+                                    tokenNumber: student.tokenNumber,
+                                    id: worksheet.id || '',
+                                    worksheetNumber: wsNumber,
+                                    grade: worksheet.isAbsent ? '' : (worksheet.grade?.toString() || ''),
+                                    existing: true,
+                                    isAbsent: !!worksheet.isAbsent,
+                                    isRepeated: worksheet.isAbsent ? false : (worksheet.isRepeated || false),
+                                    isCorrectGrade: worksheet.isCorrectGrade || false,
+                                    isIncorrectGrade: worksheet.isIncorrectGrade || false,
+                                    isNew: false,
+                                    isUploading: false,
+                                    page1File: null,
+                                    page2File: null,
+                                    gradingDetails: worksheet.gradingDetails || undefined,
+                                    wrongQuestionNumbers: worksheet.wrongQuestionNumbers || undefined,
+                                    worksheetEntryId: generateWorksheetEntryId(student.id, idx),
+                                    worksheetEntryIndex: idx,
+                                    // Set job status if there's a pending/processing job
+                                    jobId: pendingJob?.jobId,
+                                    gradingStatus: pendingJob?.status as 'pending' | 'processing' | undefined
+                                };
+                            });
                         }
                         
                         // Get all worksheets up to the selected date (not a future date)
@@ -344,6 +369,10 @@ export default function UploadWorksheetPage() {
                             }
                         }
                         
+                        // Check if there's a pending job for this student
+                        const pendingJobKey = `${student.id}-${recommendedWorksheetNumber}`;
+                        const pendingJob = pendingJobsMap.get(pendingJobKey);
+                        
                         // Return single worksheet entry for new student
                         return [{
                             studentId: student.id,
@@ -362,7 +391,10 @@ export default function UploadWorksheetPage() {
                             page1File: null,
                             page2File: null,
                             worksheetEntryId: generateWorksheetEntryId(student.id, 0),
-                            worksheetEntryIndex: 0
+                            worksheetEntryIndex: 0,
+                            // Set job status if there's a pending/processing job
+                            jobId: pendingJob?.jobId,
+                            gradingStatus: pendingJob?.status as 'pending' | 'processing' | undefined
                         }];
                     } catch (error) {
                         return [{
@@ -565,7 +597,7 @@ export default function UploadWorksheetPage() {
         
         setStudentWorksheets(newWorksheets);
     };const handleUpload = async (worksheet: StudentWorksheet): Promise<{ success: boolean; skipped?: boolean; reason?: string }> => {
-        if (worksheet.gradingStatus === 'queued' || worksheet.gradingStatus === 'processing' || worksheet.gradingStatus === 'uploading') {
+        if (worksheet.gradingStatus === 'queued' || worksheet.gradingStatus === 'pending' || worksheet.gradingStatus === 'processing' || worksheet.gradingStatus === 'uploading') {
             return { success: false, skipped: true, reason: 'already_processing' };
         }
 
@@ -737,6 +769,7 @@ export default function UploadWorksheetPage() {
             (sw.page1File || sw.page2File) && 
             sw.worksheetNumber &&
             sw.gradingStatus !== 'queued' &&
+            sw.gradingStatus !== 'pending' &&
             sw.gradingStatus !== 'processing' &&
             sw.gradingStatus !== 'uploading'
         );
