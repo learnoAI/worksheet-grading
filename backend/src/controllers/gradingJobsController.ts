@@ -53,6 +53,27 @@ export const createGradingJob = async (req: Request, res: Response) => {
       });
     }
 
+    // IDEMPOTENCY CHECK: Check if a job for this student+worksheet+date already exists
+    const indexKey = `class-date:${classId}:${submittedOn}`;
+    const existingJobIds = await kvService.getJSON<string[]>(indexKey) || [];
+    
+    for (const existingJobId of existingJobIds) {
+      const existingJob = await kvService.getJSON<GradingJob>(`job:${existingJobId}`);
+      if (existingJob && 
+          existingJob.payload.studentId === studentId && 
+          existingJob.payload.worksheetNumber === parseInt(worksheetNumber, 10) &&
+          (existingJob.status === 'pending' || existingJob.status === 'processing')) {
+        console.log(`⚠️ Idempotency: Job already exists for student ${studentId}, worksheet ${worksheetNumber} -> ${existingJobId}`);
+        return res.json({
+          success: true,
+          jobId: existingJobId,
+          status: existingJob.status,
+          duplicate: true,
+          message: 'A grading job for this worksheet is already in progress'
+        });
+      }
+    }
+
     const jobId = uuidv4();
     const now = new Date().toISOString();
     
@@ -94,10 +115,9 @@ export const createGradingJob = async (req: Request, res: Response) => {
     await kvService.putJSON(`job:${jobId}`, job);
 
     // 3. Add to class-date index for quick lookup
-    const indexKey = `class-date:${classId}:${submittedOn}`;
-    const existingIndex = await kvService.getJSON<string[]>(indexKey) || [];
-    existingIndex.push(jobId);
-    await kvService.putJSON(indexKey, existingIndex, {
+    // (reusing indexKey from idempotency check above)
+    existingJobIds.push(jobId);
+    await kvService.putJSON(indexKey, existingJobIds, {
       expirationTtl: 24 * 60 * 60 // 24 hours
     });
 
@@ -397,8 +417,10 @@ export const getJobsByClass = async (req: Request, res: Response) => {
         const job = await kvService.getJSON<GradingJob>(`job:${jobId}`);
         return job ? {
           jobId: job.jobId,
+          studentId: job.payload.studentId,
           studentName: job.payload.studentName,
           tokenNo: job.payload.tokenNo,
+          worksheetNumber: job.payload.worksheetNumber,
           status: job.status,
           result: job.result,
           postgresId: job.postgresId,
