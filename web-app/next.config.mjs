@@ -11,8 +11,8 @@ const nextConfig = {
         source: '/(.*)',
         headers: [
           {
-          key: 'Cache-Control',
-          value: 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            key: 'Cache-Control',
+            value: 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
           },
           {
             key: 'Access-Control-Allow-Origin',
@@ -64,6 +64,10 @@ const nextConfig = {
         protocol: "https",
         hostname: "app.posthog.com",
       },
+      {
+        protocol: "https",
+        hostname: "pub-57d775ae89a74ddca34570cd80d709f4.r2.dev",
+      }
     ],
   },
   onDemandEntries: {
