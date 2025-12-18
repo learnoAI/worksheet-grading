@@ -20,7 +20,8 @@ import {
     markWorksheetAsCorrectlyGraded,
     getWorksheetImages,
     getTotalAiGraded,
-    getStudentGradingDetails
+    getStudentGradingDetails,
+    checkExistsForGrading
 } from '../controllers/worksheetController';
 import { UserRole } from '@prisma/client';
 import { auth, authorizeRoles, asHandler } from '../middleware/utils';
@@ -84,6 +85,20 @@ router.get(
         query('endDate').isISO8601().withMessage('End date must be a valid ISO date')
     ],
     asHandler(findAllWorksheetsByClassStudentDate)
+);
+
+// Check if worksheet exists for grading (pre-upload check)
+router.get(
+    '/check-exists',
+    [
+        auth,
+        authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+        query('classId').notEmpty().withMessage('Class ID is required'),
+        query('studentId').notEmpty().withMessage('Student ID is required'),
+        query('worksheetNumber').notEmpty().isInt().withMessage('Worksheet number is required'),
+        query('submittedOn').notEmpty().withMessage('Submitted on date is required')
+    ],
+    asHandler(checkExistsForGrading)
 );
 
 // Get worksheets by class

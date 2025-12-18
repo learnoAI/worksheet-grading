@@ -27,9 +27,9 @@ max_batch_size = 10
 max_batch_timeout = 5
 max_retries = 0
 
-# Cron Triggers - cleanup every 5 minutes
+# Cron Triggers - cleanup every minute
 [triggers]
-crons = ["*/5 * * * *"]  # Every 5 minutes for cleanup
+crons = ["* * * * *"]  # Every minute for cleanup
 
 # Environment variables
 [vars]

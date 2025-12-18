@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
-import { ProcessingStatus } from '@prisma/client';
+import { ProcessingStatus, Prisma } from '@prisma/client';
 import kvService from '../services/cloudflareKV';
 import { StoreGradingResultRequest, GradingJob } from '../types/gradingJob';
 
@@ -42,20 +42,6 @@ export const storeGradingResult = async (req: Request, res: Response) => {
     // Convert worksheetNumber to integer (in case it comes as string)
     const worksheetNum = typeof worksheetNumber === 'string' ? parseInt(worksheetNumber, 10) : worksheetNumber;
 
-    // Find or create worksheet template
-    let template = await prisma.worksheetTemplate.findFirst({
-      where: { worksheetNumber: worksheetNum }
-    });
-
-    if (!template) {
-      // Create template if it doesn't exist
-      template = await prisma.worksheetTemplate.create({
-        data: {
-          worksheetNumber: worksheetNum
-        }
-      });
-    }
-
     // Helper function to convert string booleans to actual booleans
     const toBoolean = (value: any): boolean => {
       if (typeof value === 'boolean') return value;
@@ -69,71 +55,100 @@ export const storeGradingResult = async (req: Request, res: Response) => {
     const dayEnd = new Date(submittedOnDate);
     dayEnd.setHours(23, 59, 59, 999);
 
-    const existingWorksheet = await prisma.worksheet.findFirst({
-      where: {
-        studentId,
-        classId,
-        templateId: template.id,
-        submittedOn: {
-          gte: dayStart,
-          lte: dayEnd
-        }
-      }
-    });
-
-    if (existingWorksheet) {
-      console.log(`⚠️ Idempotency: Worksheet already exists for job ${jobId} -> Worksheet ${existingWorksheet.id} (skipping duplicate creation)`);
-      
-      const job = await kvService.getJSON<GradingJob>(`job:${jobId}`);
-      if (job) {
-        job.postgresId = existingWorksheet.id;
-        job.updatedAt = new Date().toISOString();
-        await kvService.putJSON(`job:${jobId}`, job);
-      }
-
-      return res.json({
-        success: true,
-        worksheetId: existingWorksheet.id,
-        duplicate: true
+    // Use a transaction with serializable isolation to prevent race conditions
+    // This ensures only one concurrent request can create a worksheet for the same combination
+    const result = await prisma.$transaction(async (tx) => {
+      // Find or create worksheet template
+      let template = await tx.worksheetTemplate.findFirst({
+        where: { worksheetNumber: worksheetNum }
       });
-    }
 
-    const worksheet = await prisma.worksheet.create({
-      data: {
-        classId,
-        studentId,
-        submittedById: submittedById || 'system',
-        templateId: template.id,
-        grade: typeof grade === 'string' ? parseFloat(grade) : grade,
-        outOf: gradingDetails?.total_possible || 40,
-        notes: 'Auto-graded via background job',
-        status: ProcessingStatus.COMPLETED,
-        submittedOn: submittedOnDate,
-        isAbsent: false,
-        isRepeated: isRepeated !== undefined ? toBoolean(isRepeated) : false,
-        isCorrectGrade: isCorrectGrade !== undefined ? toBoolean(isCorrectGrade) : false,
-        isIncorrectGrade: isIncorrectGrade !== undefined ? toBoolean(isIncorrectGrade) : false,
-        mongoDbId: mongoDbId || null,
-        gradingDetails: gradingDetails as any || null
+      if (!template) {
+        // Create template if it doesn't exist
+        template = await tx.worksheetTemplate.create({
+          data: {
+            worksheetNumber: worksheetNum
+          }
+        });
       }
-    });
 
-    console.log(`✅ Stored grading result for job ${jobId} -> Worksheet ${worksheet.id}`);
+      // Check for existing worksheet within the transaction
+      const existingWorksheet = await tx.worksheet.findFirst({
+        where: {
+          studentId,
+          classId,
+          templateId: template.id,
+          submittedOn: {
+            gte: dayStart,
+            lte: dayEnd
+          }
+        }
+      });
+
+      if (existingWorksheet) {
+        console.log(`⚠️ Idempotency: Worksheet already exists for job ${jobId} -> Worksheet ${existingWorksheet.id} (skipping duplicate creation)`);
+        return { existing: true, worksheetId: existingWorksheet.id };
+      }
+
+      // Create new worksheet
+      const worksheet = await tx.worksheet.create({
+        data: {
+          classId,
+          studentId,
+          submittedById: submittedById || 'system',
+          templateId: template.id,
+          grade: typeof grade === 'string' ? parseFloat(grade) : grade,
+          outOf: gradingDetails?.total_possible || 40,
+          notes: 'Auto-graded via background job',
+          status: ProcessingStatus.COMPLETED,
+          submittedOn: submittedOnDate,
+          isAbsent: false,
+          isRepeated: isRepeated !== undefined ? toBoolean(isRepeated) : false,
+          isCorrectGrade: isCorrectGrade !== undefined ? toBoolean(isCorrectGrade) : false,
+          isIncorrectGrade: isIncorrectGrade !== undefined ? toBoolean(isIncorrectGrade) : false,
+          mongoDbId: mongoDbId || null,
+          gradingDetails: gradingDetails as any || null
+        }
+      });
+
+      console.log(`✅ Stored grading result for job ${jobId} -> Worksheet ${worksheet.id}`);
+      return { existing: false, worksheetId: worksheet.id };
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+    });
 
     // Update job in KV with Postgres ID
     const job = await kvService.getJSON<GradingJob>(`job:${jobId}`);
     if (job) {
-      job.postgresId = worksheet.id;
+      job.postgresId = result.worksheetId;
       job.updatedAt = new Date().toISOString();
       await kvService.putJSON(`job:${jobId}`, job);
     }
 
+    if (result.existing) {
+      return res.json({
+        success: true,
+        worksheetId: result.worksheetId,
+        duplicate: true
+      });
+    }
+
     res.json({
       success: true,
-      worksheetId: worksheet.id
+      worksheetId: result.worksheetId
     });
 
   } catch (error) {
+    // Handle serialization failure (race condition) - another transaction won
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+      console.log(`⚠️ Transaction conflict for job - retrying or duplicate was created by another worker`);
+      return res.status(409).json({
+        success: false,
+        error: 'Concurrent modification - please retry',
+        retryable: true
+      });
+    }
+
     console.error('Error storing grading result:', error);
     res.status(500).json({
       success: false,

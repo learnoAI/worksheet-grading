@@ -249,7 +249,7 @@ export const getWorksheetById = async (req: Request, res: Response) => {
 
 // Get classes for a teacher
 export const getTeacherClasses = async (req: Request, res: Response) => {
-    const { teacherId } = req.params;    const classes = await prisma.teacherClass.findMany({
+    const { teacherId } = req.params; const classes = await prisma.teacherClass.findMany({
         where: {
             teacherId: teacherId,
             class: {
@@ -658,9 +658,9 @@ export const getPreviousWorksheets = async (req: Request, res: Response) => {
     try {
         const endDateObj = new Date(endDate as string);
         const currentDate = new Date();
-        
+
         const isFutureDate = endDateObj > currentDate;
-        
+
         const worksheets = await prisma.worksheet.findMany({
             where: {
                 classId: classId as string,
@@ -807,7 +807,7 @@ export const updateWorksheetAdminComments = async (req: Request, res: Response) 
             }
         });
 
-        return res.status(200).json({ 
+        return res.status(200).json({
             message: 'Admin comments updated successfully',
             worksheet: updatedWorksheet
         });
@@ -839,7 +839,7 @@ export const markWorksheetAsCorrectlyGraded = async (req: Request, res: Response
             }
         });
 
-        return res.status(200).json({ 
+        return res.status(200).json({
             message: 'Worksheet marked as correctly graded',
             worksheet: updatedWorksheet
         });
@@ -865,7 +865,7 @@ export const getWorksheetImages = async (req: Request, res: Response) => {
 
     if (!pythonApiUrl) {
         console.error('PYTHON_API_URL environment variable not set');
-        return res.status(500).json({ 
+        return res.status(500).json({
             message: 'Server configuration error: PYTHON_API_URL not set'
         });
     }
@@ -888,7 +888,7 @@ export const getWorksheetImages = async (req: Request, res: Response) => {
 
         if (!response.ok) {
             const error = await response.json();
-            return res.status(response.status).json({ 
+            return res.status(response.status).json({
                 message: error.message || 'Failed to fetch images from Python API'
             });
         }
@@ -909,19 +909,19 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
 
     if (!pythonApiUrl) {
         console.error('PYTHON_API_URL environment variable not set');
-        return res.status(500).json({ 
+        return res.status(500).json({
             message: 'Server configuration error: PYTHON_API_URL not set'
         });
     }
 
     try {
         const { startDate, endDate } = req.body;
-        
+
         // Build the request body for Python API
         const requestBody: { full: boolean; start_time?: string; end_time?: string } = {
             full: !startDate && !endDate, // full is true if no dates provided
         };
-        
+
         if (startDate) {
             requestBody.start_time = startDate;
         }
@@ -939,7 +939,7 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
 
         if (!response.ok) {
             const error = await response.json();
-            return res.status(response.status).json({ 
+            return res.status(response.status).json({
                 message: error.message || 'Failed to fetch total AI graded count from Python API'
             });
         }
@@ -968,7 +968,7 @@ export const getStudentGradingDetails = async (req: Request, res: Response) => {
 
     if (!pythonApiUrl) {
         console.error('PYTHON_API_URL environment variable not set');
-        return res.status(500).json({ 
+        return res.status(500).json({
             message: 'Server configuration error: PYTHON_API_URL not set'
         });
     }
@@ -999,7 +999,7 @@ export const getStudentGradingDetails = async (req: Request, res: Response) => {
 
         if (!response.ok) {
             const error = await response.json();
-            return res.status(response.status).json({ 
+            return res.status(response.status).json({
                 message: error.message || 'Failed to fetch grading details from Python API'
             });
         }
@@ -1009,5 +1009,66 @@ export const getStudentGradingDetails = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Get student grading details error:', error);
         return res.status(500).json({ message: 'Server error while fetching student grading details' });
+    }
+};
+
+// Check if worksheet exists for grading (pre-upload check)
+// @route GET /api/worksheets/check-exists
+export const checkExistsForGrading = async (req: Request, res: Response) => {
+    try {
+        const { classId, studentId, worksheetNumber, submittedOn } = req.query;
+
+        if (!classId || !studentId || !worksheetNumber || !submittedOn) {
+            return res.status(400).json({
+                exists: false,
+                message: 'Missing required parameters'
+            });
+        }
+
+        const worksheetNum = parseInt(worksheetNumber as string, 10);
+        const submittedOnDate = new Date(submittedOn as string);
+        const dayStart = new Date(submittedOnDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(submittedOnDate);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        // Find template for this worksheet number
+        const template = await prisma.worksheetTemplate.findFirst({
+            where: { worksheetNumber: worksheetNum }
+        });
+
+        if (!template) {
+            return res.json({ exists: false });
+        }
+
+        // Check if worksheet exists
+        const existing = await prisma.worksheet.findFirst({
+            where: {
+                studentId: studentId as string,
+                classId: classId as string,
+                templateId: template.id,
+                submittedOn: {
+                    gte: dayStart,
+                    lte: dayEnd
+                }
+            },
+            select: {
+                id: true,
+                grade: true
+            }
+        });
+
+        if (existing) {
+            return res.json({
+                exists: true,
+                worksheetId: existing.id,
+                grade: existing.grade
+            });
+        }
+
+        return res.json({ exists: false });
+    } catch (error) {
+        console.error('Check exists for grading error:', error);
+        return res.status(500).json({ exists: false, message: 'Server error' });
     }
 };
