@@ -27,8 +27,9 @@ const upload = multer({
 // Process worksheets through Python API
 router.post(
     '/process',
+    auth,
+    upload.array('files', 10), // Allow up to 10 images with field name 'files'
     [
-        upload.array('files', 10), // Allow up to 10 images with field name 'files'
         body('token_no').notEmpty().withMessage('Token number is required'),
         body('worksheet_name').notEmpty().withMessage('Worksheet name is required')
     ],

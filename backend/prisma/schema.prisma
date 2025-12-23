@@ -26,6 +26,8 @@ model User {
   worksheets        Worksheet[]     @relation("SubmittedBy")
   studentWorksheets Worksheet[]     @relation("StudentWorksheets")
   teacherSchools    TeacherSchool[]
+  studentGradingJobs GradingJob[]   @relation("StudentGradingJobs")
+  teacherGradingJobs GradingJob[]   @relation("TeacherGradingJobs")
 }
 
 model School {
@@ -61,6 +63,7 @@ model Class {
   studentClasses StudentClass[]
   teacherClasses TeacherClass[]
   worksheets     Worksheet[]
+  gradingJobs    GradingJob[]
 }
 
 model TeacherClass {
@@ -237,4 +240,35 @@ enum ProcessingStatus {
 enum NotificationStatus {
   READ
   UNREAD
+}
+
+enum GradingJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model GradingJob {
+  id              String           @id @default(uuid())
+  studentId       String
+  student         User             @relation("StudentGradingJobs", fields: [studentId], references: [id])
+  studentName     String           // Denormalized for quick display
+  worksheetNumber Int
+  classId         String
+  class           Class            @relation(fields: [classId], references: [id])
+  teacherId       String
+  teacher         User             @relation("TeacherGradingJobs", fields: [teacherId], references: [id])
+  status          GradingJobStatus @default(QUEUED)
+  worksheetId     String?          // Set after worksheet created/updated
+  errorMessage    String?
+  submittedOn     DateTime         // The date the worksheet was submitted for
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  completedAt     DateTime?
+
+  @@index([teacherId, status])
+  @@index([teacherId, createdAt])
+  @@index([classId, createdAt])
+  @@index([status, createdAt])
 }

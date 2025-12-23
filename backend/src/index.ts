@@ -10,6 +10,7 @@ import analyticsRoutes from './routes/analyticsRoutes';
 import worksheetProcessingRoutes from './routes/worksheetProcessingRoutes';
 import classRoutes from './routes/classRoutes';
 import schoolRoutes from './routes/schoolRoutes';
+import gradingJobRoutes from './routes/gradingJobRoutes';
 import config from './config/env';
 import './services/queueService'; // Initialize queue
 
@@ -20,10 +21,10 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: config.corsOrigins === '*' ? true : config.corsOrigins,
-  credentials: true,
-  methods: ['*'],
-  allowedHeaders: ['*']
+    origin: config.corsOrigins === '*' ? true : config.corsOrigins,
+    credentials: true,
+    methods: ['*'],
+    allowedHeaders: ['*']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -38,6 +39,7 @@ app.use('/api/analytics', analyticsRoutes); // Add analytics routes
 app.use('/api/worksheet-processing', worksheetProcessingRoutes); // Add worksheet processing routes
 app.use('/api/classes', classRoutes); // Add class management routes
 app.use('/api/schools', schoolRoutes); // Add school management routes
+app.use('/api/grading-jobs', gradingJobRoutes); // Add grading job routes
 
 // Health check route
 app.get('/health', (req: Request, res: Response) => {
