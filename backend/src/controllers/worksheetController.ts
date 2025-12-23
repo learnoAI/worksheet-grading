@@ -3,7 +3,7 @@ import { validationResult } from 'express-validator';
 import prisma from '../utils/prisma';
 import { uploadToS3 } from '../services/s3Service';
 import { enqueueWorksheet } from '../services/queueService';
-import { ProcessingStatus } from '@prisma/client';
+import { ProcessingStatus, Prisma } from '@prisma/client';
 import fetch from 'node-fetch';
 
 interface MulterFile extends Express.Multer.File { }
@@ -416,6 +416,14 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
         console.log(`Successfully created worksheet for student ${studentId}, worksheet number ${worksheetNum}`);
         res.status(201).json(worksheet);
     } catch (error) {
+        // Handle unique constraint violation - duplicate worksheet
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+            console.log(`⚠️ Unique constraint violation in createGradedWorksheet - duplicate exists`);
+            return res.status(409).json({
+                message: 'Worksheet already exists for this student, class, and date',
+                duplicate: true
+            });
+        }
         console.error('Create graded worksheet error:', error);
         return res.status(500).json({ message: 'Server error while creating worksheet' });
     }

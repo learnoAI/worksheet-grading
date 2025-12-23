@@ -149,6 +149,54 @@ export const storeGradingResult = async (req: Request, res: Response) => {
       });
     }
 
+    // Handle unique constraint violation - duplicate was created by another request
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      console.log(`⚠️ Unique constraint violation - duplicate worksheet exists, finding it...`);
+
+      // Find the existing worksheet that caused the conflict
+      const { classId, studentId, worksheetNumber, submittedOn } = req.body;
+      const worksheetNum = typeof worksheetNumber === 'string' ? parseInt(worksheetNumber, 10) : worksheetNumber;
+      const submittedOnDate = new Date(submittedOn);
+      const dayStart = new Date(submittedOnDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(submittedOnDate);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      try {
+        const template = await prisma.worksheetTemplate.findFirst({
+          where: { worksheetNumber: worksheetNum }
+        });
+
+        if (template) {
+          const existingWorksheet = await prisma.worksheet.findFirst({
+            where: {
+              studentId,
+              classId,
+              templateId: template.id,
+              submittedOn: { gte: dayStart, lte: dayEnd }
+            }
+          });
+
+          if (existingWorksheet) {
+            console.log(`✅ Found existing worksheet ${existingWorksheet.id} after unique constraint violation`);
+            return res.json({
+              success: true,
+              worksheetId: existingWorksheet.id,
+              duplicate: true
+            });
+          }
+        }
+      } catch (findError) {
+        console.error('Error finding existing worksheet after constraint violation:', findError);
+      }
+
+      return res.status(409).json({
+        success: false,
+        error: 'Duplicate worksheet already exists',
+        duplicate: true
+      });
+    }
+
     console.error('Error storing grading result:', error);
     res.status(500).json({
       success: false,

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 
 // Date range: December 1-20, 2025
 const START_DATE = new Date('2025-12-01T00:00:00.000Z');
-const END_DATE = new Date('2025-12-20T23:59:59.999Z');
+const END_DATE = new Date('2025-12-22T23:59:59.999Z');
 
 interface DuplicateGroup {
   key: string;
@@ -52,13 +52,13 @@ async function detectDuplicates() {
 
   // Group by student + class + template + day
   const groups = new Map<string, typeof worksheets>();
-  
+
   for (const ws of worksheets) {
     if (!ws.studentId || !ws.templateId || !ws.submittedOn) continue;
-    
+
     const day = ws.submittedOn.toISOString().split('T')[0];
     const key = `${ws.studentId}|${ws.classId}|${ws.templateId}|${day}`;
-    
+
     if (!groups.has(key)) {
       groups.set(key, []);
     }
@@ -67,12 +67,12 @@ async function detectDuplicates() {
 
   // Find duplicate groups (count > 1)
   const duplicateGroups: DuplicateGroup[] = [];
-  
+
   for (const [key, group] of groups) {
     if (group.length > 1) {
       // Sort by createdAt ascending - keep oldest
       group.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-      
+
       const [first, ...rest] = group;
       duplicateGroups.push({
         key,
@@ -93,7 +93,7 @@ async function detectDuplicates() {
   }
 
   const totalDuplicates = duplicateGroups.reduce((sum, g) => sum + g.delete.length, 0);
-  
+
   console.log(`🔢 Found ${duplicateGroups.length} duplicate groups`);
   console.log(`🗑️  Total duplicates to delete: ${totalDuplicates}\n`);
 
