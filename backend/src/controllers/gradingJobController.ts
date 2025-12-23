@@ -73,7 +73,8 @@ export const getJobsByClass = async (req: Request, res: Response) => {
         const jobs = await prisma.gradingJob.findMany({
             where: {
                 classId,
-                createdAt: {
+                // Filter by submittedOn (the date the worksheet is for) not createdAt
+                submittedOn: {
                     gte: queryDate,
                     lt: nextDay
                 }
@@ -88,7 +89,8 @@ export const getJobsByClass = async (req: Request, res: Response) => {
                 worksheetId: true,
                 errorMessage: true,
                 createdAt: true,
-                completedAt: true
+                completedAt: true,
+                submittedOn: true
             }
         });
 

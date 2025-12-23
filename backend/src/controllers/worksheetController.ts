@@ -249,7 +249,7 @@ export const getWorksheetById = async (req: Request, res: Response) => {
 
 // Get classes for a teacher
 export const getTeacherClasses = async (req: Request, res: Response) => {
-    const { teacherId } = req.params;    const classes = await prisma.teacherClass.findMany({
+    const { teacherId } = req.params; const classes = await prisma.teacherClass.findMany({
         where: {
             teacherId: teacherId,
             class: {
@@ -328,13 +328,10 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
     const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isIncorrectGrade, gradingDetails, wrongQuestionNumbers } = req.body;
     const submittedById = req.user?.userId;
 
-    // Add logging to track the incoming requests
-    console.log('Create worksheet request:', { classId, studentId, worksheetNumber, grade, isAbsent, isRepeated, submittedOn, hasGradingDetails: !!gradingDetails });
 
     try {
         // If student is absent, create a record marking them as absent
         if (isAbsent) {
-            console.log('Creating absent record for student');
             const worksheet = await prisma.worksheet.create({
                 data: {
                     class: {
@@ -381,7 +378,6 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
         });
 
         if (!template) {
-            console.log(`Warning: No template found for worksheet number ${worksheetNum}, creating without template`);
         }
 
         const worksheet = await prisma.worksheet.create({
@@ -413,7 +409,6 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
             }
         });
 
-        console.log(`Successfully created worksheet for student ${studentId}, worksheet number ${worksheetNum}`);
         res.status(201).json(worksheet);
     } catch (error) {
         console.error('Create graded worksheet error:', error);
@@ -457,18 +452,61 @@ export const findWorksheetByClassStudentDate = async (req: Request, res: Respons
             }
         });
 
-        // Debug logging to check if gradingDetails is present
-        if (worksheet) {
-            console.log(`Found worksheet ${worksheet.id}, gradingDetails present: ${!!worksheet.gradingDetails}`);
-            if (worksheet.gradingDetails) {
-                console.log('GradingDetails keys:', Object.keys(worksheet.gradingDetails));
-            }
-        }
-
         return res.status(200).json(worksheet);
     } catch (error) {
         console.error('Find worksheet error:', error);
         return res.status(500).json({ message: 'Server error while finding worksheet' });
+    }
+};
+
+// Find ALL worksheets by class, student, and date range (for multiple worksheets per day)
+export const findAllWorksheetsByClassStudentDate = async (req: Request, res: Response) => {
+    const { classId, studentId, startDate, endDate } = req.query;
+
+    if (!classId || !studentId || !startDate || !endDate) {
+        return res.status(400).json({ message: 'Missing required query parameters' });
+    }
+
+    try {
+        const worksheets = await prisma.worksheet.findMany({
+            where: {
+                classId: classId as string,
+                studentId: studentId as string,
+                submittedOn: {
+                    gte: new Date(startDate as string),
+                    lt: new Date(endDate as string)
+                }
+            },
+            include: {
+                submittedBy: {
+                    select: {
+                        id: true,
+                        username: true,
+                        role: true
+                    }
+                },
+                class: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                },
+                template: true,
+                images: {
+                    orderBy: {
+                        pageNumber: 'asc'
+                    }
+                }
+            },
+            orderBy: {
+                createdAt: 'asc'
+            }
+        });
+
+        return res.status(200).json(worksheets);
+    } catch (error) {
+        console.error('Find all worksheets error:', error);
+        return res.status(500).json({ message: 'Server error while finding worksheets' });
     }
 };
 
@@ -477,9 +515,6 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isIncorrectGrade, gradingDetails } = req.body;
     const submittedById = req.user?.userId;
-
-    // Add logging to track the incoming requests
-    console.log('Update worksheet request:', { id, classId, studentId, worksheetNumber, grade, isAbsent, isRepeated, submittedOn, hasGradingDetails: !!gradingDetails });
 
     try {
         // Find the existing worksheet
@@ -493,7 +528,6 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
 
         // If student is marked as absent, completely clear all grade data
         if (isAbsent) {
-            console.log('Marking student as absent - clearing all grade data');
             const worksheet = await prisma.worksheet.update({
                 where: { id },
                 data: {
@@ -544,7 +578,6 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
         });
 
         if (!template) {
-            console.log(`Warning: No template found for worksheet number ${worksheetNum}, updating without template`);
         }
 
         const data = {
@@ -578,7 +611,6 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
             data
         });
 
-        console.log(`Successfully updated worksheet ${id}`);
         res.status(200).json(worksheet);
     } catch (error) {
         console.error('Update graded worksheet error:', error);
@@ -588,14 +620,11 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
 
 export const deleteGradedWorksheet = async (req: Request, res: Response) => {
     const { id } = req.params;
-    console.log('Deleting worksheet with ID:', id);
 
     try {
         await prisma.worksheet.delete({
             where: { id }
         });
-
-        console.log('Worksheet deleted successfully', id);
 
         return res.status(200).json({ message: 'Worksheet deleted successfully' });
     } catch (error) {
@@ -614,9 +643,9 @@ export const getPreviousWorksheets = async (req: Request, res: Response) => {
     try {
         const endDateObj = new Date(endDate as string);
         const currentDate = new Date();
-        
+
         const isFutureDate = endDateObj > currentDate;
-        
+
         const worksheets = await prisma.worksheet.findMany({
             where: {
                 classId: classId as string,
@@ -763,7 +792,7 @@ export const updateWorksheetAdminComments = async (req: Request, res: Response) 
             }
         });
 
-        return res.status(200).json({ 
+        return res.status(200).json({
             message: 'Admin comments updated successfully',
             worksheet: updatedWorksheet
         });
@@ -795,7 +824,7 @@ export const markWorksheetAsCorrectlyGraded = async (req: Request, res: Response
             }
         });
 
-        return res.status(200).json({ 
+        return res.status(200).json({
             message: 'Worksheet marked as correctly graded',
             worksheet: updatedWorksheet
         });
@@ -821,7 +850,7 @@ export const getWorksheetImages = async (req: Request, res: Response) => {
 
     if (!pythonApiUrl) {
         console.error('PYTHON_API_URL environment variable not set');
-        return res.status(500).json({ 
+        return res.status(500).json({
             message: 'Server configuration error: PYTHON_API_URL not set'
         });
     }
@@ -844,7 +873,7 @@ export const getWorksheetImages = async (req: Request, res: Response) => {
 
         if (!response.ok) {
             const error = await response.json();
-            return res.status(response.status).json({ 
+            return res.status(response.status).json({
                 message: error.message || 'Failed to fetch images from Python API'
             });
         }
@@ -865,19 +894,19 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
 
     if (!pythonApiUrl) {
         console.error('PYTHON_API_URL environment variable not set');
-        return res.status(500).json({ 
+        return res.status(500).json({
             message: 'Server configuration error: PYTHON_API_URL not set'
         });
     }
 
     try {
         const { startDate, endDate } = req.body;
-        
+
         // Build the request body for Python API
         const requestBody: { full: boolean; start_time?: string; end_time?: string } = {
             full: !startDate && !endDate, // full is true if no dates provided
         };
-        
+
         if (startDate) {
             requestBody.start_time = startDate;
         }
@@ -895,7 +924,7 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
 
         if (!response.ok) {
             const error = await response.json();
-            return res.status(response.status).json({ 
+            return res.status(response.status).json({
                 message: error.message || 'Failed to fetch total AI graded count from Python API'
             });
         }
@@ -924,7 +953,7 @@ export const getStudentGradingDetails = async (req: Request, res: Response) => {
 
     if (!pythonApiUrl) {
         console.error('PYTHON_API_URL environment variable not set');
-        return res.status(500).json({ 
+        return res.status(500).json({
             message: 'Server configuration error: PYTHON_API_URL not set'
         });
     }
@@ -955,7 +984,7 @@ export const getStudentGradingDetails = async (req: Request, res: Response) => {
 
         if (!response.ok) {
             const error = await response.json();
-            return res.status(response.status).json({ 
+            return res.status(response.status).json({
                 message: error.message || 'Failed to fetch grading details from Python API'
             });
         }

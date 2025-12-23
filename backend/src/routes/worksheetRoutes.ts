@@ -11,6 +11,7 @@ import {
     getWorksheetTemplates,
     createGradedWorksheet,
     findWorksheetByClassStudentDate,
+    findAllWorksheetsByClassStudentDate,
     updateGradedWorksheet,
     deleteGradedWorksheet,
     getPreviousWorksheets,
@@ -69,6 +70,20 @@ router.get(
         query('endDate').isISO8601().withMessage('End date must be a valid ISO date')
     ],
     asHandler(findWorksheetByClassStudentDate)
+);
+
+// Find ALL worksheets by class, student, and date (multiple worksheets per day)
+router.get(
+    '/find-all',
+    [
+        auth,
+        authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+        query('classId').notEmpty().withMessage('Class ID is required'),
+        query('studentId').notEmpty().withMessage('Student ID is required'),
+        query('startDate').isISO8601().withMessage('Start date must be a valid ISO date'),
+        query('endDate').isISO8601().withMessage('End date must be a valid ISO date')
+    ],
+    asHandler(findAllWorksheetsByClassStudentDate)
 );
 
 // Get worksheets by class

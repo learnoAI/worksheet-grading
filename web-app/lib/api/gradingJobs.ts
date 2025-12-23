@@ -13,6 +13,7 @@ export interface GradingJob {
     studentId?: string;
     studentName: string;
     worksheetNumber: number;
+    classId?: string;
     status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
     worksheetId?: string;
     errorMessage?: string;
@@ -30,6 +31,11 @@ export const gradingJobsAPI = {
     // Get teacher's jobs summary for today
     getTeacherJobsToday: async (): Promise<TeacherJobsResponse> => {
         return fetchAPI('/grading-jobs/teacher/today');
+    },
+
+    // Get jobs by class and date (for checking active jobs on page load)
+    getJobsByClassAndDate: async (classId: string, date: string): Promise<TeacherJobsResponse> => {
+        return fetchAPI(`/grading-jobs/class/${classId}?date=${encodeURIComponent(date)}`);
     },
 
     // Get single job status
