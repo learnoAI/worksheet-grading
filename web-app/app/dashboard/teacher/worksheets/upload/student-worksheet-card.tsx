@@ -220,8 +220,8 @@ export function StudentWorksheetCard({
 
     return (
         <div
-            className={`rounded-lg border transition-colors relative ${worksheet.isAbsent ? 'bg-gray-50 border-gray-200' :
-                worksheet.grade ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'
+            className={`rounded-lg border-2 transition-colors relative ${worksheet.isAbsent ? 'bg-gray-50 border-gray-800' :
+                worksheet.grade ? 'bg-green-50 border-green-600' : 'bg-white border-gray-400'
                 } p-3 md:p-4`}
         >
             {/* Top right: Plus icon and badges */}
@@ -242,10 +242,10 @@ export function StudentWorksheetCard({
                         disabled={worksheet.isUploading}
                         variant="ghost"
                         size="sm"
-                        className="h-6 w-6 p-0 hover:bg-gray-200"
+                        className="h-6 w-6 p-0 hover:bg-gray-200 bg-white border-green-700 border-2"
                         title="Add another worksheet"
                     >
-                        <Plus size={16} />
+                        <Plus size={16} color="green" />
                     </Button>
                 )}
             </div>
@@ -267,7 +267,7 @@ export function StudentWorksheetCard({
 
             {/* Carousel navigation if multiple worksheets */}
             {totalWorksheets > 1 && (
-                <div className="flex items-center justify-between mb-3 px-2 py-1 bg-gray-100 rounded-lg">
+                <div className="flex items-center justify-between mb-3 px-2 py-1 bg-white rounded-lg border-green-600 border-2">
                     <Button
                         onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
                         disabled={currentIndex === 0}
@@ -288,7 +288,7 @@ export function StudentWorksheetCard({
                                 className="h-5 w-5 p-0 text-red-500 hover:text-red-600"
                                 title="Remove this worksheet"
                             >
-                                <Trash2 size={14} />
+                                <Trash2 size={16} />
                             </Button>
                         )}
                     </div>
