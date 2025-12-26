@@ -85,12 +85,16 @@ export function StudentWorksheetCard({
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const posthog = usePostHog();
 
-    // Current worksheet being viewed
     const worksheet = worksheets[currentIndex] || worksheets[0];
     const totalWorksheets = worksheets.length;
 
+    useEffect(() => {
+        if (currentIndex >= totalWorksheets && totalWorksheets > 0) {
+            setCurrentIndex(totalWorksheets - 1);
+        }
+    }, [totalWorksheets, currentIndex]);
+
     const page1Preview = useMemo(() => {
-        // First try to create blob URL from File
         if (worksheet.page1File) {
             try {
                 return URL.createObjectURL(worksheet.page1File);
@@ -238,7 +242,10 @@ export function StudentWorksheetCard({
                 )}
                 {onAddWorksheet && (
                     <Button
-                        onClick={() => onAddWorksheet(studentId, worksheet.worksheetNumber)}
+                        onClick={() => {
+                            onAddWorksheet(studentId, worksheet.worksheetNumber);
+                            setCurrentIndex(totalWorksheets);
+                        }}
                         disabled={worksheet.isUploading}
                         variant="ghost"
                         size="sm"

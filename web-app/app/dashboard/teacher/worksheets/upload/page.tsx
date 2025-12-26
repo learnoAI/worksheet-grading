@@ -492,13 +492,14 @@ export default function UploadWorksheetPage() {
         const baseWorksheet = existingEntries[0];
 
         if (!baseWorksheet) return;
+        const maxWorksheetNumber = Math.max(...existingEntries.map(e => e.worksheetNumber || 0));
 
         const newWorksheet: StudentWorksheet = {
             worksheetEntryId: `${studentId}-${entryIndex}`,
             studentId: studentId,
             name: baseWorksheet.name,
             tokenNumber: baseWorksheet.tokenNumber,
-            worksheetNumber: currentWorksheetNumber + 1, // Auto-increment
+            worksheetNumber: maxWorksheetNumber + 1,
             grade: '',
             isAbsent: false,
             isUploading: false,
