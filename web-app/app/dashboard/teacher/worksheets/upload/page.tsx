@@ -131,8 +131,15 @@ export default function UploadWorksheetPage() {
         return sortStudentsByTokenNumber(studentWorksheets);
     }, [studentWorksheets]);
 
+    // Count unique students who have at least one graded worksheet
     const gradedCount = useMemo(() => {
-        return studentWorksheets.filter(sw => !sw.isAbsent && sw.worksheetNumber > 0 && sw.grade !== '' && sw.grade !== undefined && sw.grade !== null).length;
+        const gradedStudentIds = new Set<string>();
+        for (const sw of studentWorksheets) {
+            if (!sw.isAbsent && sw.worksheetNumber > 0 && sw.grade !== '' && sw.grade !== undefined && sw.grade !== null) {
+                gradedStudentIds.add(sw.studentId);
+            }
+        }
+        return gradedStudentIds.size;
     }, [studentWorksheets]);
 
     // Group worksheets by studentId for carousel display
@@ -154,8 +161,19 @@ export default function UploadWorksheetPage() {
         return Array.from(groups.values());
     }, [sortedStudentWorksheets]);
 
-    // Total count should include all worksheets (including additional ones)
-    const totalStudents = studentWorksheets.length;
+    const totalStudents = useMemo(() => {
+        const uniqueStudentIds = new Set<string>();
+        for (const sw of studentWorksheets) {
+            uniqueStudentIds.add(sw.studentId);
+        }
+        return uniqueStudentIds.size;
+    }, [studentWorksheets]);
+
+    const totalGradedWorksheets = useMemo(() => {
+        return studentWorksheets.filter(sw =>
+            !sw.isAbsent && sw.worksheetNumber > 0 && sw.grade !== '' && sw.grade !== undefined && sw.grade !== null
+        ).length;
+    }, [studentWorksheets]);
 
     const filteredGroupedStudentWorksheets = useMemo(() => {
         if (!searchTerm.trim()) {
@@ -1226,8 +1244,12 @@ export default function UploadWorksheetPage() {
                 {selectedClass && (
                     <div className="mb-6 space-y-3 md:space-y-0 md:flex md:items-center md:space-x-6 text-sm">
                         <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">
-                            <span className="font-medium">Graded Today:</span>
+                            <span className="font-medium">Students Graded:</span>
                             <span className="font-semibold text-blue-600">{gradedCount} / {totalStudents}</span>
+                        </div>
+                        <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">
+                            <span className="font-medium">Worksheets Graded:</span>
+                            <span className="font-semibold text-purple-600">{totalGradedWorksheets}</span>
                         </div>
                         <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">
                             <span className="font-medium">Completion:</span>
