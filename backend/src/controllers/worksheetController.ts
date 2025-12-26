@@ -672,6 +672,128 @@ export const getPreviousWorksheets = async (req: Request, res: Response) => {
     }
 };
 
+/**
+ * Get all worksheets for a class on a specific date, with history for students without worksheets
+ * @route GET /api/worksheets/class-date
+ */
+export const getClassWorksheetsForDate = async (req: Request, res: Response) => {
+    const { classId, submittedOn } = req.query;
+
+    if (!classId || !submittedOn) {
+        return res.status(400).json({ message: 'Missing required query parameters: classId and submittedOn' });
+    }
+
+    try {
+        const dateStr = submittedOn as string;
+        const date = new Date(dateStr);
+        const startDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const endDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() + 1));
+
+        // 1. Get all students in the class
+        const studentClasses = await prisma.studentClass.findMany({
+            where: {
+                classId: classId as string,
+                student: {
+                    isArchived: false
+                }
+            },
+            include: {
+                student: {
+                    select: {
+                        id: true,
+                        name: true,
+                        tokenNumber: true
+                    }
+                }
+            }
+        });
+
+        const students = studentClasses.map(sc => sc.student);
+        const studentIds = students.map(s => s.id);
+
+        // 2. Fetch all worksheets for this class on this date (single query)
+        const worksheetsOnDate = await prisma.worksheet.findMany({
+            where: {
+                classId: classId as string,
+                studentId: { in: studentIds },
+                submittedOn: {
+                    gte: startDate,
+                    lt: endDate
+                }
+            },
+            include: {
+                template: true,
+                images: {
+                    orderBy: {
+                        pageNumber: 'asc'
+                    }
+                }
+            },
+            orderBy: {
+                createdAt: 'asc'
+            }
+        });
+
+        // Group worksheets by studentId
+        const worksheetsByStudent = new Map<string, typeof worksheetsOnDate>();
+        for (const ws of worksheetsOnDate) {
+            if (ws.studentId) {
+                if (!worksheetsByStudent.has(ws.studentId)) {
+                    worksheetsByStudent.set(ws.studentId, []);
+                }
+                worksheetsByStudent.get(ws.studentId)!.push(ws);
+            }
+        }
+
+        // 3. For students without worksheets on this date, fetch their history
+        const studentsWithoutWorksheets = studentIds.filter(id => !worksheetsByStudent.has(id));
+
+        let studentHistories: Record<string, any[]> = {};
+
+        if (studentsWithoutWorksheets.length > 0) {
+            // Batch fetch history for all students without worksheets (single query)
+            const endDateForHistory = new Date(dateStr);
+            endDateForHistory.setHours(23, 59, 59, 999);
+
+            const allHistoryWorksheets = await prisma.worksheet.findMany({
+                where: {
+                    classId: classId as string,
+                    studentId: { in: studentsWithoutWorksheets },
+                    submittedOn: {
+                        lt: endDateForHistory
+                    },
+                    status: ProcessingStatus.COMPLETED
+                },
+                include: {
+                    template: true
+                },
+                orderBy: {
+                    submittedOn: 'desc'
+                }
+            });
+
+            // Group history by studentId
+            for (const ws of allHistoryWorksheets) {
+                if (ws.studentId) {
+                    if (!studentHistories[ws.studentId]) {
+                        studentHistories[ws.studentId] = [];
+                    }
+                    studentHistories[ws.studentId].push(ws);
+                }
+            }
+        }
+
+        return res.status(200).json({
+            students,
+            worksheetsByStudent: Object.fromEntries(worksheetsByStudent),
+            studentHistories
+        });
+    } catch (error) {
+        console.error('Get class worksheets for date error:', error);
+        return res.status(500).json({ message: 'Server error while retrieving class worksheets' });
+    }
+};
+
 export const getIncorrectGradingWorksheets = async (req: Request, res: Response) => {
     try {
         const { page = '1', pageSize = '10', startDate, endDate } = req.query as {

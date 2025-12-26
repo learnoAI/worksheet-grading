@@ -129,6 +129,19 @@ export const worksheetAPI = {
         }
     },
 
+    // Batch endpoint: Get all worksheets for a class on a specific date
+    getClassWorksheetsForDate: async (classId: string, submittedOn: string): Promise<{
+        students: { id: string; name: string; tokenNumber: string }[];
+        worksheetsByStudent: Record<string, GradedWorksheetData[]>;
+        studentHistories: Record<string, Worksheet[]>;
+    }> => {
+        return fetchAPI<{
+            students: { id: string; name: string; tokenNumber: string }[];
+            worksheetsByStudent: Record<string, GradedWorksheetData[]>;
+            studentHistories: Record<string, Worksheet[]>;
+        }>(`/worksheets/class-date?classId=${encodeURIComponent(classId)}&submittedOn=${encodeURIComponent(submittedOn)}`);
+    },
+
     getIncorrectGradingWorksheets: async (params?: { page?: number; pageSize?: number; startDate?: string; endDate?: string }): Promise<{ data: any[]; total: number; page: number; pageSize: number }> => {
         const query = new URLSearchParams();
         if (params?.page) query.set('page', String(params.page));

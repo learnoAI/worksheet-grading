@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -214,150 +214,108 @@ export default function UploadWorksheetPage() {
             try {
                 setIsFetchingTableData(true);
 
-                const studentsData = await classAPI.getClassStudents(selectedClass);
+                // Use batch endpoint to fetch all data in 1-2 API calls
+                const batchData = await worksheetAPI.getClassWorksheetsForDate(selectedClass, submittedOn);
+                const { students, worksheetsByStudent, studentHistories } = batchData;
 
+                const sortedStudents = sortStudentsByTokenNumber(students);
+                const selectedDateObj = new Date(submittedOn);
+                selectedDateObj.setHours(0, 0, 0, 0);
 
-                const sortedStudents = sortStudentsByTokenNumber(studentsData);
+                // Process the batch data for each student
+                const worksheetArrays: StudentWorksheet[][] = sortedStudents.map((student) => {
+                    const worksheetsOnDate = worksheetsByStudent[student.id] || [];
 
-                const selectedDate = new Date(submittedOn);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                selectedDate.setHours(0, 0, 0, 0);
+                    // If worksheets exist for this date, return them all
+                    if (worksheetsOnDate.length > 0) {
+                        return worksheetsOnDate.map((worksheet: any, index: number) => {
+                            const images = worksheet.images || [];
+                            const page1 = images.find((img: any) => img.pageNumber === 1);
+                            const page2 = images.find((img: any) => img.pageNumber === 2);
 
-                const studentsWithHistory = new Map<string, boolean>();
-
-                const worksheetArrays = await Promise.all(sortedStudents.map(async (student) => {
-                    try {
-                        // Fetch ALL worksheets for this student on the selected date
-                        const worksheetsOnDate = await worksheetAPI.getAllWorksheetsByClassStudentDate(
-                            selectedClass,
-                            student.id,
-                            submittedOn
-                        );
-
-                        // If worksheets exist for this date, return them all
-                        if (worksheetsOnDate && worksheetsOnDate.length > 0) {
-                            return worksheetsOnDate.map((worksheet: any, index: number) => {
-                                // Extract image URLs from the images array
-                                const images = worksheet.images || [];
-                                const page1 = images.find((img: any) => img.pageNumber === 1);
-                                const page2 = images.find((img: any) => img.pageNumber === 2);
-
-                                return {
-                                    worksheetEntryId: `${student.id}-${index}`,
-                                    studentId: student.id,
-                                    name: student.name,
-                                    tokenNumber: student.tokenNumber,
-                                    id: worksheet.id || '',
-                                    worksheetNumber: worksheet.isAbsent ? 0 : (worksheet.template?.worksheetNumber || 0),
-                                    grade: worksheet.isAbsent ? '' : (worksheet.grade?.toString() || ''),
-                                    existing: true,
-                                    isAbsent: !!worksheet.isAbsent,
-                                    isRepeated: worksheet.isAbsent ? false : (worksheet.isRepeated || false),
-                                    isCorrectGrade: worksheet.isCorrectGrade || false,
-                                    isIncorrectGrade: worksheet.isIncorrectGrade || false,
-                                    isNew: false,
-                                    isUploading: false,
-                                    page1File: null,
-                                    page2File: null,
-                                    page1Url: page1?.imageUrl,
-                                    page2Url: page2?.imageUrl,
-                                    gradingDetails: worksheet.gradingDetails || undefined,
-                                    isAdditional: index > 0
-                                };
-                            });
-                        }
-
-                        // No worksheets for today - calculate recommended worksheet number
-                        const endDate = new Date(submittedOn);
-                        endDate.setHours(23, 59, 59, 999);
-
-                        const allWorksheets = await worksheetAPI.getPreviousWorksheets(
-                            selectedClass,
-                            student.id,
-                            endDate.toISOString().split('T')[0]
-                        );
-
-                        const hasHistory = allWorksheets && allWorksheets.length > 0;
-                        studentsWithHistory.set(student.id, hasHistory);
-
-                        const sortedWorksheets = allWorksheets?.sort((a, b) => {
-                            const dateA = new Date(a.submittedOn || '').getTime();
-                            const dateB = new Date(b.submittedOn || '').getTime();
-                            return dateB - dateA;
-                        }) || [];
-
-                        const selectedDateObj = new Date(submittedOn);
-                        selectedDateObj.setHours(0, 0, 0, 0);
-
-                        const latestValidWorksheetBeforeDate = sortedWorksheets.find(ws => {
-                            const worksheetDate = new Date(ws.submittedOn || '');
-                            worksheetDate.setHours(0, 0, 0, 0);
-                            return !ws.isAbsent && ws.grade !== null && ws.grade !== undefined && ws.grade !== 0 && worksheetDate < selectedDateObj;
+                            return {
+                                worksheetEntryId: `${student.id}-${index}`,
+                                studentId: student.id,
+                                name: student.name,
+                                tokenNumber: student.tokenNumber,
+                                id: worksheet.id || '',
+                                worksheetNumber: worksheet.isAbsent ? 0 : (worksheet.template?.worksheetNumber || 0),
+                                grade: worksheet.isAbsent ? '' : (worksheet.grade?.toString() || ''),
+                                existing: true,
+                                isAbsent: !!worksheet.isAbsent,
+                                isRepeated: worksheet.isAbsent ? false : (worksheet.isRepeated || false),
+                                isCorrectGrade: worksheet.isCorrectGrade || false,
+                                isIncorrectGrade: worksheet.isIncorrectGrade || false,
+                                isNew: false,
+                                isUploading: false,
+                                page1File: null,
+                                page2File: null,
+                                page1Url: page1?.imageUrl,
+                                page2Url: page2?.imageUrl,
+                                gradingDetails: worksheet.gradingDetails || undefined,
+                                isAdditional: index > 0
+                            };
                         });
-
-                        let recommendedWorksheetNumber = 0;
-                        let isRepeatedWorksheet = false;
-
-                        if (latestValidWorksheetBeforeDate) {
-                            const score = latestValidWorksheetBeforeDate.grade || 0;
-                            const worksheetNumber = latestValidWorksheetBeforeDate.template?.worksheetNumber || 0;
-
-                            if (score >= PROGRESSION_THRESHOLD) {
-                                recommendedWorksheetNumber = worksheetNumber + 1;
-                                isRepeatedWorksheet = allWorksheets && allWorksheets.some(pw => {
-                                    const pwDate = new Date(pw.submittedOn || '');
-                                    pwDate.setHours(0, 0, 0, 0);
-                                    return !pw.isAbsent && pw.template?.worksheetNumber === recommendedWorksheetNumber && pwDate < selectedDateObj;
-                                });
-                            } else {
-                                recommendedWorksheetNumber = worksheetNumber;
-                                isRepeatedWorksheet = true;
-                            }
-                        } else {
-                            recommendedWorksheetNumber = hasHistory ? 1 : 1;
-                            isRepeatedWorksheet = false;
-                        }
-
-                        return [{
-                            worksheetEntryId: `${student.id}-0`,
-                            studentId: student.id,
-                            name: student.name,
-                            tokenNumber: student.tokenNumber,
-                            id: '',
-                            worksheetNumber: recommendedWorksheetNumber,
-                            grade: '',
-                            existing: false,
-                            isAbsent: false,
-                            isRepeated: isRepeatedWorksheet,
-                            isCorrectGrade: false,
-                            isIncorrectGrade: false,
-                            isNew: !hasHistory,
-                            isUploading: false,
-                            page1File: null,
-                            page2File: null
-                        }];
-                    } catch (error) {
-                        return [{
-                            worksheetEntryId: `${student.id}-0`,
-                            studentId: student.id,
-                            name: student.name,
-                            tokenNumber: student.tokenNumber,
-                            id: '',
-                            worksheetNumber: 0,
-                            grade: '',
-                            existing: false,
-                            isAbsent: false,
-                            isRepeated: false,
-                            isCorrectGrade: false,
-                            isIncorrectGrade: false,
-                            isNew: !studentsWithHistory.get(student.id),
-                            isUploading: false,
-                            page1File: null,
-                            page2File: null
-                        }];
                     }
-                }));
+
+                    // No worksheets for today - calculate recommended worksheet number using pre-fetched history
+                    const allWorksheets = studentHistories[student.id] || [];
+                    const hasHistory = allWorksheets.length > 0;
+
+                    const sortedWorksheets = [...allWorksheets].sort((a, b) => {
+                        const dateA = new Date(a.submittedOn || '').getTime();
+                        const dateB = new Date(b.submittedOn || '').getTime();
+                        return dateB - dateA;
+                    });
+
+                    const latestValidWorksheetBeforeDate = sortedWorksheets.find(ws => {
+                        const worksheetDate = new Date(ws.submittedOn || '');
+                        worksheetDate.setHours(0, 0, 0, 0);
+                        return !ws.isAbsent && ws.grade !== null && ws.grade !== undefined && ws.grade !== 0 && worksheetDate < selectedDateObj;
+                    });
+
+                    let recommendedWorksheetNumber = 0;
+                    let isRepeatedWorksheet = false;
+
+                    if (latestValidWorksheetBeforeDate) {
+                        const score = latestValidWorksheetBeforeDate.grade || 0;
+                        const worksheetNumber = latestValidWorksheetBeforeDate.template?.worksheetNumber || 0;
+
+                        if (score >= PROGRESSION_THRESHOLD) {
+                            recommendedWorksheetNumber = worksheetNumber + 1;
+                            isRepeatedWorksheet = allWorksheets.some(pw => {
+                                const pwDate = new Date(pw.submittedOn || '');
+                                pwDate.setHours(0, 0, 0, 0);
+                                return !pw.isAbsent && pw.template?.worksheetNumber === recommendedWorksheetNumber && pwDate < selectedDateObj;
+                            });
+                        } else {
+                            recommendedWorksheetNumber = worksheetNumber;
+                            isRepeatedWorksheet = true;
+                        }
+                    } else {
+                        recommendedWorksheetNumber = 1;
+                        isRepeatedWorksheet = false;
+                    }
+
+                    return [{
+                        worksheetEntryId: `${student.id}-0`,
+                        studentId: student.id,
+                        name: student.name,
+                        tokenNumber: student.tokenNumber,
+                        id: '',
+                        worksheetNumber: recommendedWorksheetNumber,
+                        grade: '',
+                        existing: false,
+                        isAbsent: false,
+                        isRepeated: isRepeatedWorksheet,
+                        isCorrectGrade: false,
+                        isIncorrectGrade: false,
+                        isNew: !hasHistory,
+                        isUploading: false,
+                        page1File: null,
+                        page2File: null
+                    }];
+                });
 
                 // Flatten the array of arrays into a single array
                 let worksheets = worksheetArrays.flat();

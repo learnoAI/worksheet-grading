@@ -15,6 +15,7 @@ import {
     updateGradedWorksheet,
     deleteGradedWorksheet,
     getPreviousWorksheets,
+    getClassWorksheetsForDate,
     getIncorrectGradingWorksheets,
     updateWorksheetAdminComments,
     markWorksheetAsCorrectlyGraded,
@@ -103,6 +104,18 @@ router.get(
         query('endDate').isISO8601().withMessage('End date must be a valid ISO date')
     ],
     asHandler(getPreviousWorksheets)
+);
+
+// Get all worksheets for a class on a specific date (batch endpoint for performance)
+router.get(
+    '/class-date',
+    [
+        auth,
+        authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+        query('classId').notEmpty().withMessage('Class ID is required'),
+        query('submittedOn').notEmpty().withMessage('Submitted date is required')
+    ],
+    asHandler(getClassWorksheetsForDate)
 );
 
 // Get worksheets flagged as incorrectly graded (superadmin only)
