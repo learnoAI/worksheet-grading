@@ -175,6 +175,16 @@ export default function UploadWorksheetPage() {
         ).length;
     }, [studentWorksheets]);
 
+    const absentCount = useMemo(() => {
+        const absentStudentIds = new Set<string>();
+        for (const sw of studentWorksheets) {
+            if (sw.isAbsent) {
+                absentStudentIds.add(sw.studentId);
+            }
+        }
+        return absentStudentIds.size;
+    }, [studentWorksheets]);
+
     const filteredGroupedStudentWorksheets = useMemo(() => {
         if (!searchTerm.trim()) {
             return groupedStudentWorksheets;
@@ -1208,6 +1218,10 @@ export default function UploadWorksheetPage() {
                         <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">
                             <span className="font-medium">Worksheets Graded:</span>
                             <span className="font-semibold text-purple-600">{totalGradedWorksheets}</span>
+                        </div>
+                        <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">
+                            <span className="font-medium">Absent:</span>
+                            <span className="font-semibold text-orange-600">{absentCount}</span>
                         </div>
                         <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">
                             <span className="font-medium">Completion:</span>
