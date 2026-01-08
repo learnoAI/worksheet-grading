@@ -673,7 +673,7 @@ export const getPreviousWorksheets = async (req: Request, res: Response) => {
 };
 
 /**
- * Get all worksheets for a class on a specific date, with history for students without worksheets
+ * Get all worksheets for a class on a specific date
  * @route GET /api/worksheets/class-date
  */
 export const getClassWorksheetsForDate = async (req: Request, res: Response) => {
@@ -722,7 +722,12 @@ export const getClassWorksheetsForDate = async (req: Request, res: Response) => 
                 }
             },
             include: {
-                template: true,
+                template: {
+                    select: {
+                        id: true,
+                        worksheetNumber: true
+                    }
+                },
                 images: {
                     orderBy: {
                         pageNumber: 'asc'
@@ -735,58 +740,73 @@ export const getClassWorksheetsForDate = async (req: Request, res: Response) => 
         });
 
         // Group worksheets by studentId
-        const worksheetsByStudent = new Map<string, typeof worksheetsOnDate>();
+        const worksheetsByStudent: Record<string, typeof worksheetsOnDate> = {};
         for (const ws of worksheetsOnDate) {
             if (ws.studentId) {
-                if (!worksheetsByStudent.has(ws.studentId)) {
-                    worksheetsByStudent.set(ws.studentId, []);
+                if (!worksheetsByStudent[ws.studentId]) {
+                    worksheetsByStudent[ws.studentId] = [];
                 }
-                worksheetsByStudent.get(ws.studentId)!.push(ws);
+                worksheetsByStudent[ws.studentId].push(ws);
             }
         }
 
-        // 3. For students without worksheets on this date, fetch their history
-        const studentsWithoutWorksheets = studentIds.filter(id => !worksheetsByStudent.has(id));
+        // 3. For students without worksheets on this date, get lightweight summary for recommendations
+        const studentsWithoutWorksheets = studentIds.filter(id => !worksheetsByStudent[id]);
 
-        let studentHistories: Record<string, any[]> = {};
+        let studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[] }> = {};
 
         if (studentsWithoutWorksheets.length > 0) {
-            // Batch fetch history for all students without worksheets (single query)
             const endDateForHistory = new Date(dateStr);
             endDateForHistory.setHours(23, 59, 59, 999);
 
-            const allHistoryWorksheets = await prisma.worksheet.findMany({
+            // Fetch only the minimal data needed for recommendations
+            const historyData = await prisma.worksheet.findMany({
                 where: {
                     classId: classId as string,
                     studentId: { in: studentsWithoutWorksheets },
                     submittedOn: {
                         lt: endDateForHistory
                     },
-                    status: ProcessingStatus.COMPLETED
+                    status: ProcessingStatus.COMPLETED,
+                    isAbsent: false,
+                    grade: { not: null }
                 },
-                include: {
-                    template: true
+                select: {
+                    studentId: true,
+                    grade: true,
+                    submittedOn: true,
+                    template: {
+                        select: {
+                            worksheetNumber: true
+                        }
+                    }
                 },
                 orderBy: {
                     submittedOn: 'desc'
                 }
             });
 
-            // Group history by studentId
-            for (const ws of allHistoryWorksheets) {
-                if (ws.studentId) {
-                    if (!studentHistories[ws.studentId]) {
-                        studentHistories[ws.studentId] = [];
-                    }
-                    studentHistories[ws.studentId].push(ws);
-                }
+            // Build lightweight summaries
+            for (const studentId of studentsWithoutWorksheets) {
+                const studentHistory = historyData.filter(h => h.studentId === studentId);
+                const completedNumbers = studentHistory
+                    .filter(h => h.template?.worksheetNumber)
+                    .map(h => h.template!.worksheetNumber!);
+
+                const latest = studentHistory[0];
+
+                studentSummaries[studentId] = {
+                    lastWorksheetNumber: latest?.template?.worksheetNumber ?? null,
+                    lastGrade: latest?.grade ?? null,
+                    completedWorksheetNumbers: [...new Set(completedNumbers)]
+                };
             }
         }
 
         return res.status(200).json({
             students,
-            worksheetsByStudent: Object.fromEntries(worksheetsByStudent),
-            studentHistories
+            worksheetsByStudent,
+            studentSummaries
         });
     } catch (error) {
         console.error('Get class worksheets for date error:', error);

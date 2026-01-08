@@ -133,12 +133,12 @@ export const worksheetAPI = {
     getClassWorksheetsForDate: async (classId: string, submittedOn: string): Promise<{
         students: { id: string; name: string; tokenNumber: string }[];
         worksheetsByStudent: Record<string, GradedWorksheetData[]>;
-        studentHistories: Record<string, Worksheet[]>;
+        studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[] }>;
     }> => {
         return fetchAPI<{
             students: { id: string; name: string; tokenNumber: string }[];
             worksheetsByStudent: Record<string, GradedWorksheetData[]>;
-            studentHistories: Record<string, Worksheet[]>;
+            studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[] }>;
         }>(`/worksheets/class-date?classId=${encodeURIComponent(classId)}&submittedOn=${encodeURIComponent(submittedOn)}`);
     },
 

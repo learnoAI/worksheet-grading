@@ -226,19 +226,23 @@ export default function UploadWorksheetPage() {
 
                 // Use batch endpoint to fetch all data in 1-2 API calls
                 const batchData = await worksheetAPI.getClassWorksheetsForDate(selectedClass, submittedOn);
-                const { students, worksheetsByStudent, studentHistories } = batchData;
+                const { students, worksheetsByStudent, studentSummaries } = batchData;
 
                 const sortedStudents = sortStudentsByTokenNumber(students);
-                const selectedDateObj = new Date(submittedOn);
-                selectedDateObj.setHours(0, 0, 0, 0);
 
                 // Process the batch data for each student
                 const worksheetArrays: StudentWorksheet[][] = sortedStudents.map((student) => {
                     const worksheetsOnDate = worksheetsByStudent[student.id] || [];
 
-                    // If worksheets exist for this date, return them all
+                    // If worksheets exist for this date, return them all (sorted by worksheet number ascending)
                     if (worksheetsOnDate.length > 0) {
-                        return worksheetsOnDate.map((worksheet: any, index: number) => {
+                        const sortedWorksheets = [...worksheetsOnDate].sort((a: any, b: any) => {
+                            const wsNumA = a.template?.worksheetNumber || 0;
+                            const wsNumB = b.template?.worksheetNumber || 0;
+                            return wsNumA - wsNumB;
+                        });
+
+                        return sortedWorksheets.map((worksheet: any, index: number) => {
                             const images = worksheet.images || [];
                             const page1 = images.find((img: any) => img.pageNumber === 1);
                             const page2 = images.find((img: any) => img.pageNumber === 2);
@@ -268,43 +272,22 @@ export default function UploadWorksheetPage() {
                         });
                     }
 
-                    // No worksheets for today - calculate recommended worksheet number using pre-fetched history
-                    const allWorksheets = studentHistories[student.id] || [];
-                    const hasHistory = allWorksheets.length > 0;
+                    // No worksheets for today - use lightweight summary for recommendations
+                    const summary = studentSummaries[student.id];
+                    const hasHistory = summary && summary.lastWorksheetNumber !== null;
 
-                    const sortedWorksheets = [...allWorksheets].sort((a, b) => {
-                        const dateA = new Date(a.submittedOn || '').getTime();
-                        const dateB = new Date(b.submittedOn || '').getTime();
-                        return dateB - dateA;
-                    });
-
-                    const latestValidWorksheetBeforeDate = sortedWorksheets.find(ws => {
-                        const worksheetDate = new Date(ws.submittedOn || '');
-                        worksheetDate.setHours(0, 0, 0, 0);
-                        return !ws.isAbsent && ws.grade !== null && ws.grade !== undefined && ws.grade !== 0 && worksheetDate < selectedDateObj;
-                    });
-
-                    let recommendedWorksheetNumber = 0;
+                    let recommendedWorksheetNumber = 1;
                     let isRepeatedWorksheet = false;
 
-                    if (latestValidWorksheetBeforeDate) {
-                        const score = latestValidWorksheetBeforeDate.grade || 0;
-                        const worksheetNumber = latestValidWorksheetBeforeDate.template?.worksheetNumber || 0;
-
-                        if (score >= PROGRESSION_THRESHOLD) {
-                            recommendedWorksheetNumber = worksheetNumber + 1;
-                            isRepeatedWorksheet = allWorksheets.some(pw => {
-                                const pwDate = new Date(pw.submittedOn || '');
-                                pwDate.setHours(0, 0, 0, 0);
-                                return !pw.isAbsent && pw.template?.worksheetNumber === recommendedWorksheetNumber && pwDate < selectedDateObj;
-                            });
+                    if (summary && summary.lastWorksheetNumber !== null && summary.lastGrade !== null) {
+                        if (summary.lastGrade >= PROGRESSION_THRESHOLD) {
+                            recommendedWorksheetNumber = summary.lastWorksheetNumber + 1;
+                            // Check if this worksheet number was already completed
+                            isRepeatedWorksheet = summary.completedWorksheetNumbers.includes(recommendedWorksheetNumber);
                         } else {
-                            recommendedWorksheetNumber = worksheetNumber;
+                            recommendedWorksheetNumber = summary.lastWorksheetNumber;
                             isRepeatedWorksheet = true;
                         }
-                    } else {
-                        recommendedWorksheetNumber = 1;
-                        isRepeatedWorksheet = false;
                     }
 
                     return [{
