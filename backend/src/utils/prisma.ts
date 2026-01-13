@@ -38,7 +38,7 @@ const connectWithRetry = async () => {
   } catch (error) {
     connectionAttempts++;
     console.error(`❌ Database connection attempt ${connectionAttempts} failed:`, error);
-    
+
     if (connectionAttempts < maxAttempts) {
       console.log(`⏳ Retrying in ${retryDelay / 1000} seconds...`);
       setTimeout(connectWithRetry, retryDelay);
@@ -88,17 +88,17 @@ export const withDatabaseRetry = async <T>(
   maxRetries: number = 3
 ): Promise<T> => {
   let lastError: Error;
-  
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await operation();
     } catch (error: any) {
       lastError = error;
-      
+
       // Check if it's a connection-related error
       if (error.code === 'P2037' || error.message?.includes('connection')) {
         console.warn(`Database operation attempt ${attempt}/${maxRetries} failed:`, error.message);
-        
+
         if (attempt < maxRetries) {
           // Wait before retry with exponential backoff
           const delay = Math.pow(2, attempt) * 1000;
@@ -106,12 +106,12 @@ export const withDatabaseRetry = async <T>(
           continue;
         }
       }
-      
+
       // For non-connection errors, throw immediately
       throw error;
     }
   }
-  
+
   throw lastError!;
 };
 

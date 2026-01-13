@@ -38,7 +38,7 @@
     "typescript-eslint": "^8.26.0"
   },
   "dependencies": {
-    "@prisma/client": "^6.5.0",
+    "@prisma/client": "^6.19.1",
     "@tanstack/react-table": "^8.21.2",
     "@types/form-data": "^2.2.1",
     "@types/node-fetch": "^2.6.12",
@@ -55,7 +55,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^2.7.0",
-    "prisma": "^6.5.0",
+    "prisma": "^6.19.1",
     "xlsx": "^0.18.5"
   }
 }
