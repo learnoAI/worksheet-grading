@@ -313,9 +313,9 @@ export function StudentWorksheetCard({
 
             <div className="grid grid-cols-2 gap-2 md:gap-4 mb-3">
                 <div className="space-y-1">
-                    <Label htmlFor={`worksheet-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">Worksheet #</Label>
+                    <Label htmlFor={`worksheet-${worksheet.worksheetEntryId}`} className="text-xs md:text-sm font-medium">Worksheet #</Label>
                     <Input
-                        id={`worksheet-${worksheet.studentId}`}
+                        id={`worksheet-${worksheet.worksheetEntryId}`}
                         type="number"
                         min="1"
                         step="1"
@@ -327,7 +327,7 @@ export function StudentWorksheetCard({
                     />
                 </div>
                 <div className="space-y-1">
-                    <Label htmlFor={`grade-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">Grade</Label>
+                    <Label htmlFor={`grade-${worksheet.worksheetEntryId}`} className="text-xs md:text-sm font-medium">Grade</Label>
                     <div className="flex items-center space-x-1">
                         <Select
                             value={worksheet.grade || ''}
@@ -375,11 +375,11 @@ export function StudentWorksheetCard({
             </div>
 
             <div className="space-y-1 mb-3">
-                <Label htmlFor={`wrong-questions-${worksheet.studentId}`} className="text-xs md:text-sm font-medium">
+                <Label htmlFor={`wrong-questions-${worksheet.worksheetEntryId}`} className="text-xs md:text-sm font-medium">
                     Wrong Questions
                 </Label>
                 <Input
-                    id={`wrong-questions-${worksheet.studentId}`}
+                    id={`wrong-questions-${worksheet.worksheetEntryId}`}
                     type="text"
                     value={displayedWrongQuestionNumbers}
                     onChange={(e) => handleWrongQuestionNumbersChange(e.target.value)}
@@ -506,24 +506,24 @@ export function StudentWorksheetCard({
                     <div className="flex items-center space-x-2">
                         <input
                             type="checkbox"
-                            id={`absent-${worksheet.studentId}`}
+                            id={`absent-${worksheet.worksheetEntryId}`}
                             checked={worksheet.isAbsent}
                             onChange={(e) => handleAbsentChange(e.target.checked)}
                             disabled={worksheet.isUploading}
                             className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         />
-                        <Label htmlFor={`absent-${worksheet.studentId}`} className="text-sm">Absent</Label>
+                        <Label htmlFor={`absent-${worksheet.worksheetEntryId}`} className="text-sm">Absent</Label>
                     </div>
                     <div className="flex items-center space-x-2">
                         <input
                             type="checkbox"
-                            id={`incorrect-grade-${worksheet.studentId}`}
+                            id={`incorrect-grade-${worksheet.worksheetEntryId}`}
                             checked={worksheet.isIncorrectGrade || false}
                             onChange={(e) => handleIncorrectGradeChange(e.target.checked)}
                             disabled={worksheet.isAbsent || worksheet.isUploading}
                             className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         />
-                        <Label htmlFor={`incorrect-grade-${worksheet.studentId}`} className="text-sm">Incorrect Grade</Label>
+                        <Label htmlFor={`incorrect-grade-${worksheet.worksheetEntryId}`} className="text-sm">Incorrect Grade</Label>
                     </div>
                 </div>
 

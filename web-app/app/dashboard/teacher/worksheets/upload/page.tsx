@@ -808,10 +808,10 @@ export default function UploadWorksheetPage() {
         }
 
         try {
-            // Get the most up-to-date data for this student from the main state
-            const currentStudentData = studentWorksheets.find(w => w.studentId === worksheet.studentId);
+            // Get the most up-to-date data for this specific worksheet entry from the main state
+            const currentStudentData = studentWorksheets.find(w => w.worksheetEntryId === worksheet.worksheetEntryId);
             if (!currentStudentData) {
-                toast.error('Student data not found');
+                toast.error('Worksheet data not found');
                 return;
             }
 
@@ -943,15 +943,13 @@ export default function UploadWorksheetPage() {
                         wrongQuestionNumbers: currentStudentData.wrongQuestionNumbers || ''
                     };
 
-                    const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                        selectedClass,
-                        currentStudentData.studentId,
-                        submittedOn
-                    );
-
-                    if (existingWorksheet && existingWorksheet.id) {
-                        await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                    // Check if this specific worksheet already exists in DB (has an ID)
+                    // This allows multiple worksheets per student per date
+                    if (currentStudentData.id && currentStudentData.existing) {
+                        // Update existing worksheet
+                        await worksheetAPI.updateGradedWorksheet(currentStudentData.id, data);
                     } else {
+                        // Create new worksheet
                         await worksheetAPI.createGradedWorksheet(data);
                     }
 
@@ -964,7 +962,7 @@ export default function UploadWorksheetPage() {
                             grade: data.grade,
                             is_absent: data.isAbsent,
                             is_repeated: data.isRepeated,
-                            action: existingWorksheet ? 'update' : 'create',
+                            action: (currentStudentData.id && currentStudentData.existing) ? 'update' : 'create',
                             page: 'upload_worksheet_individual'
                         });
                     }
@@ -974,7 +972,7 @@ export default function UploadWorksheetPage() {
 
                 // Update local state to reflect the saved data
                 setStudentWorksheets(prevWorksheets => prevWorksheets.map(w =>
-                    w.studentId === currentStudentData.studentId ? { ...currentStudentData, existing: true } : w
+                    w.worksheetEntryId === currentStudentData.worksheetEntryId ? { ...currentStudentData, existing: true } : w
                 ));
             }
 
@@ -1043,14 +1041,8 @@ export default function UploadWorksheetPage() {
                             notes: 'Student absent'
                         };
 
-                        const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                            selectedClass,
-                            worksheet.studentId,
-                            submittedOn
-                        );
-
-                        if (existingWorksheet && existingWorksheet.id) {
-                            await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                        if (worksheet.id && worksheet.existing) {
+                            await worksheetAPI.updateGradedWorksheet(worksheet.id, data);
                         } else {
                             await worksheetAPI.createGradedWorksheet(data);
                         }
@@ -1076,14 +1068,8 @@ export default function UploadWorksheetPage() {
                             isIncorrectGrade: worksheet.isIncorrectGrade || false
                         };
 
-                        const existingWorksheet = await worksheetAPI.getWorksheetByClassStudentDate(
-                            selectedClass,
-                            worksheet.studentId,
-                            submittedOn
-                        );
-
-                        if (existingWorksheet && existingWorksheet.id) {
-                            await worksheetAPI.updateGradedWorksheet(existingWorksheet.id, data);
+                        if (worksheet.id && worksheet.existing) {
+                            await worksheetAPI.updateGradedWorksheet(worksheet.id, data);
                         } else {
                             await worksheetAPI.createGradedWorksheet(data);
                         }
@@ -1096,7 +1082,7 @@ export default function UploadWorksheetPage() {
                                 grade: data.grade,
                                 is_absent: data.isAbsent,
                                 is_repeated: data.isRepeated,
-                                action: existingWorksheet ? 'update' : 'create',
+                                action: (worksheet.id && worksheet.existing) ? 'update' : 'create',
                                 page: 'upload_worksheet_bulk'
                             });
                         }
