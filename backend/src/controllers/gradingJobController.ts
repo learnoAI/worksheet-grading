@@ -1,5 +1,86 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
+import { GradingJobStatus } from '@prisma/client';
+
+// Time thresholds for stuck job recovery
+const STUCK_JOB_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes - job should complete by then
+const STALE_JOB_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes - mark as failed if no worksheet found
+
+/**
+ * Recovery function for stuck jobs
+ * Checks if a worksheet exists for the job and updates status accordingly
+ */
+async function recoverStuckJob(job: {
+    id: string;
+    studentId: string | null;
+    classId: string | null;
+    worksheetNumber: number;
+    submittedOn: Date | null;
+    createdAt: Date;
+    status: GradingJobStatus;
+}): Promise<{
+    id: string;
+    status: GradingJobStatus;
+    worksheetId: string | null;
+    recovered: boolean;
+}> {
+    const now = Date.now();
+    const jobAge = now - job.createdAt.getTime();
+
+    // Only recover QUEUED or PROCESSING jobs that are old enough
+    if ((job.status !== 'QUEUED' && job.status !== 'PROCESSING') || jobAge < STUCK_JOB_THRESHOLD_MS) {
+        return { id: job.id, status: job.status, worksheetId: null, recovered: false };
+    }
+
+    // Try to find a worksheet that matches this job
+    if (job.studentId && job.classId && job.submittedOn) {
+        const dayStart = new Date(job.submittedOn);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(job.submittedOn);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        // Find worksheet matching student, class, date, and worksheet number
+        const worksheet = await prisma.worksheet.findFirst({
+            where: {
+                studentId: job.studentId,
+                classId: job.classId,
+                submittedOn: { gte: dayStart, lte: dayEnd },
+                template: { worksheetNumber: job.worksheetNumber }
+            },
+            select: { id: true }
+        });
+
+        if (worksheet) {
+            // Worksheet exists - update job to COMPLETED
+            await prisma.gradingJob.update({
+                where: { id: job.id },
+                data: {
+                    status: GradingJobStatus.COMPLETED,
+                    worksheetId: worksheet.id,
+                    completedAt: new Date()
+                }
+            });
+            console.log(`Recovered stuck job ${job.id} - worksheet found: ${worksheet.id}`);
+            return { id: job.id, status: GradingJobStatus.COMPLETED, worksheetId: worksheet.id, recovered: true };
+        }
+    }
+
+    // No worksheet found - if job is very old, mark as failed
+    if (jobAge > STALE_JOB_THRESHOLD_MS) {
+        await prisma.gradingJob.update({
+            where: { id: job.id },
+            data: {
+                status: GradingJobStatus.FAILED,
+                errorMessage: 'Job timed out - server may have restarted during processing',
+                completedAt: new Date()
+            }
+        });
+        console.log(`Marked stale job ${job.id} as FAILED`);
+        return { id: job.id, status: GradingJobStatus.FAILED, worksheetId: null, recovered: true };
+    }
+
+    return { id: job.id, status: job.status, worksheetId: null, recovered: false };
+}
 
 /**
  * Get grading jobs for a teacher (today's jobs)
@@ -58,6 +139,7 @@ export const getTeacherJobsToday = async (req: Request, res: Response) => {
 
 /**
  * Get grading jobs by class and date
+ * Includes automatic recovery of stuck jobs
  * @route GET /api/grading-jobs/class/:classId
  */
 export const getJobsByClass = async (req: Request, res: Response) => {
@@ -90,20 +172,49 @@ export const getJobsByClass = async (req: Request, res: Response) => {
                 errorMessage: true,
                 createdAt: true,
                 completedAt: true,
-                submittedOn: true
+                submittedOn: true,
+                classId: true
             }
         });
 
-        // Calculate summary
-        const queued = jobs.filter(j => j.status === 'QUEUED').length;
-        const processing = jobs.filter(j => j.status === 'PROCESSING').length;
-        const completed = jobs.filter(j => j.status === 'COMPLETED').length;
-        const failed = jobs.filter(j => j.status === 'FAILED').length;
+        // Check for stuck jobs and recover them
+        const stuckJobs = jobs.filter(j => j.status === 'QUEUED' || j.status === 'PROCESSING');
+        const recoveryResults = await Promise.all(
+            stuckJobs.map(job => recoverStuckJob({
+                id: job.id,
+                studentId: job.studentId,
+                classId: job.classId,
+                worksheetNumber: job.worksheetNumber,
+                submittedOn: job.submittedOn,
+                createdAt: job.createdAt,
+                status: job.status as GradingJobStatus
+            }))
+        );
+
+        // Update the jobs array with recovered statuses
+        const recoveryMap = new Map(recoveryResults.map(r => [r.id, r]));
+        const updatedJobs = jobs.map(job => {
+            const recovery = recoveryMap.get(job.id);
+            if (recovery?.recovered) {
+                return {
+                    ...job,
+                    status: recovery.status,
+                    worksheetId: recovery.worksheetId || job.worksheetId
+                };
+            }
+            return job;
+        });
+
+        // Calculate summary with updated statuses
+        const queued = updatedJobs.filter(j => j.status === 'QUEUED').length;
+        const processing = updatedJobs.filter(j => j.status === 'PROCESSING').length;
+        const completed = updatedJobs.filter(j => j.status === 'COMPLETED').length;
+        const failed = updatedJobs.filter(j => j.status === 'FAILED').length;
 
         return res.json({
             success: true,
-            summary: { queued, processing, completed, failed, total: jobs.length },
-            jobs
+            summary: { queued, processing, completed, failed, total: updatedJobs.length },
+            jobs: updatedJobs
         });
     } catch (error) {
         console.error('Error getting jobs by class:', error);
@@ -113,6 +224,7 @@ export const getJobsByClass = async (req: Request, res: Response) => {
 
 /**
  * Get single job status
+ * Includes automatic recovery of stuck jobs
  * @route GET /api/grading-jobs/:jobId
  */
 export const getJobStatus = async (req: Request, res: Response) => {
@@ -130,12 +242,38 @@ export const getJobStatus = async (req: Request, res: Response) => {
                 worksheetId: true,
                 errorMessage: true,
                 createdAt: true,
-                completedAt: true
+                completedAt: true,
+                submittedOn: true,
+                classId: true
             }
         });
 
         if (!job) {
             return res.status(404).json({ message: 'Job not found' });
+        }
+
+        // Check if job is stuck and try to recover
+        if (job.status === 'QUEUED' || job.status === 'PROCESSING') {
+            const recovery = await recoverStuckJob({
+                id: job.id,
+                studentId: job.studentId,
+                classId: job.classId,
+                worksheetNumber: job.worksheetNumber,
+                submittedOn: job.submittedOn,
+                createdAt: job.createdAt,
+                status: job.status as GradingJobStatus
+            });
+
+            if (recovery.recovered) {
+                return res.json({
+                    success: true,
+                    job: {
+                        ...job,
+                        status: recovery.status,
+                        worksheetId: recovery.worksheetId || job.worksheetId
+                    }
+                });
+            }
         }
 
         return res.json({ success: true, job });

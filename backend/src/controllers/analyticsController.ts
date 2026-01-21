@@ -346,123 +346,157 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
 };
 
 /**
- * Get student-specific analytics
+ * Get student-specific analytics with server-side pagination
  * @route GET /api/analytics/students
  */
 export const getStudentAnalytics = async (req: Request, res: Response) => {
-    const { schoolId, classId, startDate, endDate } = req.query;
-    
+    const {
+        schoolId,
+        classId,
+        startDate,
+        endDate,
+        page = '1',
+        pageSize = '20',
+        search = '',
+        showArchived = 'active'
+    } = req.query;
+
     try {
+        const pageNum = Math.max(1, parseInt(page as string) || 1);
+        const pageSizeNum = Math.min(100, Math.max(1, parseInt(pageSize as string) || 20));
+        const skip = (pageNum - 1) * pageSizeNum;
+        const searchTerm = (search as string).trim().toLowerCase();
+
         // Base filters for student query
         const filter: any = {
             role: 'STUDENT',
         };
-        
+
+        // Filter by archive status
+        if (showArchived === 'active') {
+            filter.isArchived = false;
+        } else if (showArchived === 'archived') {
+            filter.isArchived = true;
+        }
+        // 'all' - no archive filter
+
+        // Apply search filter (name, username, or token number)
+        if (searchTerm) {
+            filter.OR = [
+                { name: { contains: searchTerm, mode: 'insensitive' } },
+                { username: { contains: searchTerm, mode: 'insensitive' } },
+                { tokenNumber: { contains: searchTerm, mode: 'insensitive' } }
+            ];
+        }
+
         // Apply class filter if provided
         if (classId) {
             filter.studentClasses = {
                 some: {
                     classId: classId as string,
                     class: {
-                        isArchived: false, // Only show students from active classes when filtering by class
+                        isArchived: false,
                         school: {
-                            isArchived: false // Only show students from classes in active schools
+                            isArchived: false
                         }
                     }
                 }
             };
-        } 
+        }
         // Otherwise apply school filter if provided
         else if (schoolId) {
             filter.studentSchools = {
                 some: {
                     schoolId: schoolId as string,
                     school: {
-                        isArchived: false // Only show students from active schools
+                        isArchived: false
                     }
                 }
             };
-        }        // Get all students with their class information
-        const students = await prisma.user.findMany({
-            where: filter,
-            select: {
-                id: true,
-                username: true,
-                name: true,
-                tokenNumber: true,
-                isArchived: true,
-                studentClasses: {
-                    where: {
-                        class: {
-                            isArchived: false, // Only include students from active classes
-                            school: {
-                                isArchived: false // Only include classes from active schools
+        }
+
+        // Get total count and paginated students in parallel
+        const [total, students] = await Promise.all([
+            prisma.user.count({ where: filter }),
+            prisma.user.findMany({
+                where: filter,
+                select: {
+                    id: true,
+                    username: true,
+                    name: true,
+                    tokenNumber: true,
+                    isArchived: true,
+                    studentClasses: {
+                        where: {
+                            class: {
+                                isArchived: false,
+                                school: {
+                                    isArchived: false
+                                }
+                            }
+                        },
+                        include: {
+                            class: {
+                                include: {
+                                    school: true
+                                }
                             }
                         }
                     },
-                    include: {
-                        class: {
-                            include: {
-                                school: true
+                    studentWorksheets: {
+                        select: {
+                            id: true,
+                            submittedOn: true,
+                            isAbsent: true,
+                            isRepeated: true,
+                            grade: true
+                        },
+                        where: {
+                            ...(startDate && endDate ? (() => {
+                                const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
+                                return {
+                                    submittedOn: {
+                                        gte: start,
+                                        lte: end
+                                    }
+                                };
+                            })() : {}),
+                            class: {
+                                isArchived: false,
+                                school: {
+                                    isArchived: false
+                                }
                             }
+                        },
+                        orderBy: {
+                            submittedOn: 'asc'
                         }
                     }
                 },
-                studentWorksheets: {
-                    select: {
-                        id: true,
-                        submittedOn: true,
-                        isAbsent: true,
-                        isRepeated: true,
-                        grade: true
-                    },
-                    // Apply date filter if provided with full day range
-                    // Also filter out worksheets from archived classes/schools
-                    where: {
-                        ...(startDate && endDate ? (() => {
-                            const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
-                            return {
-                                submittedOn: {
-                                    gte: start,
-                                    lte: end
-                                }
-                            };
-                        })() : {}),
-                        class: {
-                            isArchived: false, // Only include worksheets from active classes
-                            school: {
-                                isArchived: false // Only include worksheets from active schools
-                            }
-                        }
-                    },
-                    orderBy: {
-                        submittedOn: 'asc'
-                    }
-                }
-            },
-            orderBy: {
-                tokenNumber: 'asc'
-            }
-        });
-          // Calculate analytics for each student
+                orderBy: {
+                    tokenNumber: 'asc'
+                },
+                skip,
+                take: pageSizeNum
+            })
+        ]);
+
+        // Calculate analytics for each student
         const studentsWithAnalytics = students.map(student => {
             const worksheets = student.studentWorksheets;
             const allWorksheets = worksheets.length;
             const absences = worksheets.filter(w => w.isAbsent).length;
             const repetitions = worksheets.filter(w => w.isRepeated).length;
-            
-            // Calculate graded vs ungraded worksheets - only count non-absent graded worksheets for consistency
-            const gradedWorksheets = worksheets.filter(w => w.grade !== null && !w.isAbsent);
-            const totalWorksheets = allWorksheets - absences; // Non-absent worksheets
-            
-            // Get first and last worksheet dates
+
+            const totalWorksheets = allWorksheets - absences;
+
             const worksheetsWithDates = worksheets.filter(w => w.submittedOn !== null);
             const firstWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[0] : null;
             const lastWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[worksheetsWithDates.length - 1] : null;
-            
-            // Class and school info (only from active classes)
+
             const primaryClass = student.studentClasses[0]?.class;
-              return {
+
+            return {
                 id: student.id,
                 name: student.name,
                 username: student.username,
@@ -479,8 +513,14 @@ export const getStudentAnalytics = async (req: Request, res: Response) => {
                 lastWorksheetDate: lastWorksheet?.submittedOn ? lastWorksheet.submittedOn.toISOString() : null,
             };
         });
-        
-        res.status(200).json(studentsWithAnalytics);
+
+        res.status(200).json({
+            students: studentsWithAnalytics,
+            total,
+            page: pageNum,
+            pageSize: pageSizeNum,
+            totalPages: Math.ceil(total / pageSizeNum)
+        });
     } catch (error) {
         console.error('Error fetching student analytics:', error);
         res.status(500).json({ message: 'Server error while retrieving student analytics data' });

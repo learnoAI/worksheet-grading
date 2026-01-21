@@ -7,10 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { analyticsAPI, School, Class, StudentAnalytics } from '@/lib/api/analyticsAPI';
+import { analyticsAPI, School, Class, StudentAnalytics, PaginatedStudentAnalytics } from '@/lib/api/analyticsAPI';
 import { userAPI } from '@/lib/api/user';
 import { toast } from 'sonner';
-import { Download, Filter, X, ArrowUp, ArrowDown, ChevronsUpDown, Archive, ArchiveRestore, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Download, X, ArrowUp, ArrowDown, ChevronsUpDown, Archive, ArchiveRestore, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Skeleton, SkeletonStyles } from '@/components/ui/skeleton';
 
 type SortField = 'name' | 'tokenNumber' | 'school' | 'class' | 'totalWorksheets' | 'repetitionRate' | 'absentPercentage' | 'firstWorksheetDate' | 'lastWorksheetDate';
@@ -49,28 +49,26 @@ export default function StudentAnalyticsPage() {
     );
     const [enableDateFilter, setEnableDateFilter] = useState<boolean>(false);
       // Additional filter states
-    const [minWorksheets, setMinWorksheets] = useState<string>('');
-    const [maxAbsentRate, setMaxAbsentRate] = useState<string>('');
-    const [minRepetitionRate, setMinRepetitionRate] = useState<string>('');
     const [showArchived, setShowArchived] = useState<string>('active');
     const [isDownloading, setIsDownloading] = useState<boolean>(false);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
-      // Sorting state - Default to token number sorting for better efficiency
+
+    // Sorting state - Default to token number sorting for better efficiency
     const [sortField, setSortField] = useState<SortField>('tokenNumber');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-      // Data state
+
+    // Data state
     const [students, setStudents] = useState<StudentAnalytics[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
-    
-    // Pagination state
+
+    // Server-side pagination state
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [itemsPerPage, setItemsPerPage] = useState<number>(20);
+    const [totalStudents, setTotalStudents] = useState<number>(0);
+    const [totalPages, setTotalPages] = useState<number>(0);
 
-    // Debounce search term for better performance
+    // Debounce search term for server-side search
     const debouncedSearchName = useDebounce(searchName, 300);
-    const debouncedMinWorksheets = useDebounce(minWorksheets, 300);
-    const debouncedMaxAbsentRate = useDebounce(maxAbsentRate, 300);
-    const debouncedMinRepetitionRate = useDebounce(minRepetitionRate, 300);
     
     // Load schools on initial render
     useEffect(() => {
@@ -108,7 +106,7 @@ export default function StudentAnalyticsPage() {
             setSelectedClassId('all');
         }
     }, [selectedSchoolId]);
-      // Load students based on filters
+      // Load students based on filters with server-side pagination
     useEffect(() => {
         const loadStudentAnalytics = async () => {
             setIsLoading(true);
@@ -117,9 +115,15 @@ export default function StudentAnalyticsPage() {
                     schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
                     classId: selectedClassId !== 'all' ? selectedClassId : undefined,
                     startDate: enableDateFilter ? startDate : undefined,
-                    endDate: enableDateFilter ? endDate : undefined
+                    endDate: enableDateFilter ? endDate : undefined,
+                    page: currentPage,
+                    pageSize: itemsPerPage,
+                    search: debouncedSearchName || undefined,
+                    showArchived: showArchived
                 });
-                setStudents(data);
+                setStudents(data.students);
+                setTotalStudents(data.total);
+                setTotalPages(data.totalPages);
             } catch (error) {
                 console.error('Error loading student analytics:', error);
                 toast.error('Failed to load student analytics');
@@ -127,8 +131,9 @@ export default function StudentAnalyticsPage() {
                 setIsLoading(false);
             }
         };
-        
-        loadStudentAnalytics();    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate]);    // Optimized token parser - memoized to avoid recreating the function
+
+        loadStudentAnalytics();
+    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate, currentPage, itemsPerPage, debouncedSearchName, showArchived]);    // Optimized token parser - memoized to avoid recreating the function
     const parseToken = useCallback((token: string | null) => {
         if (!token) return { type: 'string' as const, original: '' };
         
@@ -205,75 +210,19 @@ export default function StudentAnalyticsPage() {
             // Apply sort direction
             return direction === 'desc' ? -result : result;
         });
-    }, [parseToken]);    // Memoized filtered and sorted students - only recalculates when dependencies change
-    const filteredStudents = useMemo(() => {
-        let filtered = [...students];
-        
-        // Filter by archive status
-        if (showArchived === 'active') {
-            filtered = filtered.filter(student => !student.isArchived);
-        } else if (showArchived === 'archived') {
-            filtered = filtered.filter(student => student.isArchived);
-        }
-        
-        // Name/token search using debounced value
-        if (debouncedSearchName.trim() !== '') {
-            const searchLower = debouncedSearchName.toLowerCase();
-            filtered = filtered.filter(student => 
-                student.name.toLowerCase().includes(searchLower) ||
-                student.username.toLowerCase().includes(searchLower) ||
-                (student.tokenNumber && student.tokenNumber.toLowerCase().includes(searchLower))
-            );
-        }
-        
-        // Minimum worksheets filter
-        if (debouncedMinWorksheets) {
-            const minWorksheetsNum = parseInt(debouncedMinWorksheets);
-            if (!isNaN(minWorksheetsNum)) {
-                filtered = filtered.filter(student => student.totalWorksheets >= minWorksheetsNum);
-            }
-        }
-        
-        // Maximum absent rate filter
-        if (debouncedMaxAbsentRate) {
-            const maxAbsentRateNum = parseFloat(debouncedMaxAbsentRate);
-            if (!isNaN(maxAbsentRateNum)) {
-                filtered = filtered.filter(student => student.absentPercentage <= maxAbsentRateNum);
-            }
-        }
-        
-        // Minimum repetition rate filter
-        if (debouncedMinRepetitionRate) {
-            const minRepetitionRateNum = parseFloat(debouncedMinRepetitionRate);
-            if (!isNaN(minRepetitionRateNum)) {
-                filtered = filtered.filter(student => student.repetitionRate >= minRepetitionRateNum);
-            }
-        }
+    }, [parseToken]);    // Memoized sorted students - server handles filtering, we just sort client-side
+    const sortedStudents = useMemo(() => {
+        return sortStudents([...students], sortField, sortDirection);
+    }, [students, sortField, sortDirection, sortStudents]);
 
-        // Apply sorting
-        return sortStudents(filtered, sortField, sortDirection);
-    }, [
-        students, 
-        showArchived,
-        debouncedSearchName, 
-        debouncedMinWorksheets, 
-        debouncedMaxAbsentRate, 
-        debouncedMinRepetitionRate, 
-        sortField, 
-        sortDirection,
-        sortStudents
-    ]);
+    // Memoized pagination info for display
+    const startIndex = useMemo(() => (currentPage - 1) * itemsPerPage + 1, [currentPage, itemsPerPage]);
+    const endIndex = useMemo(() => Math.min(currentPage * itemsPerPage, totalStudents), [currentPage, itemsPerPage, totalStudents]);
 
-    // Memoized pagination calculations
-    const totalPages = useMemo(() => Math.ceil(filteredStudents.length / itemsPerPage), [filteredStudents.length, itemsPerPage]);
-    const startIndex = useMemo(() => (currentPage - 1) * itemsPerPage, [currentPage, itemsPerPage]);
-    const endIndex = useMemo(() => startIndex + itemsPerPage, [startIndex, itemsPerPage]);
-    const paginatedStudents = useMemo(() => filteredStudents.slice(startIndex, endIndex), [filteredStudents, startIndex, endIndex]);
-    
-    // Reset to first page when filters change
+    // Reset to first page when filters change (except page itself)
     useEffect(() => {
         setCurrentPage(1);
-    }, [selectedSchoolId, selectedClassId, debouncedSearchName, debouncedMinWorksheets, debouncedMaxAbsentRate, debouncedMinRepetitionRate, showArchived, sortField, sortDirection, enableDateFilter, startDate, endDate]);// Handle sorting - memoized for performance
+    }, [selectedSchoolId, selectedClassId, debouncedSearchName, showArchived, enableDateFilter, startDate, endDate, itemsPerPage]);// Handle sorting - memoized for performance
     const handleSort = useCallback((field: SortField) => {
         if (sortField === field) {
             // Toggle direction if same field
@@ -365,9 +314,6 @@ export default function StudentAnalyticsPage() {
         setSelectedSchoolId('all');
         setSelectedClassId('all');
         setSearchName('');
-        setMinWorksheets('');
-        setMaxAbsentRate('');
-        setMinRepetitionRate('');
         setShowArchived('active');
         setEnableDateFilter(false);
         setStartDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
@@ -385,26 +331,42 @@ export default function StudentAnalyticsPage() {
     const handleItemsPerPageChange = useCallback((value: string) => {
         setItemsPerPage(parseInt(value));
         setCurrentPage(1); // Reset to first page
-    }, []);// Handle student class removal - memoized for performance
-    const handleRemoveFromClass = useCallback(async (studentId: string, classId: string) => {
-        if (!classId || classId === 'all') return;
-        
+    }, []);
+
+    // Helper to refresh current page data
+    const refreshData = useCallback(async () => {
         try {
-            await analyticsAPI.removeStudentFromClass(studentId, classId);
-            toast.success('Student removed from class successfully');
-              // Refresh student data
-            const updatedData = await analyticsAPI.getStudentAnalytics({
+            const data = await analyticsAPI.getStudentAnalytics({
                 schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
                 classId: selectedClassId !== 'all' ? selectedClassId : undefined,
                 startDate: enableDateFilter ? startDate : undefined,
-                endDate: enableDateFilter ? endDate : undefined
+                endDate: enableDateFilter ? endDate : undefined,
+                page: currentPage,
+                pageSize: itemsPerPage,
+                search: debouncedSearchName || undefined,
+                showArchived: showArchived
             });
-            setStudents(updatedData);
+            setStudents(data.students);
+            setTotalStudents(data.total);
+            setTotalPages(data.totalPages);
+        } catch (error) {
+            console.error('Error refreshing data:', error);
+        }
+    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate, currentPage, itemsPerPage, debouncedSearchName, showArchived]);
+
+    // Handle student class removal - memoized for performance
+    const handleRemoveFromClass = useCallback(async (studentId: string, classId: string) => {
+        if (!classId || classId === 'all') return;
+
+        try {
+            await analyticsAPI.removeStudentFromClass(studentId, classId);
+            toast.success('Student removed from class successfully');
+            await refreshData();
         } catch (error) {
             console.error('Error removing student from class:', error);
             toast.error('Failed to remove student from class');
         }
-    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate]);
+    }, [refreshData]);
 
     // Handle student archiving - memoized for performance
     const handleArchiveStudent = useCallback(async (studentId: string) => {
@@ -412,22 +374,14 @@ export default function StudentAnalyticsPage() {
             setActionLoading(studentId);
             await userAPI.archiveStudent(studentId);
             toast.success('Student archived successfully');
-            
-            // Refresh student data
-            const updatedData = await analyticsAPI.getStudentAnalytics({
-                schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
-                classId: selectedClassId !== 'all' ? selectedClassId : undefined,
-                startDate: enableDateFilter ? startDate : undefined,
-                endDate: enableDateFilter ? endDate : undefined
-            });
-            setStudents(updatedData);
+            await refreshData();
         } catch (error: any) {
             console.error('Error archiving student:', error);
             toast.error(error.message || 'Failed to archive student');
         } finally {
             setActionLoading(null);
         }
-    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate]);
+    }, [refreshData]);
 
     // Handle student unarchiving - memoized for performance
     const handleUnarchiveStudent = useCallback(async (studentId: string) => {
@@ -435,22 +389,14 @@ export default function StudentAnalyticsPage() {
             setActionLoading(studentId);
             await userAPI.unarchiveStudent(studentId);
             toast.success('Student unarchived successfully');
-            
-            // Refresh student data
-            const updatedData = await analyticsAPI.getStudentAnalytics({
-                schoolId: selectedSchoolId !== 'all' ? selectedSchoolId : undefined,
-                classId: selectedClassId !== 'all' ? selectedClassId : undefined,
-                startDate: enableDateFilter ? startDate : undefined,
-                endDate: enableDateFilter ? endDate : undefined
-            });
-            setStudents(updatedData);
+            await refreshData();
         } catch (error: any) {
             console.error('Error unarchiving student:', error);
             toast.error(error.message || 'Failed to unarchive student');
         } finally {
             setActionLoading(null);
         }
-    }, [selectedSchoolId, selectedClassId, enableDateFilter, startDate, endDate]);
+    }, [refreshData]);
     
     // Memoized date formatter to avoid recreation
     const formatDate = useCallback((dateString: string | null) => {
@@ -681,83 +627,27 @@ export default function StudentAnalyticsPage() {
                         </div>
                     </div>
                     
-                    <div className="pt-4">
-                        <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
-                            <Filter className="h-4 w-4" />
-                            Advanced Filters
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                                <label className="block text-sm font-semibold mb-1 text-slate-700">Min. Total Worksheets</label>
-                                <Input
-                                    type="number"
-                                    placeholder="e.g., 5"
-                                    value={minWorksheets}
-                                    onChange={(e) => setMinWorksheets(e.target.value)}
-                                    min="0"
-                                    className="border-slate-300 focus:border-blue-500"
-                                />
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-semibold mb-1 text-slate-700">Max. Absent Rate (%)</label>
-                                <Input
-                                    type="number"
-                                    placeholder="e.g., 20"
-                                    value={maxAbsentRate}
-                                    onChange={(e) => setMaxAbsentRate(e.target.value)}
-                                    min="0"
-                                    max="100"
-                                    step="0.1"
-                                    className="border-slate-300 focus:border-blue-500"
-                                />
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-semibold mb-1 text-slate-700">Min. Repetition Rate (%)</label>
-                                <Input
-                                    type="number"
-                                    placeholder="e.g., 10"
-                                    value={minRepetitionRate}
-                                    onChange={(e) => setMinRepetitionRate(e.target.value)}
-                                    min="0"
-                                    max="100"
-                                    step="0.1"
-                                    className="border-slate-300 focus:border-blue-500"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </CardContent>            </Card>
+                </CardContent>
+            </Card>
 
             {/* Summary Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card>
                     <CardContent className="p-4">
-                        <div className="text-2xl font-bold">
-                            {students.filter(s => !s.isArchived).length}
-                        </div>
-                        <p className="text-sm text-muted-foreground">Active Students</p>
+                        <div className="text-2xl font-bold">{totalStudents}</div>
+                        <p className="text-sm text-muted-foreground">Total Students (Filtered)</p>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardContent className="p-4">
-                        <div className="text-2xl font-bold">
-                            {students.filter(s => s.isArchived).length}
-                        </div>
-                        <p className="text-sm text-muted-foreground">Archived Students</p>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardContent className="p-4">
-                        <div className="text-2xl font-bold">{filteredStudents.length}</div>
-                        <p className="text-sm text-muted-foreground">Filtered Results</p>
+                        <div className="text-2xl font-bold">{students.length}</div>
+                        <p className="text-sm text-muted-foreground">Showing on this page</p>
                     </CardContent>
                 </Card>
             </div>
 
             {/* Pagination Controls */}
-            {filteredStudents.length > 0 && (
+            {totalStudents > 0 && (
                 <Card>
                     <CardContent className="p-4">
                         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -778,7 +668,7 @@ export default function StudentAnalyticsPage() {
                             
                             <div className="flex items-center gap-2">
                                 <span className="text-sm text-muted-foreground">
-                                    Showing {startIndex + 1} to {Math.min(endIndex, filteredStudents.length)} of {filteredStudents.length} results
+                                    Showing {startIndex} to {endIndex} of {totalStudents} results
                                 </span>
                             </div>
                             
@@ -841,7 +731,7 @@ export default function StudentAnalyticsPage() {
                     <CardTitle className="flex items-center justify-between text-slate-800">
                         <span className="text-xl font-bold">Student Performance Analytics</span>
                         <span className="text-sm font-normal text-slate-600 bg-blue-50 px-3 py-1 rounded-full">
-                            Page {currentPage} of {totalPages} ({filteredStudents.length} total)
+                            Page {currentPage} of {totalPages} ({totalStudents} total)
                         </span>
                     </CardTitle>
                     <CardDescription className="text-slate-600 font-medium">Detailed analytics and performance metrics for each student</CardDescription>
@@ -857,7 +747,7 @@ export default function StudentAnalyticsPage() {
                                 </div>
                             ))}
                         </div>
-                    ) : filteredStudents.length === 0 ? (
+                    ) : totalStudents === 0 ? (
                         <div className="text-center py-8 text-muted-foreground">
                             No students found for the selected filters
                         </div>                    ) : (
@@ -916,7 +806,7 @@ export default function StudentAnalyticsPage() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {paginatedStudents.map(student => (
+                                        {sortedStudents.map(student => (
                                             <TableRow key={student.id}>
                                                 <TableCell className="font-medium">
                                                     <div className="truncate max-w-[140px]" title={student.name}>
@@ -1005,7 +895,7 @@ export default function StudentAnalyticsPage() {
 
                             {/* Mobile Card View */}
                             <div className="md:hidden space-y-4">
-                                {paginatedStudents.map(student => (
+                                {sortedStudents.map(student => (
                                     <Card key={student.id} className="p-4">
                                         <div className="flex justify-between items-start mb-3">
                                             <div className="flex-1">

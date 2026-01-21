@@ -4,6 +4,7 @@ import prisma from '../utils/prisma';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
 import { scheduleGrading } from '../services/gradingLimiter';
+import { logError } from '../services/errorLogService';
 
 interface PythonApiResponse {
     success: boolean;
@@ -99,6 +100,9 @@ async function callPythonApi(
         }
     }
 
+    // Log final failure
+    await logError('python-api', lastError!, { token_no, worksheet_name }).catch(() => { });
+
     throw lastError;
 }
 
@@ -180,24 +184,12 @@ export const processWorksheets = async (req: Request, res: Response) => {
             prisma.worksheetTemplate.findFirst({ where: { worksheetNumber: worksheetNum } })
         );
 
-        // Check for existing worksheet (idempotency)
+        // Atomic upsert to prevent race conditions
         const submittedOnDate = submittedOn ? new Date(submittedOn) : new Date();
         const dayStart = new Date(submittedOnDate);
         dayStart.setHours(0, 0, 0, 0);
         const dayEnd = new Date(submittedOnDate);
         dayEnd.setHours(23, 59, 59, 999);
-
-        const existingWorksheet = await withRetry(() =>
-            prisma.worksheet.findFirst({
-                where: {
-                    studentId,
-                    classId,
-                    templateId: template?.id,
-                    submittedOn: { gte: dayStart, lte: dayEnd },
-                    isRepeated: false
-                }
-            })
-        );
 
         const gradingDetails = {
             total_possible: pythonResponse.total_possible,
@@ -215,44 +207,56 @@ export const processWorksheets = async (req: Request, res: Response) => {
 
         let worksheet;
 
-        if (existingWorksheet && !isRepeated) {
-            // Update existing
-            worksheet = await withRetry(() =>
-                prisma.worksheet.update({
-                    where: { id: existingWorksheet.id },
-                    data: {
-                        grade: pythonResponse.grade,
-                        status: ProcessingStatus.COMPLETED,
-                        outOf: pythonResponse.total_possible || 40,
-                        mongoDbId: pythonResponse.mongodb_id,
-                        gradingDetails
-                    }
-                })
-            );
-        } else {
-            // Create new
-            worksheet = await withRetry(() =>
-                prisma.worksheet.create({
-                    data: {
-                        classId,
+        // Use a transaction to ensure atomicity: find + create/update in one go
+        worksheet = await withRetry(() =>
+            prisma.$transaction(async (tx) => {
+                // Find existing worksheet within transaction
+                const existing = await tx.worksheet.findFirst({
+                    where: {
                         studentId,
-                        submittedById,
+                        classId,
                         templateId: template?.id,
-                        grade: pythonResponse.grade,
-                        notes: `Auto-graded worksheet ${worksheetNumber}`,
-                        status: ProcessingStatus.COMPLETED,
-                        outOf: pythonResponse.total_possible || 40,
-                        submittedOn: submittedOnDate,
-                        isAbsent: false,
-                        isRepeated: isRepeated || false,
-                        isCorrectGrade: false,
-                        isIncorrectGrade: false,
-                        mongoDbId: pythonResponse.mongodb_id,
-                        gradingDetails
+                        submittedOn: { gte: dayStart, lte: dayEnd },
+                        isRepeated: false
                     }
-                })
-            );
-        }
+                });
+
+                if (existing && !isRepeated) {
+                    // Update existing worksheet
+                    return tx.worksheet.update({
+                        where: { id: existing.id },
+                        data: {
+                            grade: pythonResponse.grade,
+                            status: ProcessingStatus.COMPLETED,
+                            outOf: pythonResponse.total_possible || 40,
+                            mongoDbId: pythonResponse.mongodb_id,
+                            gradingDetails
+                        }
+                    });
+                } else {
+                    // Create new worksheet
+                    return tx.worksheet.create({
+                        data: {
+                            classId,
+                            studentId,
+                            submittedById,
+                            templateId: template?.id,
+                            grade: pythonResponse.grade,
+                            notes: `Auto-graded worksheet ${worksheetNumber}`,
+                            status: ProcessingStatus.COMPLETED,
+                            outOf: pythonResponse.total_possible || 40,
+                            submittedOn: submittedOnDate,
+                            isAbsent: false,
+                            isRepeated: isRepeated || false,
+                            isCorrectGrade: false,
+                            isIncorrectGrade: false,
+                            mongoDbId: pythonResponse.mongodb_id,
+                            gradingDetails
+                        }
+                    });
+                }
+            })
+        );
 
         // Update job to completed (non-critical)
         await withRetry(() =>
@@ -267,14 +271,23 @@ export const processWorksheets = async (req: Request, res: Response) => {
         ).catch(() => { /* Worksheet saved, job update non-critical */ });
 
     } catch (error) {
-        console.error('Grading failed:', error instanceof Error ? error.message : error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error('Grading failed:', errorMessage);
+
+        // Log to MongoDB error_logs collection
+        await logError('grading', error instanceof Error ? error : new Error(errorMessage), {
+            jobId: gradingJob?.id,
+            studentId: req.body.studentId,
+            classId: req.body.classId,
+            worksheetNumber: req.body.worksheetNumber
+        }).catch(() => { });
 
         if (gradingJob) {
             await prisma.gradingJob.update({
                 where: { id: gradingJob.id },
                 data: {
                     status: GradingJobStatus.FAILED,
-                    errorMessage: error instanceof Error ? error.message : 'Unknown error',
+                    errorMessage,
                     completedAt: new Date()
                 }
             }).catch(() => { });
