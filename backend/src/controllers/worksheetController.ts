@@ -327,6 +327,14 @@ export const getWorksheetTemplates = async (req: Request, res: Response) => {
 export const createGradedWorksheet = async (req: Request, res: Response) => {
     const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isIncorrectGrade, gradingDetails, wrongQuestionNumbers } = req.body;
     const submittedById = req.user?.userId;
+    const submittedOnDate = submittedOn ? new Date(submittedOn) : undefined;
+    const dayStart = submittedOnDate ? new Date(submittedOnDate) : undefined;
+    const dayEnd = submittedOnDate ? new Date(submittedOnDate) : undefined;
+
+    if (dayStart && dayEnd) {
+        dayStart.setHours(0, 0, 0, 0);
+        dayEnd.setHours(23, 59, 59, 999);
+    }
 
 
     try {
@@ -347,7 +355,7 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
                     notes: notes || 'Student absent',
                     status: ProcessingStatus.COMPLETED,
                     outOf: 40,
-                    submittedOn: submittedOn ? new Date(submittedOn) : undefined,
+                    submittedOn: submittedOnDate,
                     isAbsent: true,
                     isRepeated: false,
                     isIncorrectGrade: false, // Absent students can't have incorrect grades
@@ -380,34 +388,60 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
         if (!template) {
         }
 
-        const worksheet = await prisma.worksheet.create({
-            data: {
-                class: {
-                    connect: { id: classId }
+        let existingWorksheetId: string | null = null;
+        if (!isRepeated && dayStart && dayEnd) {
+            const existingWorksheet = await prisma.worksheet.findFirst({
+                where: {
+                    classId,
+                    studentId,
+                    submittedOn: {
+                        gte: dayStart,
+                        lte: dayEnd
+                    },
+                    ...(template ? { templateId: template.id } : { templateId: null }),
+                    isRepeated: false
                 },
-                student: {
-                    connect: { id: studentId }
-                },
-                submittedBy: {
-                    connect: { id: submittedById! }
-                },
-                ...(template ? {
-                    template: {
-                        connect: { id: template.id }
-                    }
-                } : {}),
-                grade: gradeValue,
-                notes,
-                status: ProcessingStatus.COMPLETED,
-                outOf: 40,
-                submittedOn: submittedOn ? new Date(submittedOn) : undefined,
-                isAbsent: false,
-                isRepeated: isRepeated || false,
-                isIncorrectGrade: isIncorrectGrade || false,
-                gradingDetails: gradingDetails || null,
-                wrongQuestionNumbers: wrongQuestionNumbers || null,
-            }
-        });
+                select: { id: true }
+            });
+
+            existingWorksheetId = existingWorksheet?.id || null;
+        }
+
+        const worksheetData = {
+            class: {
+                connect: { id: classId }
+            },
+            student: {
+                connect: { id: studentId }
+            },
+            submittedBy: {
+                connect: { id: submittedById! }
+            },
+            ...(template ? {
+                template: {
+                    connect: { id: template.id }
+                }
+            } : {}),
+            grade: gradeValue,
+            notes,
+            status: ProcessingStatus.COMPLETED,
+            outOf: 40,
+            submittedOn: submittedOnDate,
+            isAbsent: false,
+            isRepeated: isRepeated || false,
+            isIncorrectGrade: isIncorrectGrade || false,
+            gradingDetails: gradingDetails || null,
+            wrongQuestionNumbers: wrongQuestionNumbers || null,
+        };
+
+        const worksheet = existingWorksheetId
+            ? await prisma.worksheet.update({
+                where: { id: existingWorksheetId },
+                data: worksheetData
+            })
+            : await prisma.worksheet.create({
+                data: worksheetData
+            });
 
         res.status(201).json(worksheet);
     } catch (error) {
