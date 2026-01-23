@@ -1,0 +1,1870 @@
+Duplicate Worksheets Report - 2026-01-23T05:41:59.857Z
+========================================================================================================================
+Found 36 cases of multiple worksheets per student per day
+
+
+Student: Anurag (Token: 36S099)
+Class: Sanjay Memorial Public School - 4th (25-26)
+Date: 2026-02-13
+Teacher: Veena (veena)
+Total worksheets found: 118
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 2f60b0c4-79d2-4199-a6b7-a8bba6158896
+    Worksheet #: 1058
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+  DELETING (117 worksheet(s)):
+    ID: 62e3450c-403a-4577-924a-55ae1e0b1a20
+    Worksheet #: 1053
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 4001a967-7813-4e6d-8fe4-7f2a92dc6874
+    Worksheet #: 1063
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 2c99ddf6-c062-4a66-8301-540feacc01ba
+    Worksheet #: 1064
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 2af79fc8-c4b3-4a01-97cf-427c82686580
+    Worksheet #: 1059
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 1808c072-1330-427e-87d6-cfda09476cd2
+    Worksheet #: 1057
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 82d73ea9-28e9-48db-ba27-331fc95725ba
+    Worksheet #: 1055
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: dbfb1ca4-6a9b-4c5f-b4af-bd895af8d645
+    Worksheet #: 1050
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: bea8986e-aac6-425f-986d-8fd17e0e842d
+    Worksheet #: 1052
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 95e3d302-1844-4b63-b646-b6c7dcc9fc6e
+    Worksheet #: 1049
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 2fff7980-c176-413b-aef9-426ede73fc9e
+    Worksheet #: 1062
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: a9e8cc7d-9f9a-47eb-9326-56d385a14c1d
+    Worksheet #: 1051
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 282d2ec7-6271-4d1c-a598-5601c888a61c
+    Worksheet #: 1054
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 25f210e0-8563-4247-aad2-e860831dfeea
+    Worksheet #: 1060
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 5d6fdde2-cd44-4b81-8a55-7bd93869a879
+    Worksheet #: 1061
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 732f81b2-84d8-4204-8462-29b097aa9538
+    Worksheet #: 1045
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 0dbc042e-beae-4322-bf66-7ca2eb21965c
+    Worksheet #: 1047
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 282c28dc-9a0b-4f05-856f-07e51a20a2bd
+    Worksheet #: 1048
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: b1a57465-5ada-483e-8381-4be2189d5bba
+    Worksheet #: 1040
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 3c139435-aba2-4f6b-b178-467ed7092372
+    Worksheet #: 1046
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 7b3bdae3-322c-4c5f-96dd-e025fe7ba413
+    Worksheet #: 1044
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 24fd812b-fbd0-4816-9345-7d9169abc8e4
+    Worksheet #: 1056
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 665e7704-7c94-4257-a9f0-1d83cfcbfd76
+    Worksheet #: 1043
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: da963532-10f7-406a-b20c-93ba79952085
+    Worksheet #: 1041
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 354fc00b-bea1-42d3-a97e-d4a4347d3cfd
+    Worksheet #: 1042
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: a31fe8de-203d-4e3a-b9f8-4298bd606850
+    Worksheet #: 1035
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: bf28563e-8aed-454c-b00a-18bccd9a93a9
+    Worksheet #: 1037
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 01075ed2-a0be-46e0-a847-a1c5621b9f3d
+    Worksheet #: 1039
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: e31d892c-4c9b-4be7-9889-89948f207e5c
+    Worksheet #: 1038
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: e88398f6-254f-42b2-be62-4fc1b89f53ed
+    Worksheet #: 1036
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 11145a8d-5432-4e75-9f42-77576f459ff3
+    Worksheet #: 1034
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: aad33f89-e795-4979-be05-04bb96ed6e53
+    Worksheet #: 1033
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:57:30 GMT+0530 (India Standard Time)
+
+    ID: 17f71283-3783-4700-8673-c058b7efd064
+    Worksheet #: 1051
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:45 GMT+0530 (India Standard Time)
+
+    ID: deb1205d-2a3b-4c22-9611-2c4bf41864bb
+    Worksheet #: 1045
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: d78a6bb7-8dfb-40eb-ab3d-330a9fba27fa
+    Worksheet #: 1061
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 12e8aea0-ee30-43cc-b387-b2e49a044e2c
+    Worksheet #: 1059
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 1f178165-1944-42e6-b358-1a4dcffcea40
+    Worksheet #: 1047
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 7b85c3fe-b933-4028-ab86-181fcea1200f
+    Worksheet #: 1055
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 9f34b09a-6d2d-473c-a6c5-4fbab2510ba4
+    Worksheet #: 1052
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: f13f71c6-2d96-4c91-8385-a4de1698f974
+    Worksheet #: 1053
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: faa1eec4-9f3e-418d-b492-140d24269fef
+    Worksheet #: 1048
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 4ded27f6-436e-45ac-832a-b6b470389e91
+    Worksheet #: 1044
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: a8a37e1d-ce51-4316-abdf-15ba7cdcae35
+    Worksheet #: 1058
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 67403c05-60f9-4cf0-bda5-e772d0e75986
+    Worksheet #: 1054
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: af9efb5e-67ec-4e50-9304-a8cc1feb2e74
+    Worksheet #: 1057
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 8204e4ba-ff96-40e9-8ec1-1f32c196dc1f
+    Worksheet #: 1056
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 65be80ef-df6f-4052-baaa-cf3c878ce52d
+    Worksheet #: 1046
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 75b20abd-656a-4756-9082-25c80a6a4f7a
+    Worksheet #: 1050
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 3ac95ade-d317-4c8c-8343-91aa58e79f2c
+    Worksheet #: 1049
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 9e61a462-fd53-46e0-9c34-8a8651bbbd10
+    Worksheet #: 1040
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 853eebd3-c758-46d1-9c41-dc27c66b7dfa
+    Worksheet #: 1042
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: d566c9fb-3874-43ed-bfae-309d227d474f
+    Worksheet #: 1043
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 022d9d33-bcdc-49ff-bc1f-67b8ad868e9e
+    Worksheet #: 1041
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: ce6a906f-1613-42b7-90a3-44fd2d3c2543
+    Worksheet #: 1039
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 7fbb01ab-ead6-47c6-89f7-7944c38b7da4
+    Worksheet #: 1063
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 271eb28a-aadc-4fd3-b794-83ca6511b28d
+    Worksheet #: 1064
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: fd29c61e-d456-4450-aa00-06b4eea3c888
+    Worksheet #: 1062
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 82d29935-0229-455b-9f70-eac0b3540e85
+    Worksheet #: 1060
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:26 GMT+0530 (India Standard Time)
+
+    ID: 0d241541-13f3-4e61-b1a0-05b4845041db
+    Worksheet #: 1037
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:25 GMT+0530 (India Standard Time)
+
+    ID: a1fba616-116a-42da-924e-a083edd0cda0
+    Worksheet #: 1038
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:25 GMT+0530 (India Standard Time)
+
+    ID: ec02f1ec-1cf5-4029-bf66-32e48de5e571
+    Worksheet #: 1036
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:25 GMT+0530 (India Standard Time)
+
+    ID: d58d0dbc-1f65-40cd-993c-b685ddc01c52
+    Worksheet #: 1033
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:25 GMT+0530 (India Standard Time)
+
+    ID: f7b1098f-c495-48df-b1ab-0e192c7a3a64
+    Worksheet #: 1034
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:25 GMT+0530 (India Standard Time)
+
+    ID: a0829079-64ac-481f-a40b-575106e948b5
+    Worksheet #: 1035
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:25 GMT+0530 (India Standard Time)
+
+    ID: 67bc31a5-50ff-4273-8b3f-75d674044369
+    Worksheet #: 1064
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:24 GMT+0530 (India Standard Time)
+
+    ID: 6ff65bc3-bbfa-4e57-8bc2-76448521cc35
+    Worksheet #: 1063
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:20 GMT+0530 (India Standard Time)
+
+    ID: 413aa167-770d-48af-8c59-3d4b9f017d2f
+    Worksheet #: 1062
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:18 GMT+0530 (India Standard Time)
+
+    ID: 67775e41-dc34-46cb-82e0-5e18d683db10
+    Worksheet #: 1061
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:13 GMT+0530 (India Standard Time)
+
+    ID: b70b5150-f6fa-486f-81bc-46ef958025ff
+    Worksheet #: 1060
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:09 GMT+0530 (India Standard Time)
+
+    ID: 69828257-19fa-4631-81ae-cb5a7fc75b84
+    Worksheet #: 1060
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:05 GMT+0530 (India Standard Time)
+
+    ID: 70d8c13d-5860-4942-b957-2d209de85a8d
+    Worksheet #: 1059
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:03 GMT+0530 (India Standard Time)
+
+    ID: 8f4b0c96-5e3b-411a-92bc-013a9778639a
+    Worksheet #: 1058
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:01 GMT+0530 (India Standard Time)
+
+    ID: ea48ef40-bc07-42a0-b066-4ab5295db2ba
+    Worksheet #: 1057
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:58 GMT+0530 (India Standard Time)
+
+    ID: 15cdba3c-424c-44c1-9863-76c62a0d2621
+    Worksheet #: 1056
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:55 GMT+0530 (India Standard Time)
+
+    ID: 34906d9f-c1e2-40d0-9140-321e9fc3c6a4
+    Worksheet #: 1055
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:52 GMT+0530 (India Standard Time)
+
+    ID: 474501aa-27d8-46b1-a913-f6eaa62fa355
+    Worksheet #: 1054
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:50 GMT+0530 (India Standard Time)
+
+    ID: 912f7764-2118-4c21-a392-b890c5327d86
+    Worksheet #: 1053
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:48 GMT+0530 (India Standard Time)
+
+    ID: 4a8d552b-1ece-4fdc-85bb-5e565fb8ab93
+    Worksheet #: 1052
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:45 GMT+0530 (India Standard Time)
+
+    ID: 8caeded2-e26e-458c-b0fb-fc4316f28c9c
+    Worksheet #: 1051
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:42 GMT+0530 (India Standard Time)
+
+    ID: 22716277-1f0f-45e8-b23f-c95cb3a13754
+    Worksheet #: 1050
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:39 GMT+0530 (India Standard Time)
+
+    ID: 3768a709-f352-42e0-991f-54ff51c04e8e
+    Worksheet #: 1049
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:36 GMT+0530 (India Standard Time)
+
+    ID: b25d6e54-1eb6-4051-ba61-1dc7ee60947e
+    Worksheet #: 1048
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:34 GMT+0530 (India Standard Time)
+
+    ID: d5120f41-3668-4bcc-ac6e-befb4b15c517
+    Worksheet #: 1047
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:31 GMT+0530 (India Standard Time)
+
+    ID: 99043827-23da-4996-8017-295710081163
+    Worksheet #: 1046
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:29 GMT+0530 (India Standard Time)
+
+    ID: dec3d384-80d9-4e9d-9dfb-b534ee081117
+    Worksheet #: 1045
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:26 GMT+0530 (India Standard Time)
+
+    ID: 7c048ad9-6a1b-4ca0-a8bb-e83339effee4
+    Worksheet #: 1038
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:25 GMT+0530 (India Standard Time)
+
+    ID: f2e08d06-8124-4400-a060-c74c633bd4d5
+    Worksheet #: 1044
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:23 GMT+0530 (India Standard Time)
+
+    ID: 33bcfa82-4cbb-4dcd-8548-b21c0b91c71b
+    Worksheet #: 1043
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:20 GMT+0530 (India Standard Time)
+
+    ID: a97410b2-7618-49e2-a929-3632adf7b8ca
+    Worksheet #: 1042
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:17 GMT+0530 (India Standard Time)
+
+    ID: 530440d7-bb44-4b18-ad13-8b017fa4910e
+    Worksheet #: 1041
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:14 GMT+0530 (India Standard Time)
+
+    ID: e3219d72-9382-43a6-9df1-38bf9d46f62c
+    Worksheet #: 1040
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:10 GMT+0530 (India Standard Time)
+
+    ID: 7377cb6d-1f1a-4671-a4d9-7cc7a698500f
+    Worksheet #: 1039
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:05 GMT+0530 (India Standard Time)
+
+    ID: cc6f1de7-a608-455b-a852-ac2050078a15
+    Worksheet #: 1035
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:05 GMT+0530 (India Standard Time)
+
+    ID: 90b00b21-3141-4c91-b9f6-93307c8abb7d
+    Worksheet #: 1037
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:05 GMT+0530 (India Standard Time)
+
+    ID: 6f7c097a-f744-4768-8502-071c7f91c9ef
+    Worksheet #: 1036
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:05 GMT+0530 (India Standard Time)
+
+    ID: 2022aec8-bffb-4b80-9554-1d285cade08a
+    Worksheet #: 1034
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:05 GMT+0530 (India Standard Time)
+
+    ID: 5dc22434-3a2c-48a8-b5f2-6bb22987069b
+    Worksheet #: 1033
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:05 GMT+0530 (India Standard Time)
+
+    ID: 5b2d1c69-53f0-4ad6-828a-30709b4c33db
+    Worksheet #: 1038
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:03 GMT+0530 (India Standard Time)
+
+    ID: 3c7edaea-475f-4d8a-aadd-cc7bdfbfcacd
+    Worksheet #: 1035
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:03 GMT+0530 (India Standard Time)
+
+    ID: 22b186b1-7747-427b-b21f-02a017a2ab0d
+    Worksheet #: 1036
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:03 GMT+0530 (India Standard Time)
+
+    ID: 39579486-8797-4ac7-8824-2576ac7dbc18
+    Worksheet #: 1037
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:03 GMT+0530 (India Standard Time)
+
+    ID: 263e0aff-f710-4a10-be3f-6c72af2a6317
+    Worksheet #: 1034
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:03 GMT+0530 (India Standard Time)
+
+    ID: 86afb217-2a7f-44c2-8628-b59f6f138209
+    Worksheet #: 1033
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:03 GMT+0530 (India Standard Time)
+
+    ID: e708f158-2fb5-46bb-bd8e-0407bfcfee2b
+    Worksheet #: 1037
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:00 GMT+0530 (India Standard Time)
+
+    ID: 8ef19915-7942-4337-93fd-910f2eb241aa
+    Worksheet #: 1033
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:00 GMT+0530 (India Standard Time)
+
+    ID: 0da42877-feca-4027-bbff-c656db2f2ec4
+    Worksheet #: 1036
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:00 GMT+0530 (India Standard Time)
+
+    ID: 1829621b-bbe6-48bd-80f7-3cba924ac580
+    Worksheet #: 1034
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:00 GMT+0530 (India Standard Time)
+
+    ID: ec4e963c-3908-4714-a1f2-a3bb683a754c
+    Worksheet #: 1035
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:00 GMT+0530 (India Standard Time)
+
+    ID: 8f3d0fa0-39c4-426c-a655-e4b33bc4eac4
+    Worksheet #: 1036
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:44 GMT+0530 (India Standard Time)
+
+    ID: a5a5946f-ead2-45ac-aebe-9fa2a712fc58
+    Worksheet #: 1035
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:44 GMT+0530 (India Standard Time)
+
+    ID: 172dc723-09c1-4742-86e3-8b76519854fb
+    Worksheet #: 1034
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:44 GMT+0530 (India Standard Time)
+
+    ID: 6cfed730-8add-4867-a9e4-2156c02ff2e2
+    Worksheet #: 1033
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:44 GMT+0530 (India Standard Time)
+
+    ID: f574438d-5d3f-4e34-9519-8195abf2e952
+    Worksheet #: 1034
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:39 GMT+0530 (India Standard Time)
+
+    ID: e7643d17-8ad2-4b08-9a1d-8431211f7cbd
+    Worksheet #: 1035
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:39 GMT+0530 (India Standard Time)
+
+    ID: 540b930b-8c84-4329-8daa-e14de1a69d50
+    Worksheet #: 1033
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:39 GMT+0530 (India Standard Time)
+
+    ID: 401bd5d2-3aed-43a7-b5e4-7eea198a3798
+    Worksheet #: 1033
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:33 GMT+0530 (India Standard Time)
+
+    ID: 9abd763d-7426-40fd-91ad-a67abe75807d
+    Worksheet #: 1034
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:33 GMT+0530 (India Standard Time)
+
+    ID: 7f8d2016-0105-491f-8443-68966030e939
+    Worksheet #: 1033
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:27 GMT+0530 (India Standard Time)
+
+
+
+Student: Anurag (Token: 36S099)
+Class: Sanjay Memorial Public School - 4th (25-26)
+Date: 2026-02-12
+Teacher: Veena (veena)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 0d61b551-3eeb-4848-b9b3-75dfd552444a
+    Worksheet #: 1031
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:13 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: a47ac7ef-704a-4471-b02a-c5e4068413d0
+    Worksheet #: 1030
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:52:18 GMT+0530 (India Standard Time)
+
+
+
+Student: Aarav Gupta (Token: 36S160)
+Class: Sanjay Memorial Public School - 4th (25-26)
+Date: 2026-01-27
+Teacher: Veena (veena)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: c69751c5-9890-45e8-8ca5-5015dbae1add
+    Worksheet #: 983
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:51:01 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: ca53fea5-1f7f-40a4-90bf-eb82a7959f51
+    Worksheet #: 983
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:50:50 GMT+0530 (India Standard Time)
+
+
+
+Student: Prabhas (Token: 36S211)
+Class: Sanjay Memorial Public School - 2nd (25-26)
+Date: 2026-01-24
+Teacher: Veena (veena)
+Total worksheets found: 3
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: ed59cbcc-b7a9-46a8-8aac-98ab4f8288fb
+    Worksheet #: 420
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:02:25 GMT+0530 (India Standard Time)
+
+  DELETING (2 worksheet(s)):
+    ID: e5be04de-9662-41d5-b570-aaa15e07bb9a
+    Worksheet #: 420
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:02:24 GMT+0530 (India Standard Time)
+
+    ID: a045b6d4-562d-433f-9362-37557ef63cc3
+    Worksheet #: 420
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:00:46 GMT+0530 (India Standard Time)
+
+
+
+Student: Sristi (Token: 54S340)
+Class: S.B Aadarsh Public School - 1st (25-26)
+Date: 2026-01-23
+Teacher: Neha (neha)
+Total worksheets found: 4
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 0df5af9e-f37c-4c0b-a8e0-c6be112569e2
+    Worksheet #: 183
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:35 GMT+0530 (India Standard Time)
+
+  DELETING (3 worksheet(s)):
+    ID: 11abbbc3-80fc-43cc-bc31-c41ade853fc2
+    Worksheet #: 183
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:06 GMT+0530 (India Standard Time)
+
+    ID: 5a45db5b-abe2-4000-946d-e8d4b77178be
+    Worksheet #: 183
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:15 GMT+0530 (India Standard Time)
+
+    ID: 1e661cb0-1b32-44ab-b0c1-0477fa9540d8
+    Worksheet #: 183
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:02 GMT+0530 (India Standard Time)
+
+
+
+Student: Tarak (Token: 265936596)
+Class: learno-testing - class_learno
+Date: 2026-01-23
+Teacher: Ayam (t_ayam)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: af10a39e-9491-4ede-9e62-012b5c464c79
+    Worksheet #: 21
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:03:44 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 10e104cc-d772-4338-97f8-236c9293e536
+    Worksheet #: 22
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:01:44 GMT+0530 (India Standard Time)
+
+
+
+Student: Tanvi Bhatt (Token: 36S033)
+Class: Sanjay Memorial Public School - 4th (25-26)
+Date: 2026-01-23
+Teacher: Veena (veena)
+Total worksheets found: 4
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: e129adc4-88f9-4c3f-a912-fbac38358842
+    Worksheet #: 1365
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:49:29 GMT+0530 (India Standard Time)
+
+  DELETING (3 worksheet(s)):
+    ID: 850bde1a-07e1-414a-9d23-9f7a02cd18d5
+    Worksheet #: 1365
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:47:12 GMT+0530 (India Standard Time)
+
+    ID: 216347d4-217b-4ef7-8325-94876cf11cc4
+    Worksheet #: 1365
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:47:11 GMT+0530 (India Standard Time)
+
+    ID: 6bb8763e-9e73-4e7d-aeb0-961efa0967a6
+    Worksheet #: 1365
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:47:02 GMT+0530 (India Standard Time)
+
+
+
+Student: Aditi Sharma (Token: 36S207)
+Class: Sanjay Memorial Public School - 2nd (25-26)
+Date: 2026-01-23
+Teacher: Veena (veena)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: ac8716cc-72c7-4444-9d9e-64002945f165
+    Worksheet #: 243
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:10:51 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 07266813-8290-4601-8cd9-128c09f03cc1
+    Worksheet #: 243
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:10:25 GMT+0530 (India Standard Time)
+
+
+
+Student: Gurmeet (Token: 30S418)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-23
+Teacher: Sakina (sakina)
+Total worksheets found: 4
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 0a6e34a6-628b-4281-ace6-1a496dd40e4e
+    Worksheet #: 984
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+  DELETING (3 worksheet(s)):
+    ID: 14e74dcc-477b-463d-a4a7-df5af8c52d49
+    Worksheet #: 985
+    Grade: 28
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+    ID: fce99332-43f6-423f-a548-7d8902a22eaf
+    Worksheet #: 986
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+    ID: 142ae960-ad92-4242-8d1e-69c303657abe
+    Worksheet #: 987
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 10:25:41 GMT+0530 (India Standard Time)
+
+
+
+Student: Aditya Kumar (Token: 54S319)
+Class: S.B Aadarsh Public School - 1st (25-26)
+Date: 2026-01-23
+Teacher: Neha (neha)
+Total worksheets found: 4
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 5a15d37f-2400-4f1b-a273-2ca37e1f8559
+    Worksheet #: 239
+    Grade: 32
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:35 GMT+0530 (India Standard Time)
+
+  DELETING (3 worksheet(s)):
+    ID: 37bc4b48-643a-4659-825e-118c234de56f
+    Worksheet #: 239
+    Grade: 32
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:06 GMT+0530 (India Standard Time)
+
+    ID: 7d9e064c-4493-49e7-b389-6f0845f93954
+    Worksheet #: 239
+    Grade: 32
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:15 GMT+0530 (India Standard Time)
+
+    ID: 0969344d-b851-4889-ad20-bc554c7de0ed
+    Worksheet #: 239
+    Grade: 32
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:02 GMT+0530 (India Standard Time)
+
+
+
+Student: Aaradhya Mahant (Token: 54S285)
+Class: S.B Aadarsh Public School - 1st (25-26)
+Date: 2026-01-23
+Teacher: Neha (neha)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 0d960abd-2400-40ca-89c0-cc6e8366eaf2
+    Worksheet #: 239
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:35 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 9c7df07b-8baf-421b-a3c3-ee45f16bd383
+    Worksheet #: 239
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:06 GMT+0530 (India Standard Time)
+
+
+
+Student: Darshit Maurya (Token: 30S380)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-23
+Teacher: Sakina (sakina)
+Total worksheets found: 8
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: aa6e733d-f614-47bc-b634-35a51e29cbdb
+    Worksheet #: 1085
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:51:42 GMT+0530 (India Standard Time)
+
+  DELETING (7 worksheet(s)):
+    ID: ee5eafea-52bf-48f0-8bef-11c75fbea908
+    Worksheet #: 1085
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:50:18 GMT+0530 (India Standard Time)
+
+    ID: 6414dfdb-8c2a-49aa-b7ae-03aa79526d75
+    Worksheet #: 1084
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:49:14 GMT+0530 (India Standard Time)
+
+    ID: df48d540-fca1-4db8-b2b9-8d4bf839455c
+    Worksheet #: 1084
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:48:13 GMT+0530 (India Standard Time)
+
+    ID: 0d04af73-6a9f-4401-afd9-93b937f16a57
+    Worksheet #: 1083
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:47:12 GMT+0530 (India Standard Time)
+
+    ID: 2ea66de9-0de5-4035-9389-1e2a0eb58c5f
+    Worksheet #: 1083
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:46:03 GMT+0530 (India Standard Time)
+
+    ID: 0ca9baac-40af-4c6f-8d53-dacd8cb88306
+    Worksheet #: 1082
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:43:20 GMT+0530 (India Standard Time)
+
+    ID: 775c90e8-aed9-4ab5-9fdb-db47e11fd618
+    Worksheet #: 1081
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:14 GMT+0530 (India Standard Time)
+
+
+
+Student: Sankalp (Token: 30S401)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-23
+Teacher: Sakina (sakina)
+Total worksheets found: 3
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: c7c0c2b4-3217-4464-ac7e-a857058bb82f
+    Worksheet #: 1045
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+  DELETING (2 worksheet(s)):
+    ID: 2aa9534a-c7b0-4af0-b7fd-6ac8310c38ca
+    Worksheet #: 1044
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+    ID: 395fb1f2-ae5b-4cc9-ac22-6e21312239a6
+    Worksheet #: 1046
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 09:40:24 GMT+0530 (India Standard Time)
+
+
+
+Student: Shashank Tomar (Token: 54S333)
+Class: S.B Aadarsh Public School - 1st (25-26)
+Date: 2026-01-23
+Teacher: Neha (neha)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 52ee0fae-5db0-4a18-b14f-5788f558ffec
+    Worksheet #: 339
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:35 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: c9b0d273-ab92-4c6b-beff-855839daa47d
+    Worksheet #: 339
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:06 GMT+0530 (India Standard Time)
+
+
+
+Student: Piyush (Token: 30S407)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-23
+Teacher: Sakina (sakina)
+Total worksheets found: 5
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: d431f54f-577f-4fa9-93c8-8669d2164128
+    Worksheet #: 938
+    Grade: 34
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+  DELETING (4 worksheet(s)):
+    ID: 1ed54c4d-6f96-4ee4-830f-a83ca288fa9d
+    Worksheet #: 937
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+    ID: a4876f62-554c-491d-8336-bbde3a912274
+    Worksheet #: 936
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+    ID: 10d1c15e-0d04-480d-bfd8-908901f3d919
+    Worksheet #: 939
+    Grade: 36
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+    ID: a094960b-c1be-4096-80ed-c58dde14ce02
+    Worksheet #: 940
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 09:37:44 GMT+0530 (India Standard Time)
+
+
+
+Student: Aarush Dhiman (Token: 30S382)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-23
+Teacher: Sakina (sakina)
+Total worksheets found: 7
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 8e1f6d9b-98ec-4d13-95cc-810760c06dd0
+    Worksheet #: 1143
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:39:47 GMT+0530 (India Standard Time)
+
+  DELETING (6 worksheet(s)):
+    ID: 6b0b8e2f-532f-4390-a359-73cad158d5bc
+    Worksheet #: 1143
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:38:37 GMT+0530 (India Standard Time)
+
+    ID: da7c2348-ed4a-4ee9-9e2d-4df3bc0905f5
+    Worksheet #: 1142
+    Grade: 37
+    Absent: false
+    Created: Fri Jan 23 2026 10:35:37 GMT+0530 (India Standard Time)
+
+    ID: 45578ace-c162-4a0f-ad11-9f3d61f10778
+    Worksheet #: 1142
+    Grade: 37
+    Absent: false
+    Created: Fri Jan 23 2026 10:33:27 GMT+0530 (India Standard Time)
+
+    ID: 5fbebfab-f193-4766-8b05-1925c5e9caea
+    Worksheet #: 1141
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:23 GMT+0530 (India Standard Time)
+
+    ID: b0a6502e-43e9-40f4-9825-e0a246ef77d9
+    Worksheet #: 1141
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 10:29:34 GMT+0530 (India Standard Time)
+
+    ID: 8373b6aa-b41d-4738-bd34-22600d8df601
+    Worksheet #: 1140
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 10:28:19 GMT+0530 (India Standard Time)
+
+
+
+Student: Dhruv Kushwaha (Token: 54S323)
+Class: S.B Aadarsh Public School - 1st (25-26)
+Date: 2026-01-23
+Teacher: Neha (neha)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 94a298a3-ab05-4ae0-bc93-74bed55ca2a9
+    Worksheet #: 238
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:35 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: c2b3e8ed-82c4-46cf-9a83-a783e6c0cdc7
+    Worksheet #: 238
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:06 GMT+0530 (India Standard Time)
+
+
+
+Student: Naina Rani Shankar (Token: 54S330)
+Class: S.B Aadarsh Public School - 1st (25-26)
+Date: 2026-01-23
+Teacher: Neha (neha)
+Total worksheets found: 4
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 7f20567d-d454-46b4-a1c2-ca9842a53cc6
+    Worksheet #: 241
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:35 GMT+0530 (India Standard Time)
+
+  DELETING (3 worksheet(s)):
+    ID: dda4b215-3638-4c46-b3a3-960cba0da552
+    Worksheet #: 241
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:06 GMT+0530 (India Standard Time)
+
+    ID: 9d2900c3-d717-4262-b24b-d1470f2c6acb
+    Worksheet #: 241
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:15 GMT+0530 (India Standard Time)
+
+    ID: ea6c06a6-d533-4296-946f-43504e0e5a47
+    Worksheet #: 241
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:02 GMT+0530 (India Standard Time)
+
+
+
+Student: Alex (Token: 54S270)
+Class: S.B Aadarsh Public School - 1st (25-26)
+Date: 2026-01-23
+Teacher: Neha (neha)
+Total worksheets found: 4
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 7e3c5250-cf4a-4db0-b78d-639351586064
+    Worksheet #: 422
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:35 GMT+0530 (India Standard Time)
+
+  DELETING (3 worksheet(s)):
+    ID: ea9ca390-ce21-4e3d-b565-109cce32c402
+    Worksheet #: 422
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:06 GMT+0530 (India Standard Time)
+
+    ID: 2ea853f0-b343-4090-9578-3ba1e328e835
+    Worksheet #: 422
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:14 GMT+0530 (India Standard Time)
+
+    ID: 964e3a21-b5c2-4123-af6c-d75b7b67758b
+    Worksheet #: 422
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:01 GMT+0530 (India Standard Time)
+
+
+
+Student: Sufiyan Hussain (Token: 54S335)
+Class: S.B Aadarsh Public School - 1st (25-26)
+Date: 2026-01-23
+Teacher: Neha (neha)
+Total worksheets found: 4
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 74727bf4-121d-4954-95b6-26ec56a5d168
+    Worksheet #: 183
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:35 GMT+0530 (India Standard Time)
+
+  DELETING (3 worksheet(s)):
+    ID: fccb5f0c-1ecb-4f09-85f4-4dc8df3a2538
+    Worksheet #: 183
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:06 GMT+0530 (India Standard Time)
+
+    ID: 8d5a8973-34b7-43bd-8003-36ff293bf1d2
+    Worksheet #: 183
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:15 GMT+0530 (India Standard Time)
+
+    ID: b8edb977-e0c4-46f7-a9fc-15bc05387ce0
+    Worksheet #: 183
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:02 GMT+0530 (India Standard Time)
+
+
+
+Student: Sanskar (Token: 30S413)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-23
+Teacher: Sakina (sakina)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: e6ca54a8-ff07-4918-9699-6c3fb0226924
+    Worksheet #: 348
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 98c1b948-e1d8-4188-bf57-41caef654a74
+    Worksheet #: 349
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:02:08 GMT+0530 (India Standard Time)
+
+
+
+Student: Rishi Tiwari (Token: 30S393)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-23
+Teacher: Sakina (sakina)
+Total worksheets found: 9
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: d8381627-9d32-4036-857c-2aca6db8b003
+    Worksheet #: 334
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:03:48 GMT+0530 (India Standard Time)
+
+  DELETING (8 worksheet(s)):
+    ID: 796595bf-aee5-4f26-a976-4078d05d639e
+    Worksheet #: 334
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:03:11 GMT+0530 (India Standard Time)
+
+    ID: 4ecab2eb-217a-4783-b59c-aa829d41653e
+    Worksheet #: 333
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:00:27 GMT+0530 (India Standard Time)
+
+    ID: 37c4043c-1c51-4e64-9304-30a33dfddca1
+    Worksheet #: 333
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:58:41 GMT+0530 (India Standard Time)
+
+    ID: 75167f84-2672-4772-8704-29b55890b47e
+    Worksheet #: 332
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:56:34 GMT+0530 (India Standard Time)
+
+    ID: cd6e519d-c4a1-4539-bf62-7307d60395c1
+    Worksheet #: 332
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:37 GMT+0530 (India Standard Time)
+
+    ID: 223affc8-8e8e-40db-9ff6-6b3caee26fc7
+    Worksheet #: 331
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:52:07 GMT+0530 (India Standard Time)
+
+    ID: 55d1d163-e165-4a32-bfd8-594df48b7141
+    Worksheet #: 331
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:50:44 GMT+0530 (India Standard Time)
+
+    ID: 970fb9e4-e07b-45a2-9c0d-ada88d6d2fc7
+    Worksheet #: 330
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:49:39 GMT+0530 (India Standard Time)
+
+
+
+Student: Bharat (Token: 1234567)
+Class: learno-testing - class_learno
+Date: 2026-01-23
+Teacher: Ayam (t_ayam)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 62fd0a83-e8d5-4752-bfbc-f643213dd84d
+    Worksheet #: 39
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:59:43 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 266a5ffd-5c84-4ce0-b446-a9b0c09849db
+    Worksheet #: 38
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:59:39 GMT+0530 (India Standard Time)
+
+
+
+Student: Ujjwal (Token: 36S027)
+Class: Sanjay Memorial Public School - 4th (25-26)
+Date: 2026-01-23
+Teacher: Veena (veena)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 1b119673-e852-44a2-96ff-593510f90a75
+    Worksheet #: 1252
+    Grade: 36
+    Absent: false
+    Created: Fri Jan 23 2026 10:38:04 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: c24a9452-2651-4997-a44c-295479f7737f
+    Worksheet #: 1252
+    Grade: 36
+    Absent: false
+    Created: Fri Jan 23 2026 10:36:59 GMT+0530 (India Standard Time)
+
+
+
+Student: Urvarsh Sing (Token: 54S336)
+Class: S.B Aadarsh Public School - 1st (25-26)
+Date: 2026-01-23
+Teacher: Neha (neha)
+Total worksheets found: 4
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: a0c8b44c-1e68-43f5-b0a0-1eedcbbbd2b7
+    Worksheet #: 180
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:35 GMT+0530 (India Standard Time)
+
+  DELETING (3 worksheet(s)):
+    ID: b908b27d-d176-4394-9156-8f75e7be4bfa
+    Worksheet #: 180
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:06 GMT+0530 (India Standard Time)
+
+    ID: 5e2de2c8-4f7c-4e87-96f4-17df46020dcb
+    Worksheet #: 180
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:15 GMT+0530 (India Standard Time)
+
+    ID: 23b743a9-73fa-4cd3-a9d8-5348c1929094
+    Worksheet #: 180
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:32:02 GMT+0530 (India Standard Time)
+
+
+
+Student: Lakshay Kumar (Token: 30S374)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-23
+Teacher: Sakina (sakina)
+Total worksheets found: 7
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: e2c7317f-5709-4749-bd98-e040b6ee7ee0
+    Worksheet #: 999
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 10:40:10 GMT+0530 (India Standard Time)
+
+  DELETING (6 worksheet(s)):
+    ID: 2f5762d6-3a12-4688-8201-b60f4fc4c025
+    Worksheet #: 1003
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 10:39:15 GMT+0530 (India Standard Time)
+
+    ID: 6fee118f-6f46-474c-a81b-a4b6067ac4fc
+    Worksheet #: 1003
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 10:35:05 GMT+0530 (India Standard Time)
+
+    ID: 81d97438-3e9f-4db9-9a01-82578b4f01d0
+    Worksheet #: 1002
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:02 GMT+0530 (India Standard Time)
+
+    ID: b543fe49-76d5-4c63-8665-e6ccec6c7248
+    Worksheet #: 1002
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 10:31:47 GMT+0530 (India Standard Time)
+
+    ID: 4957c5f0-e651-418f-9e25-abe15ddee21a
+    Worksheet #: 1001
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 10:30:40 GMT+0530 (India Standard Time)
+
+    ID: 941cc691-a5c8-47f9-b339-c237770efb54
+    Worksheet #: 1001
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 10:25:05 GMT+0530 (India Standard Time)
+
+
+
+Student: Aaditi (Token: 54S277)
+Class: S.B Aadarsh Public School - 1st (25-26)
+Date: 2026-01-23
+Teacher: Neha (neha)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 51f26731-330b-4d9d-872b-3e7e21b9dba9
+    Worksheet #: 186
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:42:35 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 0c15d300-0cf1-4118-af89-10217cde4cb1
+    Worksheet #: 186
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:34:06 GMT+0530 (India Standard Time)
+
+
+
+Student: Aradhya (Token: 30S376)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-23
+Teacher: Sakina (sakina)
+Total worksheets found: 3
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: c665ea4b-0a67-47d5-9704-b5437eb8ed0c
+    Worksheet #: 1822
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:04:17 GMT+0530 (India Standard Time)
+
+  DELETING (2 worksheet(s)):
+    ID: 9add2520-790f-4de1-a7b3-110ab973f3c8
+    Worksheet #: 1821
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:55:27 GMT+0530 (India Standard Time)
+
+    ID: 8a63fabc-f657-4f42-9db1-62decdc7b1a9
+    Worksheet #: 1821
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:54:27 GMT+0530 (India Standard Time)
+
+
+
+Student: Sejal (Token: 36S213)
+Class: Sanjay Memorial Public School - 4th (25-26)
+Date: 2026-01-23
+Teacher: Veena (veena)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 8addeab6-8575-4e33-994b-5a020db3df60
+    Worksheet #: N/A
+    Grade: 0
+    Absent: true
+    Created: Fri Jan 23 2026 10:49:29 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 4ef6ba0f-4d53-4ca4-a81f-5a9eaafc48af
+    Worksheet #: N/A
+    Grade: 0
+    Absent: true
+    Created: Fri Jan 23 2026 10:47:52 GMT+0530 (India Standard Time)
+
+
+
+Student: Shruti (Token: 30S667)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-22
+Teacher: Sakina (sakina)
+Total worksheets found: 8
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 6f99aa4f-4a78-4211-ab5d-0387c11b6ef5
+    Worksheet #: 752
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 11:05:26 GMT+0530 (India Standard Time)
+
+  DELETING (7 worksheet(s)):
+    ID: 91002e3c-b1cf-4a6e-ad3b-2e43305fcf48
+    Worksheet #: 752
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 11:05:24 GMT+0530 (India Standard Time)
+
+    ID: ec7511b2-c8c4-4726-8094-6eec3123dceb
+    Worksheet #: 752
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 11:05:23 GMT+0530 (India Standard Time)
+
+    ID: 770de1ab-ea8d-4dd3-9e7e-748a652ae22c
+    Worksheet #: 751
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 11:05:07 GMT+0530 (India Standard Time)
+
+    ID: a6ccfef2-c58a-4eaf-a2e6-87014b0b1175
+    Worksheet #: 750
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 11:04:58 GMT+0530 (India Standard Time)
+
+    ID: 0047fc2c-ff30-4d3f-bdb2-e36af185358e
+    Worksheet #: 749
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:04:52 GMT+0530 (India Standard Time)
+
+    ID: 7df40666-54f7-4b6d-bccd-8418323e46ab
+    Worksheet #: 748
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:04:47 GMT+0530 (India Standard Time)
+
+    ID: 24df65cb-c78f-4073-9dfd-a81351fc186c
+    Worksheet #: 747
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:04:39 GMT+0530 (India Standard Time)
+
+
+
+Student: Ujjwal (Token: 36S027)
+Class: Sanjay Memorial Public School - 4th (25-26)
+Date: 2026-01-22
+Teacher: Veena (veena)
+Total worksheets found: 3
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: f78ca076-6a6b-4f1e-bf9b-40b319a2510d
+    Worksheet #: 1251
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:35:43 GMT+0530 (India Standard Time)
+
+  DELETING (2 worksheet(s)):
+    ID: d931f2e1-a389-4b64-bd93-0ee6bed853fd
+    Worksheet #: 1251
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:35:42 GMT+0530 (India Standard Time)
+
+    ID: 6f7d8213-6099-4e4e-ad18-ca4af5a47931
+    Worksheet #: 1251
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 10:35:18 GMT+0530 (India Standard Time)
+
+
+
+Student: Maanvi (Token: 30S448)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-22
+Teacher: Sakina (sakina)
+Total worksheets found: 4
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 6758f1c1-556a-4ef1-bfb9-34a35cbc1b9c
+    Worksheet #: 518
+    Grade: 37
+    Absent: false
+    Created: Fri Jan 23 2026 11:07:25 GMT+0530 (India Standard Time)
+
+  DELETING (3 worksheet(s)):
+    ID: b4e952ae-562a-4418-80b9-6808e2164ee7
+    Worksheet #: 517
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 11:06:02 GMT+0530 (India Standard Time)
+
+    ID: 6277b757-8d6f-4448-909d-5aae1b8d58ff
+    Worksheet #: 516
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 11:05:55 GMT+0530 (India Standard Time)
+
+    ID: 5e992826-c719-42a6-a91d-1c78b49c6b51
+    Worksheet #: 515
+    Grade: 39
+    Absent: false
+    Created: Thu Jan 22 2026 12:33:14 GMT+0530 (India Standard Time)
+
+
+
+Student: Ranjana (Token: 39S270)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: e09f570a-d629-4ee7-999d-a3ca72412a1c
+    Worksheet #: 540
+    Grade: 37
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:05 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 2b001db1-7e9a-4a1d-a891-7793f2a3b252
+    Worksheet #: 540
+    Grade: 37
+    Absent: false
+    Created: Fri Jan 23 2026 11:07:55 GMT+0530 (India Standard Time)
+
+
+
+Student: Ananya (Token: 36S199)
+Class: Sanjay Memorial Public School - 2nd (25-26)
+Date: 2026-01-12
+Teacher: Veena (veena)
+Total worksheets found: 3
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 411b93dd-015b-4caf-a1a9-45279e992932
+    Worksheet #: 452
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:09:53 GMT+0530 (India Standard Time)
+
+  DELETING (2 worksheet(s)):
+    ID: 879e5655-75df-4052-a748-f1ed6a90ec4e
+    Worksheet #: 452
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:51 GMT+0530 (India Standard Time)
+
+    ID: ccbdd655-ecf3-4023-ae2c-02ea4c4b2908
+    Worksheet #: 452
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:48 GMT+0530 (India Standard Time)
+
+
+
+Student: Ananya (Token: 36S199)
+Class: Sanjay Memorial Public School - 2nd (25-26)
+Date: 2026-01-10
+Teacher: Veena (veena)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 41dcf75b-d05d-4920-9db3-be0cded39cb7
+    Worksheet #: 451
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:29 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 0140f791-af00-4434-bd13-92c5993e9530
+    Worksheet #: 451
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:28 GMT+0530 (India Standard Time)
+
+
+
+Student: Shivam Kumar Jha (Token: 36S191)
+Class: Sanjay Memorial Public School - 2nd (25-26)
+Date: 2026-01-09
+Teacher: Veena (veena)
+Total worksheets found: 3
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 45b68794-295c-4123-b6d9-2a7bd2f612ce
+    Worksheet #: 521
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:04:43 GMT+0530 (India Standard Time)
+
+  DELETING (2 worksheet(s)):
+    ID: 0edaadab-7a6b-470a-9c5c-c228fd1d89e7
+    Worksheet #: 521
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:03:34 GMT+0530 (India Standard Time)
+
+    ID: 63ba137d-85b3-4144-9a3e-5716e98b7e93
+    Worksheet #: 521
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:03:33 GMT+0530 (India Standard Time)
+
+
+========================================================================================================================
+
+SUMMARY:
+Total duplicate cases: 36
+Worksheets to keep: 36
+Worksheets to delete: 208

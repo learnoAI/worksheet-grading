@@ -198,6 +198,7 @@ model Worksheet {
   @@index([isAbsent, createdAt])
   @@index([isRepeated, createdAt])
   @@index([grade, outOf, isAbsent])
+  @@unique([studentId, classId, templateId, submittedOn], name: "unique_worksheet_per_student_day")
 }
 
 model WorksheetImage {

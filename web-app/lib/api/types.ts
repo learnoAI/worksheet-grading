@@ -165,6 +165,7 @@ export interface Worksheet {
     isIncorrectGrade?: boolean;
     mongoDbId?: string;
     gradingDetails?: any; // JSON field for detailed grading information
+    wrongQuestionNumbers?: string; // Comma-separated list of wrong/unanswered question numbers
 }
 
 export interface WorksheetImage {

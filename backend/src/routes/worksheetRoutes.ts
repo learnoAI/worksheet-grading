@@ -21,7 +21,10 @@ import {
     markWorksheetAsCorrectlyGraded,
     getWorksheetImages,
     getTotalAiGraded,
-    getStudentGradingDetails
+    getStudentGradingDetails,
+    checkIsRepeated,
+    getRecommendedWorksheet,
+    batchSaveWorksheets
 } from '../controllers/worksheetController';
 import { UserRole } from '@prisma/client';
 import { auth, authorizeRoles, asHandler } from '../middleware/utils';
@@ -306,6 +309,50 @@ router.delete(
     '/:id',
     [auth, authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN])],
     asHandler(deleteGradedWorksheet)
+);
+
+// ============================================================================
+// NEW ENDPOINTS FOR FRONTEND OPTIMIZATION
+// ============================================================================
+
+// Check if a worksheet would be a repeat for a student
+router.post(
+    '/check-repeated',
+    [
+        auth,
+        authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+        body('classId').notEmpty().withMessage('Class ID is required'),
+        body('studentId').notEmpty().withMessage('Student ID is required'),
+        body('worksheetNumber').notEmpty().isInt({ min: 1 }).withMessage('Worksheet number must be a positive integer'),
+        body('beforeDate').optional().isISO8601().withMessage('Before date must be a valid ISO date')
+    ],
+    asHandler(checkIsRepeated)
+);
+
+// Get recommended next worksheet for a student
+router.post(
+    '/recommend-next',
+    [
+        auth,
+        authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+        body('classId').notEmpty().withMessage('Class ID is required'),
+        body('studentId').notEmpty().withMessage('Student ID is required'),
+        body('beforeDate').optional().isISO8601().withMessage('Before date must be a valid ISO date')
+    ],
+    asHandler(getRecommendedWorksheet)
+);
+
+// Batch save worksheets for multiple students
+router.post(
+    '/batch-save',
+    [
+        auth,
+        authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+        body('classId').notEmpty().withMessage('Class ID is required'),
+        body('submittedOn').notEmpty().isISO8601().withMessage('Submitted date must be a valid ISO date'),
+        body('worksheets').isArray().withMessage('Worksheets must be an array')
+    ],
+    asHandler(batchSaveWorksheets)
 );
 
 export default router; 

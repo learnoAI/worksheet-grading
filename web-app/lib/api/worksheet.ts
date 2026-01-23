@@ -133,13 +133,93 @@ export const worksheetAPI = {
     getClassWorksheetsForDate: async (classId: string, submittedOn: string): Promise<{
         students: { id: string; name: string; tokenNumber: string }[];
         worksheetsByStudent: Record<string, GradedWorksheetData[]>;
-        studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[] }>;
+        studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[]; recommendedWorksheetNumber: number; isRecommendedRepeated: boolean }>;
+        stats: {
+            totalStudents: number;
+            studentsWithWorksheets: number;
+            gradedCount: number;
+            absentCount: number;
+            pendingCount: number;
+        };
     }> => {
         return fetchAPI<{
             students: { id: string; name: string; tokenNumber: string }[];
             worksheetsByStudent: Record<string, GradedWorksheetData[]>;
-            studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[] }>;
+            studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[]; recommendedWorksheetNumber: number; isRecommendedRepeated: boolean }>;
+            stats: {
+                totalStudents: number;
+                studentsWithWorksheets: number;
+                gradedCount: number;
+                absentCount: number;
+                pendingCount: number;
+            };
         }>(`/worksheets/class-date?classId=${encodeURIComponent(classId)}&submittedOn=${encodeURIComponent(submittedOn)}`);
+    },
+
+    // Check if a worksheet would be repeated for a student
+    checkIsRepeated: async (classId: string, studentId: string, worksheetNumber: number, beforeDate?: string): Promise<{
+        isRepeated: boolean;
+        previousWorksheet?: { id: string; grade: number; submittedOn: string } | null;
+    }> => {
+        return fetchAPI<{
+            isRepeated: boolean;
+            previousWorksheet?: { id: string; grade: number; submittedOn: string } | null;
+        }>('/worksheets/check-repeated', {
+            method: 'POST',
+            body: JSON.stringify({ classId, studentId, worksheetNumber, beforeDate })
+        });
+    },
+
+    // Get recommended next worksheet for a student
+    getRecommendedWorksheet: async (classId: string, studentId: string, beforeDate?: string): Promise<{
+        recommendedWorksheetNumber: number;
+        isRepeated: boolean;
+        lastWorksheetNumber: number | null;
+        lastGrade: number | null;
+        progressionThreshold: number;
+    }> => {
+        return fetchAPI<{
+            recommendedWorksheetNumber: number;
+            isRepeated: boolean;
+            lastWorksheetNumber: number | null;
+            lastGrade: number | null;
+            progressionThreshold: number;
+        }>('/worksheets/recommend-next', {
+            method: 'POST',
+            body: JSON.stringify({ classId, studentId, beforeDate })
+        });
+    },
+
+    // Batch save worksheets for multiple students
+    batchSaveWorksheets: async (classId: string, submittedOn: string, worksheets: Array<{
+        studentId: string;
+        worksheetNumber?: number;
+        grade?: string | number;
+        isAbsent?: boolean;
+        isRepeated?: boolean;
+        isIncorrectGrade?: boolean;
+        gradingDetails?: any;
+        wrongQuestionNumbers?: string;
+        action?: 'save' | 'delete';
+    }>): Promise<{
+        success: boolean;
+        saved: number;
+        updated: number;
+        deleted: number;
+        failed: number;
+        errors: { studentId: string; error: string }[];
+    }> => {
+        return fetchAPI<{
+            success: boolean;
+            saved: number;
+            updated: number;
+            deleted: number;
+            failed: number;
+            errors: { studentId: string; error: string }[];
+        }>('/worksheets/batch-save', {
+            method: 'POST',
+            body: JSON.stringify({ classId, submittedOn, worksheets })
+        });
     },
 
     getIncorrectGradingWorksheets: async (params?: { page?: number; pageSize?: number; startDate?: string; endDate?: string }): Promise<{ data: any[]; total: number; page: number; pageSize: number }> => {

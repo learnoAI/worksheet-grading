@@ -12,7 +12,14 @@ import { GradingJobsStatus } from '@/components/GradingJobsStatus';
 import { StudentWorksheetCard } from './student-worksheet-card';
 import { usePostHog } from 'posthog-js/react';
 
-const PROGRESSION_THRESHOLD = 32;
+// Stats from API response - no longer computed on frontend
+interface WorksheetStats {
+    totalStudents: number;
+    studentsWithWorksheets: number;
+    gradedCount: number;
+    absentCount: number;
+    pendingCount: number;
+}
 
 interface Class {
     id: string;
@@ -125,6 +132,7 @@ export default function UploadWorksheetPage() {
     const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
+    const [worksheetStats, setWorksheetStats] = useState<WorksheetStats | null>(null);
 
 
     const sortedStudentWorksheets = useMemo(() => {
@@ -226,7 +234,10 @@ export default function UploadWorksheetPage() {
 
                 // Use batch endpoint to fetch all data in 1-2 API calls
                 const batchData = await worksheetAPI.getClassWorksheetsForDate(selectedClass, submittedOn);
-                const { students, worksheetsByStudent, studentSummaries } = batchData;
+                const { students, worksheetsByStudent, studentSummaries, stats } = batchData;
+
+                // Store stats from API for initial display
+                setWorksheetStats(stats);
 
                 const sortedStudents = sortStudentsByTokenNumber(students);
 
@@ -267,28 +278,19 @@ export default function UploadWorksheetPage() {
                                 page1Url: page1?.imageUrl,
                                 page2Url: page2?.imageUrl,
                                 gradingDetails: worksheet.gradingDetails || undefined,
+                                wrongQuestionNumbers: worksheet.wrongQuestionNumbers || '',
                                 isAdditional: index > 0
                             };
                         });
                     }
 
-                    // No worksheets for today - use lightweight summary for recommendations
+                    // No worksheets for today - use backend recommendation
                     const summary = studentSummaries[student.id];
                     const hasHistory = summary && summary.lastWorksheetNumber !== null;
 
-                    let recommendedWorksheetNumber = 1;
-                    let isRepeatedWorksheet = false;
-
-                    if (summary && summary.lastWorksheetNumber !== null && summary.lastGrade !== null) {
-                        if (summary.lastGrade >= PROGRESSION_THRESHOLD) {
-                            recommendedWorksheetNumber = summary.lastWorksheetNumber + 1;
-                            // Check if this worksheet number was already completed
-                            isRepeatedWorksheet = summary.completedWorksheetNumbers.includes(recommendedWorksheetNumber);
-                        } else {
-                            recommendedWorksheetNumber = summary.lastWorksheetNumber;
-                            isRepeatedWorksheet = true;
-                        }
-                    }
+                    // Use recommendation from backend (calculated server-side)
+                    const recommendedWorksheetNumber = summary?.recommendedWorksheetNumber ?? 1;
+                    const isRepeatedWorksheet = summary?.isRecommendedRepeated ?? false;
 
                     return [{
                         worksheetEntryId: `${student.id}-0`,
@@ -534,28 +536,14 @@ export default function UploadWorksheetPage() {
 
             if (newWorksheetNumber > 0) {
                 try {
-                    // Get all worksheets up to the selected date
-                    const endDate = new Date(submittedOn);
-                    endDate.setHours(23, 59, 59, 999); // End of the selected day
-
-                    const allWorksheets = await worksheetAPI.getPreviousWorksheets(
+                    // Use the backend checkIsRepeated endpoint
+                    const result = await worksheetAPI.checkIsRepeated(
                         selectedClass,
                         studentWorksheets[originalIndex].studentId,
-                        endDate.toISOString().split('T')[0]
+                        newWorksheetNumber,
+                        submittedOn
                     );
-
-                    // Check if this worksheet number has been attempted before the selected date
-                    const selectedDateObj = new Date(submittedOn);
-                    selectedDateObj.setHours(0, 0, 0, 0);
-
-                    isRepeated = allWorksheets && allWorksheets.some(pw => {
-                        const worksheetDate = new Date(pw.submittedOn || '');
-                        worksheetDate.setHours(0, 0, 0, 0);
-
-                        return !pw.isAbsent &&
-                            pw.template?.worksheetNumber === newWorksheetNumber &&
-                            worksheetDate < selectedDateObj; // Only check dates before the selected date
-                    });
+                    isRepeated = result.isRepeated;
                 } catch (error) {
                     console.error('Error checking if worksheet is repeated:', error);
                 }
@@ -679,11 +667,8 @@ export default function UploadWorksheetPage() {
                         const wsData = await worksheetAPI.getWorksheetById(completedJob.worksheetId);
                         const grade = wsData.grade || 0;
                         const gradingDetails = wsData.gradingDetails as GradingDetails;
-
-                        const wrongNumbers = [...(gradingDetails?.wrong_questions || []).map((q: any) => q.question_number),
-                        ...(gradingDetails?.unanswered_questions || []).map((q: any) => q.question_number)]
-                            .sort((a, b) => a - b);
-                        const wrongQuestionNumbers = wrongNumbers.length > 0 ? wrongNumbers.join(', ') : '';
+                        // Use wrongQuestionNumbers from API (already calculated by backend)
+                        const wrongQuestionNumbers = (wsData as any).wrongQuestionNumbers || '';
 
                         setStudentWorksheets(prev => prev.map(sw =>
                             sw.worksheetEntryId === worksheet.worksheetEntryId

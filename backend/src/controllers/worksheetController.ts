@@ -328,29 +328,41 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
     const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isIncorrectGrade, gradingDetails, wrongQuestionNumbers } = req.body;
     const submittedById = req.user?.userId;
 
+    // Normalize submittedOn to midnight UTC for consistent unique constraint matching
+    const submittedOnDate = submittedOn ? new Date(submittedOn) : new Date();
+    submittedOnDate.setUTCHours(0, 0, 0, 0);
 
     try {
         // If student is absent, create a record marking them as absent
         if (isAbsent) {
-            const worksheet = await prisma.worksheet.create({
-                data: {
-                    class: {
-                        connect: { id: classId }
-                    },
-                    student: {
-                        connect: { id: studentId }
-                    },
-                    submittedBy: {
-                        connect: { id: submittedById! }
-                    },
-                    grade: 0, // Default grade for absent student
+            // Use upsert to prevent duplicates for absent records
+            const worksheet = await prisma.worksheet.upsert({
+                where: {
+                    unique_worksheet_per_student_day: {
+                        studentId,
+                        classId,
+                        templateId: null as unknown as string,
+                        submittedOn: submittedOnDate
+                    }
+                },
+                update: {
+                    grade: 0,
+                    notes: notes || 'Student absent',
+                    status: ProcessingStatus.COMPLETED,
+                    isAbsent: true,
+                },
+                create: {
+                    classId,
+                    studentId,
+                    submittedById: submittedById!,
+                    grade: 0,
                     notes: notes || 'Student absent',
                     status: ProcessingStatus.COMPLETED,
                     outOf: 40,
-                    submittedOn: submittedOn ? new Date(submittedOn) : undefined,
+                    submittedOn: submittedOnDate,
                     isAbsent: true,
                     isRepeated: false,
-                    isIncorrectGrade: false, // Absent students can't have incorrect grades
+                    isIncorrectGrade: false,
                 }
             });
 
@@ -377,30 +389,35 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
             }
         });
 
-        if (!template) {
-        }
-
-        const worksheet = await prisma.worksheet.create({
-            data: {
-                class: {
-                    connect: { id: classId }
-                },
-                student: {
-                    connect: { id: studentId }
-                },
-                submittedBy: {
-                    connect: { id: submittedById! }
-                },
-                ...(template ? {
-                    template: {
-                        connect: { id: template.id }
-                    }
-                } : {}),
+        // Use upsert to prevent duplicates from race conditions
+        const worksheet = await prisma.worksheet.upsert({
+            where: {
+                unique_worksheet_per_student_day: {
+                    studentId,
+                    classId,
+                    templateId: (template?.id ?? null) as unknown as string,
+                    submittedOn: submittedOnDate
+                }
+            },
+            update: {
+                grade: gradeValue,
+                notes,
+                status: ProcessingStatus.COMPLETED,
+                isIncorrectGrade: isIncorrectGrade || false,
+                isRepeated: isRepeated || false,
+                gradingDetails: gradingDetails || null,
+                wrongQuestionNumbers: wrongQuestionNumbers || null,
+            },
+            create: {
+                classId,
+                studentId,
+                submittedById: submittedById!,
+                templateId: template?.id,
                 grade: gradeValue,
                 notes,
                 status: ProcessingStatus.COMPLETED,
                 outOf: 40,
-                submittedOn: submittedOn ? new Date(submittedOn) : undefined,
+                submittedOn: submittedOnDate,
                 isAbsent: false,
                 isRepeated: isRepeated || false,
                 isIncorrectGrade: isIncorrectGrade || false,
@@ -750,10 +767,37 @@ export const getClassWorksheetsForDate = async (req: Request, res: Response) => 
             }
         }
 
+        // Calculate stats for the response
+        const studentsWithWorksheets = new Set<string>();
+        let gradedCount = 0;
+        let absentCount = 0;
+        let pendingCount = 0;
+
+        for (const ws of worksheetsOnDate) {
+            if (ws.studentId) {
+                studentsWithWorksheets.add(ws.studentId);
+            }
+            if (ws.isAbsent) {
+                absentCount++;
+            } else if (ws.grade !== null && ws.status === ProcessingStatus.COMPLETED) {
+                gradedCount++;
+            } else if (ws.status === ProcessingStatus.PENDING || ws.status === ProcessingStatus.PROCESSING) {
+                pendingCount++;
+            }
+        }
+
+        const stats = {
+            totalStudents: students.length,
+            studentsWithWorksheets: studentsWithWorksheets.size,
+            gradedCount,
+            absentCount,
+            pendingCount
+        };
+
         // 3. For students without worksheets on this date, get lightweight summary for recommendations
         const studentsWithoutWorksheets = studentIds.filter(id => !worksheetsByStudent[id]);
 
-        let studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[] }> = {};
+        let studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[]; recommendedWorksheetNumber: number; isRecommendedRepeated: boolean }> = {};
 
         if (studentsWithoutWorksheets.length > 0) {
             const endDateForHistory = new Date(dateStr);
@@ -786,7 +830,9 @@ export const getClassWorksheetsForDate = async (req: Request, res: Response) => 
                 }
             });
 
-            // Build lightweight summaries
+            // Build lightweight summaries with recommendations
+            const PROGRESSION_THRESHOLD = 32;
+
             for (const studentId of studentsWithoutWorksheets) {
                 const studentHistory = historyData.filter(h => h.studentId === studentId);
                 const completedNumbers = studentHistory
@@ -794,11 +840,30 @@ export const getClassWorksheetsForDate = async (req: Request, res: Response) => 
                     .map(h => h.template!.worksheetNumber!);
 
                 const latest = studentHistory[0];
+                const lastWorksheetNumber = latest?.template?.worksheetNumber ?? null;
+                const lastGrade = latest?.grade ?? null;
+                const uniqueCompleted = [...new Set(completedNumbers)];
+
+                // Calculate recommendation
+                let recommendedWorksheetNumber = 1;
+                let isRecommendedRepeated = false;
+
+                if (lastWorksheetNumber !== null && lastGrade !== null) {
+                    if (lastGrade >= PROGRESSION_THRESHOLD) {
+                        recommendedWorksheetNumber = lastWorksheetNumber + 1;
+                        isRecommendedRepeated = uniqueCompleted.includes(recommendedWorksheetNumber);
+                    } else {
+                        recommendedWorksheetNumber = lastWorksheetNumber;
+                        isRecommendedRepeated = true;
+                    }
+                }
 
                 studentSummaries[studentId] = {
-                    lastWorksheetNumber: latest?.template?.worksheetNumber ?? null,
-                    lastGrade: latest?.grade ?? null,
-                    completedWorksheetNumbers: [...new Set(completedNumbers)]
+                    lastWorksheetNumber,
+                    lastGrade,
+                    completedWorksheetNumbers: uniqueCompleted,
+                    recommendedWorksheetNumber,
+                    isRecommendedRepeated
                 };
             }
         }
@@ -806,7 +871,8 @@ export const getClassWorksheetsForDate = async (req: Request, res: Response) => 
         return res.status(200).json({
             students,
             worksheetsByStudent,
-            studentSummaries
+            studentSummaries,
+            stats
         });
     } catch (error) {
         console.error('Get class worksheets for date error:', error);
@@ -1136,5 +1202,361 @@ export const getStudentGradingDetails = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Get student grading details error:', error);
         return res.status(500).json({ message: 'Server error while fetching student grading details' });
+    }
+};
+
+// ============================================================================
+// NEW ENDPOINTS FOR FRONTEND OPTIMIZATION
+// ============================================================================
+
+/**
+ * Check if a worksheet would be a repeat for a student
+ * Moves the "is repeated" logic from frontend to backend
+ * @route POST /api/worksheets/check-repeated
+ */
+export const checkIsRepeated = async (req: Request, res: Response) => {
+    const { classId, studentId, worksheetNumber, beforeDate } = req.body;
+
+    if (!classId || !studentId || !worksheetNumber) {
+        return res.status(400).json({ message: 'Missing required fields: classId, studentId, worksheetNumber' });
+    }
+
+    try {
+        const worksheetNum = parseInt(worksheetNumber);
+        if (isNaN(worksheetNum) || worksheetNum <= 0) {
+            return res.status(400).json({ message: 'Invalid worksheet number' });
+        }
+
+        // Find the template for this worksheet number
+        const template = await prisma.worksheetTemplate.findFirst({
+            where: { worksheetNumber: worksheetNum }
+        });
+
+        if (!template) {
+            return res.status(200).json({
+                isRepeated: false,
+                reason: 'Template not found for this worksheet number'
+            });
+        }
+
+        // Build date filter
+        const dateFilter: any = {};
+        if (beforeDate) {
+            const beforeDateObj = new Date(beforeDate);
+            beforeDateObj.setUTCHours(23, 59, 59, 999);
+            dateFilter.lt = beforeDateObj;
+        }
+
+        // Check if student has completed this worksheet before
+        const existingWorksheet = await prisma.worksheet.findFirst({
+            where: {
+                classId,
+                studentId,
+                templateId: template.id,
+                status: ProcessingStatus.COMPLETED,
+                isAbsent: false,
+                grade: { not: null },
+                ...(beforeDate ? { submittedOn: dateFilter } : {})
+            },
+            select: {
+                id: true,
+                grade: true,
+                submittedOn: true
+            },
+            orderBy: {
+                submittedOn: 'desc'
+            }
+        });
+
+        const isRepeated = !!existingWorksheet;
+
+        return res.status(200).json({
+            isRepeated,
+            previousWorksheet: existingWorksheet ? {
+                id: existingWorksheet.id,
+                grade: existingWorksheet.grade,
+                submittedOn: existingWorksheet.submittedOn
+            } : null
+        });
+    } catch (error) {
+        console.error('Check is repeated error:', error);
+        return res.status(500).json({ message: 'Server error while checking repeated status' });
+    }
+};
+
+/**
+ * Get recommended next worksheet for a student
+ * Moves progression threshold logic from frontend to backend
+ * @route POST /api/worksheets/recommend-next
+ */
+export const getRecommendedWorksheet = async (req: Request, res: Response) => {
+    const { classId, studentId, beforeDate } = req.body;
+    const PROGRESSION_THRESHOLD = parseInt(process.env.PROGRESSION_THRESHOLD || '32');
+
+    if (!classId || !studentId) {
+        return res.status(400).json({ message: 'Missing required fields: classId, studentId' });
+    }
+
+    try {
+        // Build date filter
+        const dateFilter: any = {};
+        if (beforeDate) {
+            const beforeDateObj = new Date(beforeDate);
+            beforeDateObj.setUTCHours(23, 59, 59, 999);
+            dateFilter.lt = beforeDateObj;
+        }
+
+        // Get student's last completed worksheet
+        const lastWorksheet = await prisma.worksheet.findFirst({
+            where: {
+                classId,
+                studentId,
+                status: ProcessingStatus.COMPLETED,
+                isAbsent: false,
+                grade: { not: null },
+                ...(beforeDate ? { submittedOn: dateFilter } : {})
+            },
+            include: {
+                template: {
+                    select: {
+                        worksheetNumber: true
+                    }
+                }
+            },
+            orderBy: {
+                submittedOn: 'desc'
+            }
+        });
+
+        if (!lastWorksheet || !lastWorksheet.template?.worksheetNumber) {
+            // No previous worksheet, start from 1
+            return res.status(200).json({
+                recommendedWorksheetNumber: 1,
+                isRepeated: false,
+                lastWorksheetNumber: null,
+                lastGrade: null,
+                progressionThreshold: PROGRESSION_THRESHOLD
+            });
+        }
+
+        const lastGrade = lastWorksheet.grade || 0;
+        const lastWorksheetNumber = lastWorksheet.template.worksheetNumber;
+
+        let recommendedWorksheetNumber: number;
+        let isRepeated: boolean;
+
+        if (lastGrade >= PROGRESSION_THRESHOLD) {
+            // Progress to next worksheet
+            recommendedWorksheetNumber = lastWorksheetNumber + 1;
+
+            // Check if they've already done the next worksheet
+            const existingNext = await prisma.worksheet.findFirst({
+                where: {
+                    classId,
+                    studentId,
+                    template: { worksheetNumber: recommendedWorksheetNumber },
+                    status: ProcessingStatus.COMPLETED,
+                    isAbsent: false,
+                    ...(beforeDate ? { submittedOn: dateFilter } : {})
+                }
+            });
+            isRepeated = !!existingNext;
+        } else {
+            // Repeat same worksheet
+            recommendedWorksheetNumber = lastWorksheetNumber;
+            isRepeated = true;
+        }
+
+        return res.status(200).json({
+            recommendedWorksheetNumber,
+            isRepeated,
+            lastWorksheetNumber,
+            lastGrade,
+            progressionThreshold: PROGRESSION_THRESHOLD
+        });
+    } catch (error) {
+        console.error('Get recommended worksheet error:', error);
+        return res.status(500).json({ message: 'Server error while getting recommendation' });
+    }
+};
+
+/**
+ * Batch save worksheets for multiple students
+ * Reduces N API calls to 1
+ * @route POST /api/worksheets/batch-save
+ */
+export const batchSaveWorksheets = async (req: Request, res: Response) => {
+    const { classId, submittedOn, worksheets } = req.body;
+    const submittedById = req.user?.userId;
+
+    if (!classId || !submittedOn || !worksheets || !Array.isArray(worksheets)) {
+        return res.status(400).json({ message: 'Missing required fields: classId, submittedOn, worksheets array' });
+    }
+
+    if (!submittedById) {
+        return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    // Normalize submittedOn to midnight UTC
+    const submittedOnDate = new Date(submittedOn);
+    submittedOnDate.setUTCHours(0, 0, 0, 0);
+
+    const results: {
+        saved: number;
+        updated: number;
+        deleted: number;
+        failed: number;
+        errors: { studentId: string; error: string }[];
+    } = {
+        saved: 0,
+        updated: 0,
+        deleted: 0,
+        failed: 0,
+        errors: []
+    };
+
+    try {
+        // Process each worksheet in a transaction
+        for (const ws of worksheets) {
+            const { studentId, worksheetNumber, grade, isAbsent, isRepeated, isIncorrectGrade, gradingDetails, wrongQuestionNumbers, action } = ws;
+
+            if (!studentId) {
+                results.failed++;
+                results.errors.push({ studentId: 'unknown', error: 'Missing studentId' });
+                continue;
+            }
+
+            try {
+                // Handle delete action
+                if (action === 'delete') {
+                    const deleted = await prisma.worksheet.deleteMany({
+                        where: {
+                            classId,
+                            studentId,
+                            submittedOn: submittedOnDate
+                        }
+                    });
+                    if (deleted.count > 0) {
+                        results.deleted += deleted.count;
+                    }
+                    continue;
+                }
+
+                // Handle absent students
+                if (isAbsent) {
+                    await prisma.worksheet.upsert({
+                        where: {
+                            unique_worksheet_per_student_day: {
+                                studentId,
+                                classId,
+                                templateId: null as unknown as string,
+                                submittedOn: submittedOnDate
+                            }
+                        },
+                        update: {
+                            grade: 0,
+                            isAbsent: true,
+                            status: ProcessingStatus.COMPLETED
+                        },
+                        create: {
+                            classId,
+                            studentId,
+                            submittedById,
+                            grade: 0,
+                            isAbsent: true,
+                            isRepeated: false,
+                            status: ProcessingStatus.COMPLETED,
+                            outOf: 40,
+                            submittedOn: submittedOnDate
+                        }
+                    });
+                    results.saved++;
+                    continue;
+                }
+
+                // Handle graded worksheets
+                if (!worksheetNumber || worksheetNumber <= 0) {
+                    results.failed++;
+                    results.errors.push({ studentId, error: 'Invalid worksheet number' });
+                    continue;
+                }
+
+                const gradeValue = parseFloat(grade);
+                if (isNaN(gradeValue) || gradeValue < 0 || gradeValue > 40) {
+                    results.failed++;
+                    results.errors.push({ studentId, error: 'Invalid grade (must be 0-40)' });
+                    continue;
+                }
+
+                // Find template
+                const template = await prisma.worksheetTemplate.findFirst({
+                    where: { worksheetNumber: parseInt(worksheetNumber) }
+                });
+
+                // Check if worksheet exists
+                const existing = await prisma.worksheet.findFirst({
+                    where: {
+                        studentId,
+                        classId,
+                        templateId: (template?.id ?? null) as unknown as string,
+                        submittedOn: submittedOnDate
+                    }
+                });
+
+                await prisma.worksheet.upsert({
+                    where: {
+                        unique_worksheet_per_student_day: {
+                            studentId,
+                            classId,
+                            templateId: (template?.id ?? null) as unknown as string,
+                            submittedOn: submittedOnDate
+                        }
+                    },
+                    update: {
+                        grade: gradeValue,
+                        status: ProcessingStatus.COMPLETED,
+                        isRepeated: isRepeated || false,
+                        isIncorrectGrade: isIncorrectGrade || false,
+                        gradingDetails: gradingDetails || undefined,
+                        wrongQuestionNumbers: wrongQuestionNumbers || undefined
+                    },
+                    create: {
+                        classId,
+                        studentId,
+                        submittedById,
+                        templateId: template?.id,
+                        grade: gradeValue,
+                        status: ProcessingStatus.COMPLETED,
+                        outOf: 40,
+                        submittedOn: submittedOnDate,
+                        isAbsent: false,
+                        isRepeated: isRepeated || false,
+                        isIncorrectGrade: isIncorrectGrade || false,
+                        gradingDetails: gradingDetails || undefined,
+                        wrongQuestionNumbers: wrongQuestionNumbers || undefined
+                    }
+                });
+
+                if (existing) {
+                    results.updated++;
+                } else {
+                    results.saved++;
+                }
+            } catch (wsError: any) {
+                results.failed++;
+                results.errors.push({
+                    studentId,
+                    error: wsError.message || 'Unknown error'
+                });
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            ...results
+        });
+    } catch (error) {
+        console.error('Batch save worksheets error:', error);
+        return res.status(500).json({ message: 'Server error while saving worksheets' });
     }
 };
