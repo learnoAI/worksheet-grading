@@ -133,17 +133,46 @@ export const processWorksheets = async (req: Request, res: Response) => {
             (await prisma.user.findUnique({ where: { id: studentId }, select: { name: true } }))?.name ||
             'Unknown';
 
+        const worksheetNum = parseInt(worksheetNumber);
+        const submittedOnDate = submittedOn ? new Date(submittedOn) : new Date();
+        const dayStart = new Date(submittedOnDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(submittedOnDate);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        // Check for existing active job to prevent duplicates on retry
+        const existingJob = await prisma.gradingJob.findFirst({
+            where: {
+                studentId,
+                classId,
+                worksheetNumber: worksheetNum,
+                submittedOn: { gte: dayStart, lte: dayEnd },
+                status: { in: [GradingJobStatus.QUEUED, GradingJobStatus.PROCESSING] }
+            },
+            select: { id: true, status: true }
+        });
+
+        if (existingJob) {
+            // Return existing job instead of creating duplicate
+            return res.status(202).json({
+                success: true,
+                jobId: existingJob.id,
+                status: existingJob.status.toLowerCase(),
+                message: 'Job already in progress'
+            });
+        }
+
         // Create job
         gradingJob = await withRetry(() =>
             prisma.gradingJob.create({
                 data: {
                     studentId,
                     studentName: resolvedStudentName,
-                    worksheetNumber: parseInt(worksheetNumber),
+                    worksheetNumber: worksheetNum,
                     classId,
                     teacherId: submittedById,
                     status: GradingJobStatus.QUEUED,
-                    submittedOn: submittedOn ? new Date(submittedOn) : new Date()
+                    submittedOn: submittedOnDate
                 }
             })
         );
@@ -179,17 +208,9 @@ export const processWorksheets = async (req: Request, res: Response) => {
         const pythonResponse = await callPythonApi(pythonApiUrl, token_no, worksheet_name, formData);
 
         // Find template
-        const worksheetNum = parseInt(worksheetNumber);
         const template = await withRetry(() =>
             prisma.worksheetTemplate.findFirst({ where: { worksheetNumber: worksheetNum } })
         );
-
-        // Atomic upsert to prevent race conditions
-        const submittedOnDate = submittedOn ? new Date(submittedOn) : new Date();
-        const dayStart = new Date(submittedOnDate);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(submittedOnDate);
-        dayEnd.setHours(23, 59, 59, 999);
 
         const gradingDetails = {
             total_possible: pythonResponse.total_possible,
