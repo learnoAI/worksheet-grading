@@ -113,7 +113,8 @@ export const processWorksheets = async (req: Request, res: Response) => {
         return res.status(500).json({ success: false, error: 'PYTHON_API_URL not configured' });
     }
 
-    const { token_no, worksheet_name, classId, studentId, studentName, worksheetNumber, submittedOn, isRepeated } = req.body;
+    const { token_no, worksheet_name, classId, studentId, studentName, worksheetNumber, submittedOn } = req.body;
+    const isRepeated = req.body.isRepeated === true || req.body.isRepeated === 'true' || req.body.isRepeated === '1';
     const submittedById = req.user?.userId;
 
     // Validation
