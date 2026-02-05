@@ -824,11 +824,7 @@ export const getClassWorksheetsForDate = async (req: Request, res: Response) => 
                     studentId: true,
                     grade: true,
                     submittedOn: true,
-                    template: {
-                        select: {
-                            worksheetNumber: true
-                        }
-                    }
+                    worksheetNumber: true
                 },
                 orderBy: {
                     submittedOn: 'desc'
@@ -841,11 +837,11 @@ export const getClassWorksheetsForDate = async (req: Request, res: Response) => 
             for (const studentId of studentsWithoutWorksheets) {
                 const studentHistory = historyData.filter(h => h.studentId === studentId);
                 const completedNumbers = studentHistory
-                    .filter(h => h.template?.worksheetNumber)
-                    .map(h => h.template!.worksheetNumber!);
+                    .filter(h => h.worksheetNumber)
+                    .map(h => h.worksheetNumber);
 
                 const latest = studentHistory[0];
-                const lastWorksheetNumber = latest?.template?.worksheetNumber ?? null;
+                const lastWorksheetNumber = latest?.worksheetNumber ?? null;
                 const lastGrade = latest?.grade ?? null;
                 const uniqueCompleted = [...new Set(completedNumbers)];
 
@@ -921,18 +917,17 @@ export const getIncorrectGradingWorksheets = async (req: Request, res: Response)
             include: {
                 student: { select: { id: true, name: true, tokenNumber: true } },
                 submittedBy: { select: { name: true, username: true } },
-                class: { select: { name: true } },
-                template: { select: { worksheetNumber: true } }
+                class: { select: { name: true } }
             },
             orderBy: [
                 { submittedOn: 'desc' },
-                { template: { worksheetNumber: 'asc' } }
+                { worksheetNumber: 'asc' }
             ]
         });
 
         const transformed = worksheets.map(worksheet => ({
             id: worksheet.id,
-            worksheetNumber: worksheet.template?.worksheetNumber || 0,
+            worksheetNumber: worksheet.worksheetNumber || 0,
             grade: worksheet.grade || 0,
             submittedOn: worksheet.submittedOn,
             adminComments: worksheet.adminComments,
@@ -1321,19 +1316,12 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
                 grade: { not: null },
                 ...(beforeDate ? { submittedOn: dateFilter } : {})
             },
-            include: {
-                template: {
-                    select: {
-                        worksheetNumber: true
-                    }
-                }
-            },
             orderBy: {
                 submittedOn: 'desc'
             }
         });
 
-        if (!lastWorksheet || !lastWorksheet.template?.worksheetNumber) {
+        if (!lastWorksheet || !lastWorksheet.worksheetNumber) {
             // No previous worksheet, start from 1
             return res.status(200).json({
                 recommendedWorksheetNumber: 1,
@@ -1345,7 +1333,7 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
         }
 
         const lastGrade = lastWorksheet.grade || 0;
-        const lastWorksheetNumber = lastWorksheet.template.worksheetNumber;
+        const lastWorksheetNumber = lastWorksheet.worksheetNumber;
 
         let recommendedWorksheetNumber: number;
         let isRepeated: boolean;
@@ -1359,7 +1347,7 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
                 where: {
                     classId,
                     studentId,
-                    template: { worksheetNumber: recommendedWorksheetNumber },
+                    worksheetNumber: recommendedWorksheetNumber,
                     status: ProcessingStatus.COMPLETED,
                     isAbsent: false,
                     ...(beforeDate ? { submittedOn: dateFilter } : {})

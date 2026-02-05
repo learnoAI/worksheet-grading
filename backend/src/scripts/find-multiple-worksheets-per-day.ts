@@ -30,11 +30,7 @@ async function findMultipleWorksheetsPerDay() {
                 submittedOn: true,
                 grade: true,
                 isAbsent: true,
-                template: {
-                    select: {
-                        worksheetNumber: true
-                    }
-                },
+                worksheetNumber: true,
                 student: {
                     select: {
                         name: true,
@@ -123,7 +119,7 @@ async function findMultipleWorksheetsPerDay() {
                 class: `${firstWs.class.school.name} - ${firstWs.class.name}`,
                 date: firstWs.submittedOn!.toISOString().split('T')[0],
                 worksheets: wsList.map(ws => ({
-                    worksheetNumber: ws.template?.worksheetNumber || 0,
+                    worksheetNumber: ws.worksheetNumber || 0,
                     grade: ws.grade,
                     isAbsent: ws.isAbsent
                 }))
