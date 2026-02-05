@@ -19,6 +19,7 @@ interface WorksheetRecord {
     studentId: string | null;
     classId: string;
     templateId: string | null;
+    worksheetNumber: number;
     submittedOn: Date | null;
     grade: number | null;
     isAbsent: boolean;
@@ -34,7 +35,7 @@ async function removeDuplicateWorksheets() {
     try {
         console.log('Connecting to database...\n');
         console.log('Finding duplicate worksheets...');
-        console.log('Grouping by: [studentId, classId, templateId, submittedOn]\n');
+        console.log('Grouping by: [studentId, classId, worksheetNumber, submittedOn]\n');
 
         // Find all cases where a student has multiple worksheets on the same day in the same class
         // Duplicates are defined by the unique constraint: [studentId, classId, templateId, submittedOn, isRepeated]
@@ -48,6 +49,7 @@ async function removeDuplicateWorksheets() {
                 studentId: true,
                 classId: true,
                 templateId: true,
+                worksheetNumber: true,
                 submittedOn: true,
                 grade: true,
                 isAbsent: true,
@@ -100,8 +102,8 @@ async function removeDuplicateWorksheets() {
             normalizedDate.setUTCHours(0, 0, 0, 0);
             const dateStr = normalizedDate.toISOString();
 
-            const templateKey = ws.templateId || 'null';
-            const key = `${ws.studentId}|${ws.classId}|${templateKey}|${dateStr}`;
+            // Group by worksheetNumber (direct field) instead of templateId
+            const key = `${ws.studentId}|${ws.classId}|${ws.worksheetNumber}|${dateStr}`;
 
             if (!grouped[key]) {
                 grouped[key] = [];
@@ -129,7 +131,7 @@ async function removeDuplicateWorksheets() {
 
         report.push(`Duplicate Worksheets Report - ${new Date().toISOString()}`);
         report.push('='.repeat(120));
-        report.push(`Grouping by: [studentId, classId, templateId, submittedOn]`);
+        report.push(`Grouping by: [studentId, classId, worksheetNumber, submittedOn]`);
         report.push(`Found ${multipleWorksheets.length} cases of duplicate worksheets\n`);
 
         // Track worksheets to delete
@@ -142,7 +144,7 @@ async function removeDuplicateWorksheets() {
             const tokenNumber = firstWs.student?.tokenNumber || '-';
             const className = `${firstWs.class.school.name} - ${firstWs.class.name}`;
             const date = firstWs.submittedOn!.toISOString().split('T')[0];
-            const worksheetNum = firstWs.template?.worksheetNumber || 'N/A';
+            const worksheetNum = firstWs.worksheetNumber || firstWs.template?.worksheetNumber || 'N/A';
 
             report.push(`\nStudent: ${studentName} (Token: ${tokenNumber})`);
             report.push(`Class: ${className}`);
@@ -180,7 +182,7 @@ async function removeDuplicateWorksheets() {
 
             report.push(`\n  KEEPING (${keepReason}):`);
             report.push(`    ID: ${keepWorksheet.id}`);
-            report.push(`    Worksheet #: ${keepWorksheet.template?.worksheetNumber || 'N/A'}`);
+            report.push(`    Worksheet #: ${keepWorksheet.worksheetNumber || keepWorksheet.template?.worksheetNumber || 'N/A'}`);
             report.push(`    Grade: ${keepWorksheet.grade ?? 'N/A'}`);
             report.push(`    Absent: ${keepWorksheet.isAbsent}`);
             report.push(`    Created: ${keepWorksheet.createdAt}`);
@@ -194,7 +196,7 @@ async function removeDuplicateWorksheets() {
             report.push(`\n  DELETING (${deleteWorksheets.length} worksheet(s)):`);
             for (const ws of deleteWorksheets) {
                 report.push(`    ID: ${ws.id}`);
-                report.push(`    Worksheet #: ${ws.template?.worksheetNumber || 'N/A'}`);
+                report.push(`    Worksheet #: ${ws.worksheetNumber || ws.template?.worksheetNumber || 'N/A'}`);
                 report.push(`    Grade: ${ws.grade ?? 'N/A'}`);
                 report.push(`    Absent: ${ws.isAbsent}`);
                 report.push(`    Created: ${ws.createdAt}`);

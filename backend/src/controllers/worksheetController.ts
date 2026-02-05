@@ -336,12 +336,13 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
         // If student is absent, create a record marking them as absent
         if (isAbsent) {
             // Use upsert to prevent duplicates for absent records
+            // worksheetNumber = 0 for absent students
             const worksheet = await prisma.worksheet.upsert({
                 where: {
                     unique_worksheet_per_student_day: {
                         studentId,
                         classId,
-                        templateId: null as unknown as string,
+                        worksheetNumber: 0,
                         submittedOn: submittedOnDate
                     }
                 },
@@ -350,11 +351,13 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
                     notes: notes || 'Student absent',
                     status: ProcessingStatus.COMPLETED,
                     isAbsent: true,
+                    worksheetNumber: 0,
                 },
                 create: {
                     classId,
                     studentId,
                     submittedById: submittedById!,
+                    worksheetNumber: 0,
                     grade: 0,
                     notes: notes || 'Student absent',
                     status: ProcessingStatus.COMPLETED,
@@ -395,7 +398,7 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
                 unique_worksheet_per_student_day: {
                     studentId,
                     classId,
-                    templateId: (template?.id ?? null) as unknown as string,
+                    worksheetNumber: worksheetNum,
                     submittedOn: submittedOnDate
                 }
             },
@@ -407,12 +410,14 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
                 isRepeated: isRepeated || false,
                 gradingDetails: gradingDetails || null,
                 wrongQuestionNumbers: wrongQuestionNumbers || null,
+                worksheetNumber: worksheetNum,
             },
             create: {
                 classId,
                 studentId,
                 submittedById: submittedById!,
                 templateId: template?.id,
+                worksheetNumber: worksheetNum,
                 grade: gradeValue,
                 notes,
                 status: ProcessingStatus.COMPLETED,
@@ -1449,19 +1454,21 @@ export const batchSaveWorksheets = async (req: Request, res: Response) => {
                             unique_worksheet_per_student_day: {
                                 studentId,
                                 classId,
-                                templateId: null as unknown as string,
+                                worksheetNumber: 0,
                                 submittedOn: submittedOnDate
                             }
                         },
                         update: {
                             grade: 0,
                             isAbsent: true,
-                            status: ProcessingStatus.COMPLETED
+                            status: ProcessingStatus.COMPLETED,
+                            worksheetNumber: 0
                         },
                         create: {
                             classId,
                             studentId,
                             submittedById,
+                            worksheetNumber: 0,
                             grade: 0,
                             isAbsent: true,
                             isRepeated: false,
@@ -1488,9 +1495,10 @@ export const batchSaveWorksheets = async (req: Request, res: Response) => {
                     continue;
                 }
 
-                // Find template
+                // Find template (optional - may not exist for all worksheet numbers)
+                const worksheetNum = parseInt(worksheetNumber);
                 const template = await prisma.worksheetTemplate.findFirst({
-                    where: { worksheetNumber: parseInt(worksheetNumber) }
+                    where: { worksheetNumber: worksheetNum }
                 });
 
                 // Check if worksheet exists
@@ -1498,7 +1506,7 @@ export const batchSaveWorksheets = async (req: Request, res: Response) => {
                     where: {
                         studentId,
                         classId,
-                        templateId: (template?.id ?? null) as unknown as string,
+                        worksheetNumber: worksheetNum,
                         submittedOn: submittedOnDate
                     }
                 });
@@ -1508,7 +1516,7 @@ export const batchSaveWorksheets = async (req: Request, res: Response) => {
                         unique_worksheet_per_student_day: {
                             studentId,
                             classId,
-                            templateId: (template?.id ?? null) as unknown as string,
+                            worksheetNumber: worksheetNum,
                             submittedOn: submittedOnDate
                         }
                     },
@@ -1518,13 +1526,15 @@ export const batchSaveWorksheets = async (req: Request, res: Response) => {
                         isRepeated: isRepeated || false,
                         isIncorrectGrade: isIncorrectGrade || false,
                         gradingDetails: gradingDetails || undefined,
-                        wrongQuestionNumbers: wrongQuestionNumbers || undefined
+                        wrongQuestionNumbers: wrongQuestionNumbers || undefined,
+                        worksheetNumber: worksheetNum
                     },
                     create: {
                         classId,
                         studentId,
                         submittedById,
                         templateId: template?.id,
+                        worksheetNumber: worksheetNum,
                         grade: gradeValue,
                         status: ProcessingStatus.COMPLETED,
                         outOf: 40,

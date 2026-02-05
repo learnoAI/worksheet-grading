@@ -312,7 +312,7 @@ export const processWorksheets = async (req: Request, res: Response) => {
         let wasCreated = false;
 
         // Use upsert with unique constraint to prevent duplicates from race conditions
-        // The unique constraint [studentId, classId, templateId, submittedOn]
+        // The unique constraint [studentId, classId, worksheetNumber, submittedOn]
         // allows multiple worksheets per student per day, but no duplicates of the same worksheet number
         try {
             // Check if worksheet exists to determine if this is create or update
@@ -320,7 +320,7 @@ export const processWorksheets = async (req: Request, res: Response) => {
                 where: {
                     studentId,
                     classId,
-                    templateId: template?.id ?? null,
+                    worksheetNumber: worksheetNum,
                     submittedOn: submittedOnDate
                 }
             });
@@ -331,7 +331,7 @@ export const processWorksheets = async (req: Request, res: Response) => {
                     unique_worksheet_per_student_day: {
                         studentId,
                         classId,
-                        templateId: (template?.id ?? null) as unknown as string,
+                        worksheetNumber: worksheetNum,
                         submittedOn: submittedOnDate
                     }
                 },
@@ -342,13 +342,15 @@ export const processWorksheets = async (req: Request, res: Response) => {
                     mongoDbId: pythonResponse.mongodb_id,
                     gradingDetails,
                     wrongQuestionNumbers,
-                    isRepeated: isRepeated || false
+                    isRepeated: isRepeated || false,
+                    worksheetNumber: worksheetNum
                 },
                 create: {
                     classId,
                     studentId,
                     submittedById,
                     templateId: template?.id,
+                    worksheetNumber: worksheetNum,
                     grade: pythonResponse.grade,
                     notes: `Auto-graded worksheet ${worksheetNumber}`,
                     status: ProcessingStatus.COMPLETED,
@@ -384,7 +386,7 @@ export const processWorksheets = async (req: Request, res: Response) => {
                     where: {
                         studentId,
                         classId,
-                        templateId: template?.id,
+                        worksheetNumber: worksheetNum,
                         submittedOn: submittedOnDate
                     }
                 });

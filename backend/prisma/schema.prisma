@@ -189,6 +189,7 @@ model Worksheet {
   gradingDetails       Json?               // Store the detailed grading information from AI
   wrongQuestionNumbers String?             // Comma-separated wrong question numbers
   adminComments        String?             // Administrative comments for incorrect grading review
+  worksheetNumber      Int                 @default(0)  // Direct worksheet number storage (0 = absent/unassigned)
 
   // Performance indexes for analytics queries
   @@index([createdAt])
@@ -198,7 +199,7 @@ model Worksheet {
   @@index([isAbsent, createdAt])
   @@index([isRepeated, createdAt])
   @@index([grade, outOf, isAbsent])
-  @@unique([studentId, classId, templateId, submittedOn], name: "unique_worksheet_per_student_day")
+  @@unique([studentId, classId, worksheetNumber, submittedOn], name: "unique_worksheet_per_student_day")
 }
 
 model WorksheetImage {
