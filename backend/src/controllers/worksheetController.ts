@@ -337,37 +337,62 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
         if (isAbsent) {
             // Use upsert to prevent duplicates for absent records
             // worksheetNumber = 0 for absent students
-            const worksheet = await prisma.worksheet.upsert({
-                where: {
-                    unique_worksheet_per_student_day: {
-                        studentId,
-                        classId,
+            let worksheet;
+            try {
+                worksheet = await prisma.worksheet.upsert({
+                    where: {
+                        unique_worksheet_per_student_day: {
+                            studentId,
+                            classId,
+                            worksheetNumber: 0,
+                            submittedOn: submittedOnDate
+                        }
+                    },
+                    update: {
+                        grade: 0,
+                        notes: notes || 'Student absent',
+                        status: ProcessingStatus.COMPLETED,
+                        isAbsent: true,
                         worksheetNumber: 0,
-                        submittedOn: submittedOnDate
+                    },
+                    create: {
+                        classId,
+                        studentId,
+                        submittedById: submittedById!,
+                        worksheetNumber: 0,
+                        grade: 0,
+                        notes: notes || 'Student absent',
+                        status: ProcessingStatus.COMPLETED,
+                        outOf: 40,
+                        submittedOn: submittedOnDate,
+                        isAbsent: true,
+                        isRepeated: false,
+                        isIncorrectGrade: false,
                     }
-                },
-                update: {
-                    grade: 0,
-                    notes: notes || 'Student absent',
-                    status: ProcessingStatus.COMPLETED,
-                    isAbsent: true,
-                    worksheetNumber: 0,
-                },
-                create: {
-                    classId,
-                    studentId,
-                    submittedById: submittedById!,
-                    worksheetNumber: 0,
-                    grade: 0,
-                    notes: notes || 'Student absent',
-                    status: ProcessingStatus.COMPLETED,
-                    outOf: 40,
-                    submittedOn: submittedOnDate,
-                    isAbsent: true,
-                    isRepeated: false,
-                    isIncorrectGrade: false,
+                });
+            } catch (upsertError: any) {
+                if (upsertError?.code === 'P2002') {
+                    const existing = await prisma.worksheet.findFirst({
+                        where: { studentId, classId, worksheetNumber: 0, submittedOn: submittedOnDate }
+                    });
+                    if (existing) {
+                        worksheet = await prisma.worksheet.update({
+                            where: { id: existing.id },
+                            data: {
+                                grade: 0,
+                                notes: notes || 'Student absent',
+                                status: ProcessingStatus.COMPLETED,
+                                isAbsent: true,
+                                worksheetNumber: 0,
+                            }
+                        });
+                    } else {
+                        throw upsertError;
+                    }
+                } else {
+                    throw upsertError;
                 }
-            });
+            }
 
             return res.status(201).json(worksheet);
         }
@@ -393,43 +418,71 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
         });
 
         // Use upsert to prevent duplicates from race conditions
-        const worksheet = await prisma.worksheet.upsert({
-            where: {
-                unique_worksheet_per_student_day: {
-                    studentId,
-                    classId,
+        let worksheet;
+        try {
+            worksheet = await prisma.worksheet.upsert({
+                where: {
+                    unique_worksheet_per_student_day: {
+                        studentId,
+                        classId,
+                        worksheetNumber: worksheetNum,
+                        submittedOn: submittedOnDate
+                    }
+                },
+                update: {
+                    grade: gradeValue,
+                    notes,
+                    status: ProcessingStatus.COMPLETED,
+                    isIncorrectGrade: isIncorrectGrade || false,
+                    isRepeated: isRepeated || false,
+                    gradingDetails: gradingDetails || null,
+                    wrongQuestionNumbers: wrongQuestionNumbers || null,
                     worksheetNumber: worksheetNum,
-                    submittedOn: submittedOnDate
+                },
+                create: {
+                    classId,
+                    studentId,
+                    submittedById: submittedById!,
+                    templateId: template?.id,
+                    worksheetNumber: worksheetNum,
+                    grade: gradeValue,
+                    notes,
+                    status: ProcessingStatus.COMPLETED,
+                    outOf: 40,
+                    submittedOn: submittedOnDate,
+                    isAbsent: false,
+                    isRepeated: isRepeated || false,
+                    isIncorrectGrade: isIncorrectGrade || false,
+                    gradingDetails: gradingDetails || null,
+                    wrongQuestionNumbers: wrongQuestionNumbers || null,
                 }
-            },
-            update: {
-                grade: gradeValue,
-                notes,
-                status: ProcessingStatus.COMPLETED,
-                isIncorrectGrade: isIncorrectGrade || false,
-                isRepeated: isRepeated || false,
-                gradingDetails: gradingDetails || null,
-                wrongQuestionNumbers: wrongQuestionNumbers || null,
-                worksheetNumber: worksheetNum,
-            },
-            create: {
-                classId,
-                studentId,
-                submittedById: submittedById!,
-                templateId: template?.id,
-                worksheetNumber: worksheetNum,
-                grade: gradeValue,
-                notes,
-                status: ProcessingStatus.COMPLETED,
-                outOf: 40,
-                submittedOn: submittedOnDate,
-                isAbsent: false,
-                isRepeated: isRepeated || false,
-                isIncorrectGrade: isIncorrectGrade || false,
-                gradingDetails: gradingDetails || null,
-                wrongQuestionNumbers: wrongQuestionNumbers || null,
+            });
+        } catch (upsertError: any) {
+            if (upsertError?.code === 'P2002') {
+                const existing = await prisma.worksheet.findFirst({
+                    where: { studentId, classId, worksheetNumber: worksheetNum, submittedOn: submittedOnDate }
+                });
+                if (existing) {
+                    worksheet = await prisma.worksheet.update({
+                        where: { id: existing.id },
+                        data: {
+                            grade: gradeValue,
+                            notes,
+                            status: ProcessingStatus.COMPLETED,
+                            isIncorrectGrade: isIncorrectGrade || false,
+                            isRepeated: isRepeated || false,
+                            gradingDetails: gradingDetails || null,
+                            wrongQuestionNumbers: wrongQuestionNumbers || null,
+                            worksheetNumber: worksheetNum,
+                        }
+                    });
+                } else {
+                    throw upsertError;
+                }
+            } else {
+                throw upsertError;
             }
-        });
+        }
 
         res.status(201).json(worksheet);
     } catch (error) {
@@ -1437,34 +1490,57 @@ export const batchSaveWorksheets = async (req: Request, res: Response) => {
 
                 // Handle absent students
                 if (isAbsent) {
-                    await prisma.worksheet.upsert({
-                        where: {
-                            unique_worksheet_per_student_day: {
-                                studentId,
+                    try {
+                        await prisma.worksheet.upsert({
+                            where: {
+                                unique_worksheet_per_student_day: {
+                                    studentId,
+                                    classId,
+                                    worksheetNumber: 0,
+                                    submittedOn: submittedOnDate
+                                }
+                            },
+                            update: {
+                                grade: 0,
+                                isAbsent: true,
+                                status: ProcessingStatus.COMPLETED,
+                                worksheetNumber: 0
+                            },
+                            create: {
                                 classId,
+                                studentId,
+                                submittedById,
                                 worksheetNumber: 0,
+                                grade: 0,
+                                isAbsent: true,
+                                isRepeated: false,
+                                status: ProcessingStatus.COMPLETED,
+                                outOf: 40,
                                 submittedOn: submittedOnDate
                             }
-                        },
-                        update: {
-                            grade: 0,
-                            isAbsent: true,
-                            status: ProcessingStatus.COMPLETED,
-                            worksheetNumber: 0
-                        },
-                        create: {
-                            classId,
-                            studentId,
-                            submittedById,
-                            worksheetNumber: 0,
-                            grade: 0,
-                            isAbsent: true,
-                            isRepeated: false,
-                            status: ProcessingStatus.COMPLETED,
-                            outOf: 40,
-                            submittedOn: submittedOnDate
+                        });
+                    } catch (upsertError: any) {
+                        if (upsertError?.code === 'P2002') {
+                            const existing = await prisma.worksheet.findFirst({
+                                where: { studentId, classId, worksheetNumber: 0, submittedOn: submittedOnDate }
+                            });
+                            if (existing) {
+                                await prisma.worksheet.update({
+                                    where: { id: existing.id },
+                                    data: {
+                                        grade: 0,
+                                        isAbsent: true,
+                                        status: ProcessingStatus.COMPLETED,
+                                        worksheetNumber: 0
+                                    }
+                                });
+                            } else {
+                                throw upsertError;
+                            }
+                        } else {
+                            throw upsertError;
                         }
-                    });
+                    }
                     results.saved++;
                     continue;
                 }
@@ -1499,41 +1575,67 @@ export const batchSaveWorksheets = async (req: Request, res: Response) => {
                     }
                 });
 
-                await prisma.worksheet.upsert({
-                    where: {
-                        unique_worksheet_per_student_day: {
-                            studentId,
+                try {
+                    await prisma.worksheet.upsert({
+                        where: {
+                            unique_worksheet_per_student_day: {
+                                studentId,
+                                classId,
+                                worksheetNumber: worksheetNum,
+                                submittedOn: submittedOnDate
+                            }
+                        },
+                        update: {
+                            grade: gradeValue,
+                            status: ProcessingStatus.COMPLETED,
+                            isRepeated: isRepeated || false,
+                            isIncorrectGrade: isIncorrectGrade || false,
+                            gradingDetails: gradingDetails || undefined,
+                            wrongQuestionNumbers: wrongQuestionNumbers || undefined,
+                            worksheetNumber: worksheetNum
+                        },
+                        create: {
                             classId,
+                            studentId,
+                            submittedById,
+                            templateId: template?.id,
                             worksheetNumber: worksheetNum,
-                            submittedOn: submittedOnDate
+                            grade: gradeValue,
+                            status: ProcessingStatus.COMPLETED,
+                            outOf: 40,
+                            submittedOn: submittedOnDate,
+                            isAbsent: false,
+                            isRepeated: isRepeated || false,
+                            isIncorrectGrade: isIncorrectGrade || false,
+                            gradingDetails: gradingDetails || undefined,
+                            wrongQuestionNumbers: wrongQuestionNumbers || undefined
                         }
-                    },
-                    update: {
-                        grade: gradeValue,
-                        status: ProcessingStatus.COMPLETED,
-                        isRepeated: isRepeated || false,
-                        isIncorrectGrade: isIncorrectGrade || false,
-                        gradingDetails: gradingDetails || undefined,
-                        wrongQuestionNumbers: wrongQuestionNumbers || undefined,
-                        worksheetNumber: worksheetNum
-                    },
-                    create: {
-                        classId,
-                        studentId,
-                        submittedById,
-                        templateId: template?.id,
-                        worksheetNumber: worksheetNum,
-                        grade: gradeValue,
-                        status: ProcessingStatus.COMPLETED,
-                        outOf: 40,
-                        submittedOn: submittedOnDate,
-                        isAbsent: false,
-                        isRepeated: isRepeated || false,
-                        isIncorrectGrade: isIncorrectGrade || false,
-                        gradingDetails: gradingDetails || undefined,
-                        wrongQuestionNumbers: wrongQuestionNumbers || undefined
+                    });
+                } catch (upsertError: any) {
+                    if (upsertError?.code === 'P2002') {
+                        const found = await prisma.worksheet.findFirst({
+                            where: { studentId, classId, worksheetNumber: worksheetNum, submittedOn: submittedOnDate }
+                        });
+                        if (found) {
+                            await prisma.worksheet.update({
+                                where: { id: found.id },
+                                data: {
+                                    grade: gradeValue,
+                                    status: ProcessingStatus.COMPLETED,
+                                    isRepeated: isRepeated || false,
+                                    isIncorrectGrade: isIncorrectGrade || false,
+                                    gradingDetails: gradingDetails || undefined,
+                                    wrongQuestionNumbers: wrongQuestionNumbers || undefined,
+                                    worksheetNumber: worksheetNum
+                                }
+                            });
+                        } else {
+                            throw upsertError;
+                        }
+                    } else {
+                        throw upsertError;
                     }
-                });
+                }
 
                 if (existing) {
                     results.updated++;
