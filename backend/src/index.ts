@@ -12,10 +12,14 @@ import classRoutes from './routes/classRoutes';
 import schoolRoutes from './routes/schoolRoutes';
 import gradingJobRoutes from './routes/gradingJobRoutes';
 import config from './config/env';
-import './services/queueService'; // Initialize queue
 
 // Load environment variables
 dotenv.config();
+
+// Legacy Bull queue remains available and enabled by default for backward compatibility.
+if (process.env.ENABLE_LEGACY_BULL_QUEUE !== 'false') {
+    void import('./services/queueService');
+}
 
 const app = express();
 

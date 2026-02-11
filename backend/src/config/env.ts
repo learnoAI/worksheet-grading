@@ -2,11 +2,18 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+function parseNumber(value: string | undefined, fallback: number): number {
+    const parsed = Number.parseInt(value || '', 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const gradingQueueMode = process.env.GRADING_QUEUE_MODE === 'cloudflare' ? 'cloudflare' : 'inline';
+
 export default {
     port: process.env.APP_PORT || 5100,
     nodeEnv: process.env.NODE_ENV || 'development',
     jwtSecret: process.env.JWT_SECRET || 'your-secret-key',
-    corsOrigins: process.env.CORS_ORIGINS ? 
+    corsOrigins: process.env.CORS_ORIGINS ?
         (process.env.CORS_ORIGINS === '*' ? '*' : process.env.CORS_ORIGINS.split(',')) : [
         'http://localhost:3000',
         'http://localhost:3001',
@@ -23,8 +30,22 @@ export default {
     },
     redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
     pythonApiUrl: process.env.PYTHON_API_URL || 'https://saarthi-api-jzugp.ondigitalocean.app/',
+    cloudflare: {
+        accountId: process.env.CF_ACCOUNT_ID || '',
+        queueId: process.env.CF_QUEUE_ID || '',
+        apiToken: process.env.CF_API_TOKEN || '',
+        consumerName: process.env.CF_CONSUMER_NAME || 'grading-worker',
+        apiBaseUrl: process.env.CF_API_BASE_URL || 'https://api.cloudflare.com/client/v4'
+    },
     grading: {
-        maxConcurrent: parseInt(process.env.GRADING_MAX_CONCURRENT || '1', 10),
-        minTimeMs: parseInt(process.env.GRADING_MIN_TIME_MS || '1000', 10)
+        queueMode: gradingQueueMode,
+        maxConcurrent: parseNumber(process.env.GRADING_MAX_CONCURRENT, 5),
+        minTimeMs: parseNumber(process.env.GRADING_MIN_TIME_MS, 200),
+        workerConcurrency: parseNumber(process.env.GRADING_WORKER_CONCURRENCY, 5),
+        queuePollBatchSize: parseNumber(process.env.GRADING_QUEUE_POLL_BATCH_SIZE, 25),
+        queuePollIntervalMs: parseNumber(process.env.GRADING_QUEUE_POLL_INTERVAL_MS, 2000),
+        heartbeatIntervalMs: parseNumber(process.env.GRADING_HEARTBEAT_INTERVAL_MS, 10000),
+        staleProcessingMs: parseNumber(process.env.GRADING_STALE_PROCESSING_MS, 180000),
+        dispatchLoopIntervalMs: parseNumber(process.env.GRADING_DISPATCH_LOOP_INTERVAL_MS, 5000)
     }
 };

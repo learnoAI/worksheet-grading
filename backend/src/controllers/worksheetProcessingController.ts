@@ -1,479 +1,248 @@
 import { Request, Response } from 'express';
-import { ProcessingStatus, GradingJobStatus } from '@prisma/client';
+import { GradingJobStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
-import fetch from 'node-fetch';
-import FormData from 'form-data';
-import { scheduleGrading } from '../services/gradingLimiter';
-import { logError } from '../services/errorLogService';
+import { uploadToS3 } from '../services/s3Service';
+import config from '../config/env';
 import { aiGradingLogger } from '../services/logger';
+import { logError } from '../services/errorLogService';
+import {
+    createGradingQueueMessage,
+    getGradingQueueClient
+} from '../services/queue/gradingQueue';
+import { runGradingJob } from '../services/gradingJobRunner';
 
-interface PythonApiResponse {
-    success: boolean;
-    mongodb_id?: string;
-    grade?: number;
-    total_possible?: number;
-    grade_percentage?: number;
-    total_questions?: number;
-    correct_answers?: number;
-    wrong_answers?: number;
-    unanswered?: number;
-    question_scores?: any[];
-    wrong_questions?: any[];
-    correct_questions?: any[];
-    unanswered_questions?: any[];
-    overall_feedback?: string;
-    error?: string;
-}
+interface MulterFile extends Express.Multer.File {}
 
-// Retry with exponential backoff + jitter (prevents thundering herd)
-async function withRetry<T>(
-    fn: () => Promise<T>,
-    maxRetries = 3,
-    baseDelayMs = 500
-): Promise<T> {
-    let lastError: Error | null = null;
+type DispatchState = 'DISPATCHED' | 'PENDING_DISPATCH';
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            return await fn();
-        } catch (error) {
-            lastError = error instanceof Error ? error : new Error(String(error));
-
-            if (attempt < maxRetries) {
-                // Exponential backoff with jitter (±30%)
-                const delay = baseDelayMs * Math.pow(2, attempt - 1);
-                const jitter = delay * (0.7 + Math.random() * 0.6);
-                await new Promise(r => setTimeout(r, jitter));
-            }
-        }
+function parseBoolean(value: unknown): boolean {
+    if (typeof value === 'boolean') {
+        return value;
     }
 
-    throw lastError;
+    if (typeof value === 'string') {
+        return value.toLowerCase() === 'true';
+    }
+
+    return false;
 }
 
-// Python API call with retry (network-aware)
-async function callPythonApi(
-    url: string,
-    token_no: string,
-    worksheet_name: string,
-    formData: FormData,
-    jobId?: string
-): Promise<PythonApiResponse> {
-    const maxRetries = 3;
-    const baseDelayMs = 1000;
-    let lastError: Error | null = null;
-    const timer = aiGradingLogger.startTimer();
+function sanitizeFilename(filename: string): string {
+    return filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
 
-    aiGradingLogger.info('Python API call started', {
-        jobId,
-        token_no,
-        worksheet_name,
-        maxRetries
-    });
+function parsePageNumber(req: Request, index: number): number {
+    const pageNumbers = req.body.pageNumbers;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    if (Array.isArray(pageNumbers) && pageNumbers[index] !== undefined) {
+        const parsed = Number.parseInt(String(pageNumbers[index]), 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : index + 1;
+    }
+
+    return index + 1;
+}
+
+async function storeJobImages(jobId: string, files: MulterFile[], req: Request): Promise<void> {
+    await Promise.all(
+        files.map(async (file, index) => {
+            const pageNumber = parsePageNumber(req, index);
+            const key = `grading-jobs/${jobId}/${Date.now()}-page${pageNumber}-${sanitizeFilename(file.originalname)}`;
+            const imageUrl = await uploadToS3(file.buffer, key, file.mimetype);
+
+            await prisma.gradingJobImage.create({
+                data: {
+                    gradingJobId: jobId,
+                    imageUrl,
+                    s3Key: key,
+                    pageNumber,
+                    mimeType: file.mimetype
+                }
+            });
+        })
+    );
+}
+
+async function dispatchJob(jobId: string): Promise<{ dispatchState: DispatchState; queuedAt?: string }> {
+    if (config.grading.queueMode === 'cloudflare') {
         try {
-            aiGradingLogger.debug(`Attempt ${attempt}/${maxRetries}`, { jobId, token_no });
-
-            const response = await scheduleGrading(() =>
-                fetch(`${url}/process-worksheets?token_no=${encodeURIComponent(token_no)}&worksheet_name=${encodeURIComponent(worksheet_name)}`, {
-                    method: 'POST',
-                    body: formData,
-                    headers: formData.getHeaders()
-                })
-            );
-
-            const data: PythonApiResponse = await response.json();
-
-            // Retry on server errors or rate limits
-            if (response.status >= 500 || response.status === 429) {
-                aiGradingLogger.warn(`Server error, will retry`, {
-                    jobId,
-                    status: response.status,
-                    attempt
-                });
-                throw new Error(`Server error: ${response.status}`);
-            }
-
-            if (!response.ok || !data.success) {
-                aiGradingLogger.error('API returned error', {
-                    jobId,
-                    status: response.status,
-                    error: data.error
-                });
-                throw new Error(data.error || `API error: ${response.status}`);
-            }
-
-            timer.end('Python API call completed', {
-                jobId,
-                token_no,
-                worksheet_name,
-                grade: data.grade,
-                totalQuestions: data.total_questions,
-                correctAnswers: data.correct_answers,
-                wrongAnswers: data.wrong_answers,
-                attempt
+            const queueClient = getGradingQueueClient();
+            const queueMessage = createGradingQueueMessage(jobId);
+            await queueClient.publish(queueMessage);
+            await prisma.gradingJob.update({
+                where: { id: jobId },
+                data: {
+                    enqueuedAt: new Date(queueMessage.enqueuedAt),
+                    dispatchError: null
+                }
             });
 
-            return data;
+            return {
+                dispatchState: 'DISPATCHED',
+                queuedAt: queueMessage.enqueuedAt
+            };
         } catch (error) {
-            lastError = error instanceof Error ? error : new Error(String(error));
+            const dispatchError = error instanceof Error ? error.message : 'Queue publish failed';
 
-            // Don't retry client errors (4xx except 429)
-            const msg = lastError.message;
-            if (msg.includes('400') || msg.includes('401') || msg.includes('403') || msg.includes('404')) {
-                aiGradingLogger.error('Client error, not retrying', {
-                    jobId,
-                    error: msg
-                });
-                throw lastError;
-            }
+            await prisma.gradingJob.update({
+                where: { id: jobId },
+                data: {
+                    dispatchError,
+                    lastErrorAt: new Date()
+                }
+            });
 
-            if (attempt < maxRetries) {
-                const delay = baseDelayMs * Math.pow(2, attempt - 1);
-                const jitter = delay * (0.7 + Math.random() * 0.6);
-                aiGradingLogger.warn(`Retry scheduled`, {
-                    jobId,
-                    attempt,
-                    nextAttemptIn: Math.round(jitter)
-                });
-                await new Promise(r => setTimeout(r, jitter));
-            }
+            await logError('grading-dispatch', error instanceof Error ? error : new Error(dispatchError), {
+                jobId
+            }).catch(() => {
+                // best effort
+            });
+
+            return {
+                dispatchState: 'PENDING_DISPATCH'
+            };
         }
     }
 
-    // Log final failure
-    aiGradingLogger.error('Python API call failed after all retries', {
-        jobId,
-        token_no,
-        worksheet_name,
-        error: lastError?.message
-    }, lastError!);
-    await logError('python-api', lastError!, { token_no, worksheet_name, jobId }).catch(() => { });
+    const queuedAt = new Date().toISOString();
+    await prisma.gradingJob.update({
+        where: { id: jobId },
+        data: {
+            enqueuedAt: new Date(queuedAt),
+            dispatchError: null
+        }
+    });
 
-    throw lastError;
+    setImmediate(() => {
+        void runGradingJob(jobId);
+    });
+
+    return {
+        dispatchState: 'DISPATCHED',
+        queuedAt
+    };
 }
 
+/**
+ * Queue grading job and return immediately.
+ * @route POST /api/worksheet-processing/process
+ */
 export const processWorksheets = async (req: Request, res: Response) => {
-    const pythonApiUrl = process.env.PYTHON_API_URL;
     const requestTimer = aiGradingLogger.startTimer();
 
-    if (!pythonApiUrl) {
-        aiGradingLogger.error('PYTHON_API_URL not configured');
-        return res.status(500).json({ success: false, error: 'PYTHON_API_URL not configured' });
-    }
-
-    const { token_no, worksheet_name, classId, studentId, studentName, worksheetNumber, submittedOn, isRepeated } = req.body;
+    const {
+        token_no: tokenNo,
+        worksheet_name: worksheetName,
+        classId,
+        studentId,
+        studentName,
+        worksheetNumber,
+        submittedOn,
+        isRepeated
+    } = req.body;
     const submittedById = req.user?.userId;
-    const filesCount = Array.isArray(req.files) ? req.files.length : 0;
+
+    const files = (req.files as MulterFile[]) || [];
 
     aiGradingLogger.info('Grading request received', {
-        token_no,
+        tokenNo,
+        worksheetName,
         worksheetNumber,
         studentId,
         classId,
         submittedOn,
-        filesCount,
-        teacherId: submittedById
+        filesCount: files.length,
+        teacherId: submittedById,
+        queueMode: config.grading.queueMode
     });
 
-    // Validation
-    if (!token_no || !worksheet_name || !req.files || !Array.isArray(req.files) || req.files.length === 0) {
-        aiGradingLogger.warn('Validation failed: missing files or token', { token_no, filesCount });
+    if (!tokenNo || !worksheetName || files.length === 0) {
         return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
     if (!classId || !studentId || !worksheetNumber || !submittedById) {
-        aiGradingLogger.warn('Validation failed: missing required fields', { classId, studentId, worksheetNumber, submittedById });
         return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
-    let gradingJob: { id: string } | null = null;
+    let jobId: string | null = null;
 
     try {
-        // Resolve student name (from request or DB)
-        const resolvedStudentName = studentName ||
+        const resolvedStudentName =
+            studentName ||
             (await prisma.user.findUnique({ where: { id: studentId }, select: { name: true } }))?.name ||
             'Unknown';
 
-        // Create job
-        gradingJob = await withRetry(() =>
-            prisma.gradingJob.create({
-                data: {
-                    studentId,
-                    studentName: resolvedStudentName,
-                    worksheetNumber: parseInt(worksheetNumber),
-                    classId,
-                    teacherId: submittedById,
-                    status: GradingJobStatus.QUEUED,
-                    submittedOn: submittedOn ? new Date(submittedOn) : new Date()
-                }
-            })
-        );
-
-        aiGradingLogger.info('Grading job created', {
-            jobId: gradingJob.id,
-            studentName: resolvedStudentName,
-            worksheetNumber,
-            status: 'QUEUED'
+        const job = await prisma.gradingJob.create({
+            data: {
+                studentId,
+                studentName: resolvedStudentName,
+                worksheetNumber: Number.parseInt(String(worksheetNumber), 10),
+                worksheetName: String(worksheetName),
+                tokenNo: String(tokenNo),
+                classId,
+                teacherId: submittedById,
+                status: GradingJobStatus.QUEUED,
+                submittedOn: submittedOn ? new Date(submittedOn) : new Date(),
+                isRepeated: parseBoolean(isRepeated)
+            },
+            select: { id: true }
         });
 
-        // Return immediately for polling
-        res.status(202).json({
+        jobId = job.id;
+
+        await storeJobImages(job.id, files, req);
+
+        const dispatchResult = await dispatchJob(job.id);
+
+        requestTimer.end('Grading job queued', {
+            jobId: job.id,
+            dispatchState: dispatchResult.dispatchState,
+            queuedAt: dispatchResult.queuedAt
+        });
+
+        return res.status(202).json({
             success: true,
-            jobId: gradingJob.id,
+            jobId: job.id,
             status: 'queued',
-            message: 'Job queued'
+            queuedAt: dispatchResult.queuedAt,
+            dispatchState: dispatchResult.dispatchState,
+            message:
+                dispatchResult.dispatchState === 'DISPATCHED'
+                    ? 'Job queued'
+                    : 'Job created but dispatch pending; it will be retried automatically'
         });
-
-        // === Background processing ===
-        aiGradingLogger.info('Starting background processing', { jobId: gradingJob.id });
-
-        // Update status
-        await withRetry(() =>
-            prisma.gradingJob.update({
-                where: { id: gradingJob!.id },
-                data: { status: GradingJobStatus.PROCESSING }
-            })
-        );
-
-        aiGradingLogger.debug('Job status updated to PROCESSING', { jobId: gradingJob.id });
-
-        // Prepare files
-        const formData = new FormData();
-        const fileDetails: { name: string; size: number; type: string }[] = [];
-        for (const file of req.files as Express.Multer.File[]) {
-            formData.append('files', file.buffer, {
-                filename: file.originalname,
-                contentType: file.mimetype
-            });
-            fileDetails.push({
-                name: file.originalname,
-                size: file.size,
-                type: file.mimetype
-            });
-        }
-
-        aiGradingLogger.debug('Files prepared for API call', { jobId: gradingJob.id, files: fileDetails });
-
-        // Call Python API
-        const pythonResponse = await callPythonApi(pythonApiUrl, token_no, worksheet_name, formData, gradingJob.id);
-
-        aiGradingLogger.info('AI grading completed', {
-            jobId: gradingJob.id,
-            grade: pythonResponse.grade,
-            totalPossible: pythonResponse.total_possible,
-            gradePercentage: pythonResponse.grade_percentage,
-            totalQuestions: pythonResponse.total_questions,
-            correctAnswers: pythonResponse.correct_answers,
-            wrongAnswers: pythonResponse.wrong_answers,
-            unanswered: pythonResponse.unanswered,
-            mongoDbId: pythonResponse.mongodb_id
-        });
-
-        // Find template
-        const worksheetNum = parseInt(worksheetNumber);
-        const template = await withRetry(() =>
-            prisma.worksheetTemplate.findFirst({ where: { worksheetNumber: worksheetNum } })
-        );
-
-        aiGradingLogger.debug('Template lookup', {
-            jobId: gradingJob.id,
-            worksheetNumber: worksheetNum,
-            templateFound: !!template,
-            templateId: template?.id
-        });
-
-        // Normalize submittedOn to midnight UTC for consistent unique constraint matching
-        const submittedOnDate = submittedOn ? new Date(submittedOn) : new Date();
-        submittedOnDate.setUTCHours(0, 0, 0, 0);
-
-        // Compute wrongQuestionNumbers for storage
-        const wrongQuestionNumbers = [
-            ...(pythonResponse.wrong_questions || []).map((q: any) => q.question_number),
-            ...(pythonResponse.unanswered_questions || []).map((q: any) => q.question_number)
-        ].sort((a, b) => a - b).join(', ') || null;
-
-        const gradingDetails = {
-            total_possible: pythonResponse.total_possible,
-            grade_percentage: pythonResponse.grade_percentage,
-            total_questions: pythonResponse.total_questions,
-            correct_answers: pythonResponse.correct_answers,
-            wrong_answers: pythonResponse.wrong_answers,
-            unanswered: pythonResponse.unanswered,
-            question_scores: pythonResponse.question_scores,
-            wrong_questions: pythonResponse.wrong_questions,
-            correct_questions: pythonResponse.correct_questions,
-            unanswered_questions: pythonResponse.unanswered_questions,
-            overall_feedback: pythonResponse.overall_feedback
-        };
-
-        let worksheet;
-        let wasCreated = false;
-
-        // Use upsert with unique constraint to prevent duplicates from race conditions
-        // The unique constraint [studentId, classId, worksheetNumber, submittedOn]
-        // allows multiple worksheets per student per day, but no duplicates of the same worksheet number
-        try {
-            // Check if worksheet exists to determine if this is create or update
-            const existing = await prisma.worksheet.findFirst({
-                where: {
-                    studentId,
-                    classId,
-                    worksheetNumber: worksheetNum,
-                    submittedOn: submittedOnDate
-                }
-            });
-            wasCreated = !existing;
-
-            worksheet = await prisma.worksheet.upsert({
-                where: {
-                    unique_worksheet_per_student_day: {
-                        studentId,
-                        classId,
-                        worksheetNumber: worksheetNum,
-                        submittedOn: submittedOnDate
-                    }
-                },
-                update: {
-                    grade: pythonResponse.grade,
-                    status: ProcessingStatus.COMPLETED,
-                    outOf: pythonResponse.total_possible || 40,
-                    mongoDbId: pythonResponse.mongodb_id,
-                    gradingDetails,
-                    wrongQuestionNumbers,
-                    isRepeated: isRepeated || false,
-                    worksheetNumber: worksheetNum
-                },
-                create: {
-                    classId,
-                    studentId,
-                    submittedById,
-                    templateId: template?.id,
-                    worksheetNumber: worksheetNum,
-                    grade: pythonResponse.grade,
-                    notes: `Auto-graded worksheet ${worksheetNumber}`,
-                    status: ProcessingStatus.COMPLETED,
-                    outOf: pythonResponse.total_possible || 40,
-                    submittedOn: submittedOnDate,
-                    isAbsent: false,
-                    isRepeated: isRepeated || false,
-                    isCorrectGrade: false,
-                    isIncorrectGrade: false,
-                    mongoDbId: pythonResponse.mongodb_id,
-                    gradingDetails,
-                    wrongQuestionNumbers
-                }
-            });
-
-            aiGradingLogger.info('Worksheet saved to database', {
-                jobId: gradingJob.id,
-                worksheetId: worksheet.id,
-                action: wasCreated ? 'CREATED' : 'UPDATED',
-                grade: pythonResponse.grade,
-                wrongQuestionNumbers
-            });
-        } catch (upsertError: any) {
-            // Handle edge case: if upsert fails due to race condition on unique constraint,
-            // find the existing worksheet and update it
-            if (upsertError?.code === 'P2002') {
-                aiGradingLogger.warn('Unique constraint hit, falling back to update', {
-                    jobId: gradingJob.id,
-                    error: upsertError.message
-                });
-
-                const existing = await prisma.worksheet.findFirst({
-                    where: {
-                        studentId,
-                        classId,
-                        worksheetNumber: worksheetNum,
-                        submittedOn: submittedOnDate
-                    }
-                });
-
-                if (existing) {
-                    worksheet = await prisma.worksheet.update({
-                        where: { id: existing.id },
-                        data: {
-                            grade: pythonResponse.grade,
-                            status: ProcessingStatus.COMPLETED,
-                            outOf: pythonResponse.total_possible || 40,
-                            mongoDbId: pythonResponse.mongodb_id,
-                            gradingDetails,
-                            wrongQuestionNumbers,
-                            isRepeated: isRepeated || false
-                        }
-                    });
-
-                    aiGradingLogger.info('Worksheet updated via fallback', {
-                        jobId: gradingJob.id,
-                        worksheetId: worksheet.id
-                    });
-                } else {
-                    throw upsertError;
-                }
-            } else {
-                throw upsertError;
-            }
-        }
-
-        // Update job to completed
-        await withRetry(() =>
-            prisma.gradingJob.update({
-                where: { id: gradingJob!.id },
-                data: {
-                    status: GradingJobStatus.COMPLETED,
-                    worksheetId: worksheet.id,
-                    completedAt: new Date()
-                }
-            })
-        ).catch((err) => {
-            aiGradingLogger.warn('Failed to update job status to COMPLETED', {
-                jobId: gradingJob!.id,
-                error: err.message
-            });
-        });
-
-        requestTimer.end('Grading request completed successfully', {
-            jobId: gradingJob.id,
-            worksheetId: worksheet.id,
-            grade: pythonResponse.grade,
-            action: wasCreated ? 'CREATED' : 'UPDATED'
-        });
-
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-        aiGradingLogger.error('Grading failed', {
-            jobId: gradingJob?.id,
-            studentId,
-            classId,
-            worksheetNumber,
-            error: errorMessage
-        }, error instanceof Error ? error : undefined);
-
-        // Log to MongoDB error_logs collection
-        await logError('grading', error instanceof Error ? error : new Error(errorMessage), {
-            jobId: gradingJob?.id,
-            studentId: req.body.studentId,
-            classId: req.body.classId,
-            worksheetNumber: req.body.worksheetNumber
-        }).catch(() => { });
-
-        if (gradingJob) {
-            await prisma.gradingJob.update({
-                where: { id: gradingJob.id },
-                data: {
-                    status: GradingJobStatus.FAILED,
-                    errorMessage,
-                    completedAt: new Date()
-                }
-            }).catch(() => { });
+        if (jobId) {
+            await prisma.gradingJob
+                .update({
+                    where: { id: jobId },
+                    data: {
+                        status: GradingJobStatus.FAILED,
+                        errorMessage,
+                        lastErrorAt: new Date(),
+                        completedAt: new Date()
+                    }
+                })
+                .catch(() => {
+                    // best effort
+                });
         }
 
+        await logError('grading-request', error instanceof Error ? error : new Error(errorMessage), {
+            jobId,
+            studentId,
+            classId,
+            worksheetNumber
+        }).catch(() => {
+            // best effort
+        });
+
         requestTimer.end('Grading request failed', {
-            jobId: gradingJob?.id,
+            jobId,
             error: errorMessage
         });
+
+        return res.status(500).json({ success: false, error: 'Failed to queue grading job' });
     }
 };

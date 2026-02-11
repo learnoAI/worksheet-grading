@@ -1,8 +1,9 @@
 import Bottleneck from 'bottleneck';
+import config from '../config/env';
 
 export const gradingLimiter = new Bottleneck({
-  maxConcurrent: parseInt(process.env.GRADING_MAX_CONCURRENT || '1', 10), // Changed default from 2 to 1 for sequential processing
-  minTime: parseInt(process.env.GRADING_MIN_TIME_MS || '1000', 10) // Increased default from 200ms to 1000ms to give more time between requests
+  maxConcurrent: config.grading.maxConcurrent,
+  minTime: config.grading.minTimeMs
 });
 
 gradingLimiter.on('debug', (msg: unknown) => {

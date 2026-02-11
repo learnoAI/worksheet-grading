@@ -256,6 +256,9 @@ model GradingJob {
   student         User             @relation("StudentGradingJobs", fields: [studentId], references: [id])
   studentName     String           // Denormalized for quick display
   worksheetNumber Int
+  worksheetName   String?
+  tokenNo         String?
+  isRepeated      Boolean          @default(false)
   classId         String
   class           Class            @relation(fields: [classId], references: [id])
   teacherId       String
@@ -263,13 +266,35 @@ model GradingJob {
   status          GradingJobStatus @default(QUEUED)
   worksheetId     String?          // Set after worksheet created/updated
   errorMessage    String?
+  dispatchError   String?
+  attemptCount    Int              @default(0)
+  enqueuedAt      DateTime?
+  startedAt       DateTime?
+  lastHeartbeatAt DateTime?
+  lastErrorAt     DateTime?
   submittedOn     DateTime         // The date the worksheet was submitted for
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   completedAt     DateTime?
+  images          GradingJobImage[]
 
   @@index([teacherId, status])
   @@index([teacherId, createdAt])
   @@index([classId, createdAt])
   @@index([status, createdAt])
+  @@index([status, enqueuedAt])
+  @@index([status, lastHeartbeatAt])
+}
+
+model GradingJobImage {
+  id           String     @id @default(uuid())
+  gradingJobId String
+  gradingJob   GradingJob @relation(fields: [gradingJobId], references: [id], onDelete: Cascade)
+  imageUrl     String
+  s3Key        String
+  pageNumber   Int
+  mimeType     String
+  createdAt    DateTime   @default(now())
+
+  @@index([gradingJobId, pageNumber])
 }

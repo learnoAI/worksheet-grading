@@ -1,5 +1,4 @@
 import AWS from 'aws-sdk';
-import { Readable } from 'stream';
 import config from '../config/env';
 
 // Configure AWS SDK
@@ -69,4 +68,31 @@ export const deleteFromS3 = async (key: string): Promise<void> => {
     };
 
     await s3.deleteObject(params).promise();
-}; 
+};
+
+/**
+ * Download a file from S3
+ * @param key - S3 object key (path)
+ * @returns Promise with file buffer
+ */
+export const downloadFromS3 = async (key: string): Promise<Buffer> => {
+    const params = {
+        Bucket: config.aws.s3BucketName,
+        Key: key
+    };
+
+    const result = await s3.getObject(params).promise();
+    if (!result.Body) {
+        throw new Error(`S3 object not found for key: ${key}`);
+    }
+
+    if (Buffer.isBuffer(result.Body)) {
+        return result.Body;
+    }
+
+    if (typeof result.Body === 'string') {
+        return Buffer.from(result.Body);
+    }
+
+    return Buffer.from(result.Body as Uint8Array);
+};

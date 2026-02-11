@@ -7,6 +7,8 @@
     "dev": "nodemon",
     "build": "npx prisma generate && tsc",
     "start": "node dist/src/index.js",
+    "start:worker": "node dist/src/workers/index.js",
+    "start:dispatch": "node dist/src/workers/gradingDispatchLoop.js",
     "postinstall": "npx prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

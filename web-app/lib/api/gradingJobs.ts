@@ -17,6 +17,12 @@ export interface GradingJob {
     status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
     worksheetId?: string;
     errorMessage?: string;
+    dispatchError?: string;
+    attemptCount?: number;
+    enqueuedAt?: string;
+    startedAt?: string;
+    lastHeartbeatAt?: string;
+    lastErrorAt?: string;
     createdAt: string;
     completedAt?: string;
 }
