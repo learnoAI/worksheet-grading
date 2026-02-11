@@ -2,48 +2,7 @@ import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma, { withDatabaseRetry } from '../utils/prisma';
 
-// Simple in-memory cache for analytics results (5 minute TTL)
-interface CacheEntry {
-    data: any;
-    timestamp: number;
-}
 
-const analyticsCache = new Map<string, CacheEntry>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-function getCacheKey(params: Record<string, any>): string {
-    return JSON.stringify(params);
-}
-
-function setCache(key: string, data: any): void {
-    analyticsCache.set(key, {
-        data,
-        timestamp: Date.now()
-    });
-}
-
-function getCache(key: string): any | null {
-    const entry = analyticsCache.get(key);
-    if (!entry) return null;
-    
-    // Check if cache entry is expired
-    if (Date.now() - entry.timestamp > CACHE_TTL) {
-        analyticsCache.delete(key);
-        return null;
-    }
-    
-    return entry.data;
-}
-
-// Clean expired cache entries every 10 minutes
-setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of analyticsCache.entries()) {
-        if (now - entry.timestamp > CACHE_TTL) {
-            analyticsCache.delete(key);
-        }
-    }
-}, 10 * 60 * 1000);
 
 /**
  * Convert date strings to full day ranges
@@ -52,13 +11,13 @@ setInterval(() => {
 function convertToFullDayRange(startDateStr: string, endDateStr: string) {
     const start = new Date(startDateStr);
     const end = new Date(endDateStr);
-    
+
     // Set start date to beginning of day (00:00:00)
     start.setHours(0, 0, 0, 0);
-    
+
     // Set end date to end of day (23:59:59.999)
     end.setHours(23, 59, 59, 999);
-    
+
     return { start, end };
 }
 
@@ -69,23 +28,16 @@ function convertToFullDayRange(startDateStr: string, endDateStr: string) {
 export const getOverallAnalytics = async (req: Request, res: Response) => {
     try {
         const { startDate, endDate, schoolIds } = req.query;
-        
+
         if (!startDate || !endDate) {
             return res.status(400).json({ message: 'Start date and end date are required' });
         }
 
-        // Create cache key from request parameters
-        // const cacheKey = getCacheKey({ startDate, endDate, schoolIds });
-        
-        // // Check cache first
-        // const cachedResult = getCache(cacheKey);
-        // if (cachedResult) {
-        //     return res.status(200).json(cachedResult);
-        // }
+
 
         // Parse date strings to Date objects with full day range
         const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
-        
+
         // Build filter object - always exclude archived schools and classes
         const filter: any = {
             submittedOn: {
@@ -110,7 +62,7 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
                 }
             };
         }
-        
+
         // Use parallel aggregation queries for better performance with retry
         const [
             totalStats,
@@ -119,7 +71,7 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             gradedStats,
             highScoreStats,
             excellenceStats
-        ] = await withDatabaseRetry(async () => 
+        ] = await withDatabaseRetry(async () =>
             Promise.all([
                 // Total worksheets count - exclude ungraded non-absent worksheets
                 prisma.worksheet.count({
@@ -133,34 +85,34 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
                         }
                     }
                 }),
-            
-            // Absent worksheets count
-            prisma.worksheet.count({
-                where: {
-                    ...filter,
-                    isAbsent: true
-                }
-            }),
-            
-            // Repeated worksheets count
-            prisma.worksheet.count({
-                where: {
-                    ...filter,
-                    isRepeated: true
-                }
-            }),
-            
-            // Graded non-absent worksheets count
-            prisma.worksheet.count({
-                where: {
-                    ...filter,
-                    grade: { not: null },
-                    isAbsent: false
-                }
-            }),
-            
-            // High score count (≥80%) - use raw query for performance
-            prisma.$queryRaw<Array<{count: bigint}>>`
+
+                // Absent worksheets count
+                prisma.worksheet.count({
+                    where: {
+                        ...filter,
+                        isAbsent: true
+                    }
+                }),
+
+                // Repeated worksheets count
+                prisma.worksheet.count({
+                    where: {
+                        ...filter,
+                        isRepeated: true
+                    }
+                }),
+
+                // Graded non-absent worksheets count
+                prisma.worksheet.count({
+                    where: {
+                        ...filter,
+                        grade: { not: null },
+                        isAbsent: false
+                    }
+                }),
+
+                // High score count (≥80%) - use raw query for performance
+                prisma.$queryRaw<Array<{ count: bigint }>>`
                 SELECT COUNT(*)::bigint as count
                 FROM "Worksheet" w
                 LEFT JOIN "Class" c ON w."classId" = c.id
@@ -172,13 +124,13 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
                 AND w.grade >= (COALESCE(w."outOf", 40) * 0.8)
                 AND c."isArchived" = false
                 AND s."isArchived" = false
-                ${schoolIds ? 
-                    Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
-                    : Prisma.empty}
+                ${schoolIds ?
+                        Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
+                        : Prisma.empty}
             `,
-            
-            // Excellence score count (≥90%) - use raw query for performance
-            prisma.$queryRaw<Array<{count: bigint}>>`
+
+                // Excellence score count (≥90%) - use raw query for performance
+                prisma.$queryRaw<Array<{ count: bigint }>>`
                 SELECT COUNT(*)::bigint as count
                 FROM "Worksheet" w
                 LEFT JOIN "Class" c ON w."classId" = c.id
@@ -190,11 +142,11 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
                 AND w.grade >= (COALESCE(w."outOf", 40) * 0.9)
                 AND c."isArchived" = false
                 AND s."isArchived" = false
-                ${schoolIds ? 
-                    Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
-                    : Prisma.empty}
+                ${schoolIds ?
+                        Prisma.sql`AND c."schoolId" = ANY(${Array.isArray(schoolIds) ? schoolIds : [schoolIds]}::text[])`
+                        : Prisma.empty}
             `
-        ])
+            ])
         );
 
         // Calculate metrics from aggregated data
@@ -202,19 +154,19 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
         const totalAbsent = absentStats;
         const totalRepeated = repeatedStats;
         const totalGraded = gradedStats;
-        
+
         const absentPercentage = totalWorksheets > 0 ? (totalAbsent / totalWorksheets) * 100 : 0;
         const repetitionRate = (totalWorksheets - totalAbsent) > 0 ? (totalRepeated / (totalWorksheets - totalAbsent)) * 100 : 0;
-        
+
         const highScoreCount = Number(highScoreStats[0]?.count || 0);
         const highScorePercentage = totalGraded > 0 ? (highScoreCount / totalGraded) * 100 : 0;
-        
+
         const excellenceScoreCount = Number(excellenceStats[0]?.count || 0);
         const excellenceScorePercentage = totalGraded > 0 ? (excellenceScoreCount / totalGraded) * 100 : 0;
-        
+
         const needsRepetitionCount = totalGraded - highScoreCount;
         const needsRepetitionPercentage = totalGraded > 0 ? (needsRepetitionCount / totalGraded) * 100 : 0;
-        
+
         const result = {
             totalWorksheets: totalWorksheets, // Non-absent worksheets for consistency
             totalAbsent,
@@ -230,9 +182,8 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
             needsRepetitionPercentage
         };
 
-        // Cache the result
-        // setCache(cacheKey, result);
-        
+
+
         return res.status(200).json(result);
     } catch (error) {
         console.error('Error getting overall analytics:', error);
@@ -246,14 +197,14 @@ export const getOverallAnalytics = async (req: Request, res: Response) => {
  */
 export const getWorksheetAnalytics = async (req: Request, res: Response) => {
     const { startDate, endDate, schoolId } = req.query;
-    
+
     if (!startDate || !endDate) {
         return res.status(400).json({ message: 'Start and end dates are required' });
     }
-    
+
     try {
         const { start, end } = convertToFullDayRange(startDate as string, endDate as string);
-        
+
         // Base filter
         const dateFilter = {
             submittedOn: {
@@ -261,7 +212,7 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
                 lte: end
             }
         };
-        
+
         // Additional school filter if provided
         const filter: any = { ...dateFilter };
         if (schoolId) {
@@ -269,7 +220,7 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
                 schoolId: schoolId as string
             };
         }
-        
+
         // Use parallel aggregation queries for better performance
         const [
             totalStats,
@@ -281,7 +232,7 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
             prisma.worksheet.count({
                 where: filter
             }),
-            
+
             // Absent worksheets count
             prisma.worksheet.count({
                 where: {
@@ -289,7 +240,7 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
                     isAbsent: true
                 }
             }),
-            
+
             // Repeated worksheets count  
             prisma.worksheet.count({
                 where: {
@@ -297,9 +248,9 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
                     isRepeated: true
                 }
             }),
-            
+
             // High score count (≥80%) - use raw query for performance
-            prisma.$queryRaw<Array<{count: bigint}>>`
+            prisma.$queryRaw<Array<{ count: bigint }>>`
                 SELECT COUNT(*)::bigint as count
                 FROM "Worksheet" w
                 LEFT JOIN "Class" c ON w."classId" = c.id
@@ -308,23 +259,23 @@ export const getWorksheetAnalytics = async (req: Request, res: Response) => {
                 AND w."isAbsent" = false
                 AND w.grade IS NOT NULL
                 AND w.grade >= (COALESCE(w."outOf", 40) * 0.8)
-                ${schoolId ? 
+                ${schoolId ?
                     Prisma.sql`AND c."schoolId" = ${schoolId}`
                     : Prisma.empty}
             `
         ]);
-        
+
         // Calculate analytics from aggregated data
         const allWorksheets = totalStats;
         const totalAbsent = absentStats;
         const totalRepeated = repeatedStats;
         const highScores = Number(highScoreStats[0]?.count || 0);
-        
+
         const totalWorksheets = allWorksheets - totalAbsent; // Non-absent worksheets
         const absentPercentage = allWorksheets > 0 ? (totalAbsent / allWorksheets) * 100 : 0;
         const repetitionRate = totalWorksheets > 0 ? (totalRepeated / totalWorksheets) * 100 : 0;
         const highScorePercentage = totalWorksheets > 0 ? (highScores / totalWorksheets) * 100 : 0;
-          
+
         // Return compiled analytics
         res.status(200).json({
             totalWorksheets,
@@ -535,11 +486,11 @@ export const getAllSchools = async (req: Request, res: Response) => {
     try {
         const { includeArchived = 'false' } = req.query;
         const whereConditions: any = {};
-        
+
         if (includeArchived !== 'true') {
             whereConditions.isArchived = false;
         }
-        
+
         const schools = await prisma.school.findMany({
             where: whereConditions,
             select: {
@@ -552,7 +503,7 @@ export const getAllSchools = async (req: Request, res: Response) => {
                 { name: 'asc' }
             ]
         });
-        
+
         return res.status(200).json(schools);
     } catch (error) {
         console.error('Error getting schools:', error);
@@ -563,12 +514,12 @@ export const getAllSchools = async (req: Request, res: Response) => {
 export const getFilterOptions = async (req: Request, res: Response) => {
     try {
         const { includeArchived = 'false' } = req.query;
-        
+
         const schoolWhereConditions: any = {};
         if (includeArchived !== 'true') {
             schoolWhereConditions.isArchived = false;
         }
-        
+
         const schools = await prisma.school.findMany({
             where: schoolWhereConditions,
             select: {
@@ -581,7 +532,7 @@ export const getFilterOptions = async (req: Request, res: Response) => {
                 { name: 'asc' }
             ]
         });
-        
+
         const classWhereConditions: any = {};
         if (includeArchived !== 'true') {
             classWhereConditions.isArchived = false;
@@ -590,7 +541,7 @@ export const getFilterOptions = async (req: Request, res: Response) => {
                 isArchived: false
             };
         }
-        
+
         const classes = await prisma.class.findMany({
             where: classWhereConditions,
             select: {
@@ -604,7 +555,7 @@ export const getFilterOptions = async (req: Request, res: Response) => {
                 { name: 'asc' }
             ]
         });
-        
+
         res.status(200).json({ schools, classes });
     } catch (error) {
         console.error('Error fetching filter options:', error);
@@ -620,12 +571,12 @@ export const getClassesBySchool = async (req: Request, res: Response) => {
     try {
         const { schoolId } = req.params;
         const { includeArchived = 'false' } = req.query;
-        
+
         // Build filter conditions
         const whereConditions: any = {
             schoolId
         };
-        
+
         // Filter by archive status unless explicitly requesting archived classes
         if (includeArchived !== 'true') {
             whereConditions.isArchived = false;
@@ -634,7 +585,7 @@ export const getClassesBySchool = async (req: Request, res: Response) => {
                 isArchived: false
             };
         }
-        
+
         const classes = await prisma.class.findMany({
             where: whereConditions,
             select: {
@@ -648,7 +599,7 @@ export const getClassesBySchool = async (req: Request, res: Response) => {
                 { name: 'asc' }
             ]
         });
-        
+
         return res.status(200).json(classes);
     } catch (error) {
         console.error('Error getting classes by school:', error);
@@ -662,11 +613,11 @@ export const getClassesBySchool = async (req: Request, res: Response) => {
  */
 export const manageStudentClass = async (req: Request, res: Response) => {
     const { action, studentId, classId } = req.body;
-    
+
     if (!action || !studentId || !classId) {
         return res.status(400).json({ message: 'Action, student ID, and class ID are required' });
     }
-    
+
     try {
         if (action === 'add') {
             // Check if the student is already in the class
@@ -678,11 +629,11 @@ export const manageStudentClass = async (req: Request, res: Response) => {
                     }
                 }
             });
-            
+
             if (existingRelation) {
                 return res.status(400).json({ message: 'Student is already in this class' });
             }
-            
+
             // Add student to class
             await prisma.studentClass.create({
                 data: {
@@ -690,7 +641,7 @@ export const manageStudentClass = async (req: Request, res: Response) => {
                     classId
                 }
             });
-            
+
             res.status(201).json({ message: 'Student added to class successfully' });
         } else if (action === 'remove') {
             // Remove student from class
@@ -702,7 +653,7 @@ export const manageStudentClass = async (req: Request, res: Response) => {
                     }
                 }
             });
-            
+
             res.status(200).json({ message: 'Student removed from class successfully' });
         } else {
             res.status(400).json({ message: 'Invalid action. Use "add" or "remove".' });
@@ -720,7 +671,7 @@ export const manageStudentClass = async (req: Request, res: Response) => {
 export const removeStudentFromClass = async (req: Request, res: Response) => {
     try {
         const { studentId, classId } = req.params;
-        
+
         // Check if student exists and is in the class
         const studentClass = await prisma.studentClass.findUnique({
             where: {
@@ -730,11 +681,11 @@ export const removeStudentFromClass = async (req: Request, res: Response) => {
                 }
             }
         });
-        
+
         if (!studentClass) {
             return res.status(404).json({ message: 'Student is not in this class' });
         }
-        
+
         // Remove student from class
         await prisma.studentClass.delete({
             where: {
@@ -744,7 +695,7 @@ export const removeStudentFromClass = async (req: Request, res: Response) => {
                 }
             }
         });
-        
+
         return res.status(200).json({ message: 'Student removed from class successfully' });
     } catch (error) {
         console.error('Error removing student from class:', error);
@@ -759,7 +710,7 @@ export const removeStudentFromClass = async (req: Request, res: Response) => {
 export const addStudentToClass = async (req: Request, res: Response) => {
     try {
         const { studentId, classId } = req.params;
-        
+
         // Check if student exists
         const student = await prisma.user.findUnique({
             where: {
@@ -767,22 +718,22 @@ export const addStudentToClass = async (req: Request, res: Response) => {
                 role: 'STUDENT'
             }
         });
-        
+
         if (!student) {
             return res.status(404).json({ message: 'Student not found' });
         }
-        
+
         // Check if class exists
         const classEntity = await prisma.class.findUnique({
             where: {
                 id: classId
             }
         });
-        
+
         if (!classEntity) {
             return res.status(404).json({ message: 'Class not found' });
         }
-        
+
         // Check if student is already in class
         const existingStudentClass = await prisma.studentClass.findUnique({
             where: {
@@ -792,11 +743,11 @@ export const addStudentToClass = async (req: Request, res: Response) => {
                 }
             }
         });
-        
+
         if (existingStudentClass) {
             return res.status(400).json({ message: 'Student is already in this class' });
         }
-        
+
         // Add student to class
         const newStudentClass = await prisma.studentClass.create({
             data: {
@@ -804,10 +755,10 @@ export const addStudentToClass = async (req: Request, res: Response) => {
                 classId
             }
         });
-        
+
         // Add student to school if not already added
         const schoolId = classEntity.schoolId;
-        
+
         const existingStudentSchool = await prisma.studentSchool.findUnique({
             where: {
                 studentId_schoolId: {
@@ -816,7 +767,7 @@ export const addStudentToClass = async (req: Request, res: Response) => {
                 }
             }
         });
-        
+
         if (!existingStudentSchool) {
             await prisma.studentSchool.create({
                 data: {
@@ -825,7 +776,7 @@ export const addStudentToClass = async (req: Request, res: Response) => {
                 }
             });
         }
-        
+
         return res.status(201).json(newStudentClass);
     } catch (error) {
         console.error('Error adding student to class:', error);
@@ -839,7 +790,7 @@ export const addStudentToClass = async (req: Request, res: Response) => {
  */
 export const downloadStudentAnalytics = async (req: Request, res: Response) => {
     const { schoolId, classId, startDate, endDate, showArchived = 'active', format = 'csv' } = req.query;
-    
+
     try {
         // Base filters for student query
         const filter: any = {
@@ -849,7 +800,7 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
         // IMPORTANT: Always filter out archived students for CSV downloads
         // Only active (non-archived) students should be included in downloads
         filter.isArchived = false;
-        
+
         // CRITICAL: Only include students who have at least one active class in an active school
         // This prevents "No School" and "No Class" entries in the CSV
         filter.studentClasses = {
@@ -865,7 +816,7 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 }
             }
         };
-          // Get all students with their class information
+        // Get all students with their class information
         const students = await prisma.user.findMany({
             where: filter,
             select: {
@@ -934,38 +885,38 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 }
             }
         });
-          // Calculate analytics for each student
+        // Calculate analytics for each student
         const studentsWithAnalytics = students
             .map(student => {
                 const worksheets = student.studentWorksheets;
                 const allWorksheets = worksheets.length;
                 const absences = worksheets.filter(w => w.isAbsent).length;
                 const repetitions = worksheets.filter(w => w.isRepeated).length;
-                
+
                 // Calculate graded vs ungraded worksheets - only count non-absent graded worksheets for consistency
                 const gradedWorksheets = worksheets.filter(w => w.grade !== null && !w.isAbsent);
                 const totalWorksheets = allWorksheets - absences; // Non-absent worksheets
-                
+
                 // Get first and last worksheet dates
                 const worksheetsWithDates = worksheets.filter(w => w.submittedOn !== null);
                 const firstWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[0] : null;
                 const lastWorksheet = worksheetsWithDates.length > 0 ? worksheetsWithDates[worksheetsWithDates.length - 1] : null;
-                
+
                 // Class and school info - only use the first active class from an active school
                 const primaryClass = student.studentClasses[0]?.class;
-                
+
                 // CRITICAL: Skip students without proper class/school assignment
                 // This should not happen due to our query filter, but adding as safety check
                 if (!primaryClass || !primaryClass.school) {
                     return null;
                 }
-                
+
                 // Calculate average grade (excluding absent worksheets)
                 const gradedNonAbsentWorksheets = worksheets.filter(w => !w.isAbsent && w.grade !== null);
-                const averageGrade = gradedNonAbsentWorksheets.length > 0 
-                    ? gradedNonAbsentWorksheets.reduce((sum, w) => sum + (w.grade || 0), 0) / gradedNonAbsentWorksheets.length 
+                const averageGrade = gradedNonAbsentWorksheets.length > 0
+                    ? gradedNonAbsentWorksheets.reduce((sum, w) => sum + (w.grade || 0), 0) / gradedNonAbsentWorksheets.length
                     : 0;
-                  return {
+                return {
                     id: student.id,
                     name: student.name,
                     username: student.username,
@@ -984,11 +935,11 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 };
             })
             .filter((student): student is NonNullable<typeof student> => student !== null); // Remove any null entries
-          if (format === 'csv') {
+        if (format === 'csv') {
             // Generate CSV
             const csvHeaders = [
                 'Name',
-                'Username', 
+                'Username',
                 'Token Number',
                 'School',
                 'Class',
@@ -1002,7 +953,7 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 'First Worksheet Date',
                 'Last Worksheet Date'
             ];
-            
+
             const csvRows = studentsWithAnalytics.map(student => [
                 `"${student.name}"`,
                 `"${student.username}"`,
@@ -1019,20 +970,20 @@ export const downloadStudentAnalytics = async (req: Request, res: Response) => {
                 `"${student.firstWorksheetDate}"`,
                 `"${student.lastWorksheetDate}"`
             ]);
-            
+
             const csvContent = [csvHeaders.join(','), ...csvRows.map(row => row.join(','))].join('\n');
-            
+
             // Set response headers for CSV download
             const timestamp = new Date().toISOString().split('T')[0];
             let filename = `student_analytics_${timestamp}.csv`;
-            
+
             // Include date range in filename if provided
             if (startDate && endDate) {
                 const start = new Date(startDate as string).toISOString().split('T')[0];
                 const end = new Date(endDate as string).toISOString().split('T')[0];
                 filename = `student_analytics_${start}_to_${end}.csv`;
             }
-            
+
             res.setHeader('Content-Type', 'text/csv');
             res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
             res.status(200).send(csvContent);

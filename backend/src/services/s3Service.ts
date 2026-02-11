@@ -1,5 +1,4 @@
 import AWS from 'aws-sdk';
-import { Readable } from 'stream';
 import config from '../config/env';
 
 // Configure AWS SDK

@@ -75,13 +75,22 @@ async function callPythonApi(
         try {
             aiGradingLogger.debug(`Attempt ${attempt}/${maxRetries}`, { jobId, token_no });
 
-            const response = await scheduleGrading(() =>
-                fetch(`${url}/process-worksheets?token_no=${encodeURIComponent(token_no)}&worksheet_name=${encodeURIComponent(worksheet_name)}`, {
-                    method: 'POST',
-                    body: formData,
-                    headers: formData.getHeaders()
-                })
-            );
+            const abortController = new AbortController();
+            const fetchTimeout = setTimeout(() => abortController.abort(), 5 * 60 * 1000); // 5 minute timeout
+
+            let response;
+            try {
+                response = await scheduleGrading(() =>
+                    fetch(`${url}/process-worksheets?token_no=${encodeURIComponent(token_no)}&worksheet_name=${encodeURIComponent(worksheet_name)}`, {
+                        method: 'POST',
+                        body: formData,
+                        headers: formData.getHeaders(),
+                        signal: abortController.signal as any
+                    })
+                );
+            } finally {
+                clearTimeout(fetchTimeout);
+            }
 
             const data: PythonApiResponse = await response.json();
 
@@ -311,58 +320,61 @@ export const processWorksheets = async (req: Request, res: Response) => {
         let worksheet;
         let wasCreated = false;
 
-        // Use upsert with unique constraint to prevent duplicates from race conditions
-        // The unique constraint [studentId, classId, templateId, submittedOn]
-        // allows multiple worksheets per student per day, but no duplicates of the same worksheet number
-        try {
-            // Check if worksheet exists to determine if this is create or update
-            const existing = await prisma.worksheet.findFirst({
-                where: {
-                    studentId,
-                    classId,
-                    templateId: template?.id ?? null,
-                    submittedOn: submittedOnDate
-                }
-            });
-            wasCreated = !existing;
+        const updateData = {
+            grade: pythonResponse.grade,
+            status: ProcessingStatus.COMPLETED,
+            outOf: pythonResponse.total_possible || 40,
+            mongoDbId: pythonResponse.mongodb_id,
+            gradingDetails,
+            wrongQuestionNumbers,
+            isRepeated: isRepeated || false
+        };
 
-            worksheet = await prisma.worksheet.upsert({
-                where: {
-                    unique_worksheet_per_student_day: {
-                        studentId,
-                        classId,
-                        templateId: (template?.id ?? null) as unknown as string,
-                        submittedOn: submittedOnDate
-                    }
-                },
-                update: {
-                    grade: pythonResponse.grade,
-                    status: ProcessingStatus.COMPLETED,
-                    outOf: pythonResponse.total_possible || 40,
-                    mongoDbId: pythonResponse.mongodb_id,
-                    gradingDetails,
-                    wrongQuestionNumbers,
-                    isRepeated: isRepeated || false
-                },
-                create: {
-                    classId,
-                    studentId,
-                    submittedById,
-                    templateId: template?.id,
-                    grade: pythonResponse.grade,
-                    notes: `Auto-graded worksheet ${worksheetNumber}`,
-                    status: ProcessingStatus.COMPLETED,
-                    outOf: pythonResponse.total_possible || 40,
-                    submittedOn: submittedOnDate,
-                    isAbsent: false,
-                    isRepeated: isRepeated || false,
-                    isCorrectGrade: false,
-                    isIncorrectGrade: false,
-                    mongoDbId: pythonResponse.mongodb_id,
-                    gradingDetails,
-                    wrongQuestionNumbers
-                }
-            });
+        const createData = {
+            classId,
+            studentId,
+            submittedById,
+            templateId: template?.id,
+            grade: pythonResponse.grade,
+            notes: `Auto-graded worksheet ${worksheetNumber}`,
+            status: ProcessingStatus.COMPLETED,
+            outOf: pythonResponse.total_possible || 40,
+            submittedOn: submittedOnDate,
+            isAbsent: false,
+            isRepeated: isRepeated || false,
+            isCorrectGrade: false,
+            isIncorrectGrade: false,
+            mongoDbId: pythonResponse.mongodb_id,
+            gradingDetails,
+            wrongQuestionNumbers
+        };
+
+        try {
+            if (template?.id) {
+                // Template found → use Prisma upsert (works correctly with non-null templateId)
+                const existing = await prisma.worksheet.findFirst({
+                    where: { studentId, classId, templateId: template.id, submittedOn: submittedOnDate }
+                });
+                wasCreated = !existing;
+
+                worksheet = await prisma.worksheet.upsert({
+                    where: {
+                        unique_worksheet_per_student_day: {
+                            studentId,
+                            classId,
+                            templateId: template.id,
+                            submittedOn: submittedOnDate
+                        }
+                    },
+                    update: updateData,
+                    create: createData
+                });
+            } else {
+                // No template → can't use upsert (Prisma can't match composite unique with NULL templateId)
+                // Just create directly — PostgreSQL allows multiple NULLs in unique indexes
+                worksheet = await prisma.worksheet.create({ data: createData });
+                wasCreated = true;
+            }
 
             aiGradingLogger.info('Worksheet saved to database', {
                 jobId: gradingJob.id,
@@ -371,20 +383,20 @@ export const processWorksheets = async (req: Request, res: Response) => {
                 grade: pythonResponse.grade,
                 wrongQuestionNumbers
             });
-        } catch (upsertError: any) {
-            // Handle edge case: if upsert fails due to race condition on unique constraint,
-            // find the existing worksheet and update it
-            if (upsertError?.code === 'P2002') {
+        } catch (saveError: any) {
+            if (saveError?.code === 'P2002') {
+                // Race condition: another concurrent save created the record between our check and insert
+                // Find the existing worksheet and update it
                 aiGradingLogger.warn('Unique constraint hit, falling back to update', {
                     jobId: gradingJob.id,
-                    error: upsertError.message
+                    error: saveError.message
                 });
 
                 const existing = await prisma.worksheet.findFirst({
                     where: {
                         studentId,
                         classId,
-                        templateId: template?.id,
+                        templateId: template?.id ?? null,
                         submittedOn: submittedOnDate
                     }
                 });
@@ -392,26 +404,19 @@ export const processWorksheets = async (req: Request, res: Response) => {
                 if (existing) {
                     worksheet = await prisma.worksheet.update({
                         where: { id: existing.id },
-                        data: {
-                            grade: pythonResponse.grade,
-                            status: ProcessingStatus.COMPLETED,
-                            outOf: pythonResponse.total_possible || 40,
-                            mongoDbId: pythonResponse.mongodb_id,
-                            gradingDetails,
-                            wrongQuestionNumbers,
-                            isRepeated: isRepeated || false
-                        }
+                        data: updateData
                     });
+                    wasCreated = false;
 
                     aiGradingLogger.info('Worksheet updated via fallback', {
                         jobId: gradingJob.id,
                         worksheetId: worksheet.id
                     });
                 } else {
-                    throw upsertError;
+                    throw saveError;
                 }
             } else {
-                throw upsertError;
+                throw saveError;
             }
         }
 

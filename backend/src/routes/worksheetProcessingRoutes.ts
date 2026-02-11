@@ -1,5 +1,5 @@
 import express from 'express';
-import { body, query } from 'express-validator';
+import { body } from 'express-validator';
 import { auth, authorizeRoles } from '../middleware/utils';
 import { asHandler } from '../middleware/utils';
 import { UserRole } from '@prisma/client';

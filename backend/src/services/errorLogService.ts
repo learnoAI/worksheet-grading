@@ -9,10 +9,13 @@ interface ErrorLog {
 }
 
 let collection: Collection<ErrorLog> | null = null;
+let connectionAttempted = false;
 
 async function getCollection(): Promise<Collection<ErrorLog> | null> {
     if (collection) return collection;
+    if (connectionAttempted) return null;
 
+    connectionAttempted = true;
     const mongoUrl = process.env.MONGO_URL;
     if (!mongoUrl) return null;
 

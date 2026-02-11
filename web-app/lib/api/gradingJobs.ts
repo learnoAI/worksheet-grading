@@ -81,11 +81,7 @@ export const gradingJobsAPI = {
 
                     setTimeout(poll, intervalMs);
                 } catch (error) {
-                    if (attempts < 3) {
-                        setTimeout(poll, intervalMs);
-                    } else {
-                        reject(error);
-                    }
+                    reject(error);
                 }
             };
 

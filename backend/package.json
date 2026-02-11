@@ -12,7 +12,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "archive-dropouts": "ts-node src/scripts/archive-dropout-students.ts",
-    "export-admin-comments": "ts-node src/scripts/export-admin-comments.ts"
+    "export-admin-comments": "ts-node src/scripts/export-admin-comments.ts",
+    "stress-test": "ts-node src/scripts/stress-test.ts"
   },
   "keywords": [],
   "author": "",

@@ -12,7 +12,6 @@ import classRoutes from './routes/classRoutes';
 import schoolRoutes from './routes/schoolRoutes';
 import gradingJobRoutes from './routes/gradingJobRoutes';
 import config from './config/env';
-import './services/queueService'; // Initialize queue
 
 // Load environment variables
 dotenv.config();
@@ -26,7 +25,7 @@ app.use(cors({
     methods: ['*'],
     allowedHeaders: ['*']
 }));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
