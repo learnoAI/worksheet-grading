@@ -86,10 +86,10 @@ export default function IncorrectGradingPage() {
                 const bHasGradingDetails = b.gradingDetails ? 1 : 0;
                 const gradingDetailsDiff = bHasGradingDetails - aHasGradingDetails;
                 if (gradingDetailsDiff !== 0) return gradingDetailsDiff;
-                
+
                 const dateDiff = new Date(b.submittedOn).getTime() - new Date(a.submittedOn).getTime();
                 if (dateDiff !== 0) return dateDiff;
-                
+
                 const aNum = (a.worksheetNumber ?? 0) as number;
                 const bNum = (b.worksheetNumber ?? 0) as number;
                 return aNum - bNum;
@@ -98,7 +98,7 @@ export default function IncorrectGradingPage() {
             setTotal(total);
             setPage(p);
             setPageSize(ps);
-            
+
             const initialComments: Record<string, string> = {};
             (sorted as any[]).forEach((worksheet: IncorrectGradingWorksheet) => {
                 initialComments[worksheet.id] = worksheet.adminComments || '';
@@ -129,15 +129,15 @@ export default function IncorrectGradingPage() {
     const saveComment = async (worksheetId: string) => {
         try {
             setSavingComments(prev => ({ ...prev, [worksheetId]: true }));
-            
+
             await worksheetAPI.updateWorksheetAdminComments(worksheetId, {
                 adminComments: comments[worksheetId] || ''
             });
-            
+
             toast.success('Comment saved successfully');
-            
-            setWorksheets(prev => prev.map(worksheet => 
-                worksheet.id === worksheetId 
+
+            setWorksheets(prev => prev.map(worksheet =>
+                worksheet.id === worksheetId
                     ? { ...worksheet, adminComments: comments[worksheetId] || '' }
                     : worksheet
             ));
@@ -152,17 +152,17 @@ export default function IncorrectGradingPage() {
     const markAsCorrectlyGraded = async (worksheetId: string) => {
         try {
             setMarkingAsCorrect(prev => ({ ...prev, [worksheetId]: true }));
-            
+
             await worksheetAPI.markWorksheetAsCorrectlyGraded(worksheetId);
-            
+
             toast.success('Worksheet marked as correctly graded');
-            
+
             // Remove the worksheet from the list since it's no longer incorrectly graded
             setWorksheets(prev => prev.filter(worksheet => worksheet.id !== worksheetId));
-            
+
             // Update the total count
             setTotal(prev => Math.max(0, prev - 1));
-            
+
             // Reload the count to ensure accuracy
             loadTotalAiGraded();
         } catch (error) {
@@ -175,17 +175,17 @@ export default function IncorrectGradingPage() {
 
     const loadWorksheetImages = async (tokenNo: string, worksheetNumber: number) => {
         const worksheetKey = `${tokenNo}-${worksheetNumber}`;
-        
+
         if (loadingImages[worksheetKey] || worksheetImages[worksheetKey]) {
             return;
         }
 
         try {
             setLoadingImages(prev => ({ ...prev, [worksheetKey]: true }));
-            
+
             const worksheetName = `${worksheetNumber}`;
             const images = await worksheetAPI.getWorksheetImages(tokenNo, worksheetName);
-            
+
             setWorksheetImages(prev => ({
                 ...prev,
                 [worksheetKey]: images
@@ -200,21 +200,21 @@ export default function IncorrectGradingPage() {
 
     const loadGradingDetails = async (tokenNo: string, worksheetNumber: number, overallScore?: number) => {
         const worksheetKey = `${tokenNo}-${worksheetNumber}`;
-        
+
         if (fetchingGradingDetails[worksheetKey] || gradingDetailsCache[worksheetKey]) {
             return gradingDetailsCache[worksheetKey];
         }
 
         try {
             setFetchingGradingDetails(prev => ({ ...prev, [worksheetKey]: true }));
-            
+
             const gradingDetails = await worksheetAPI.getStudentGradingDetails(tokenNo, worksheetNumber, overallScore);
-            
+
             setGradingDetailsCache(prev => ({
                 ...prev,
                 [worksheetKey]: gradingDetails
             }));
-            
+
             return gradingDetails;
         } catch (error) {
             console.error('Error loading grading details:', error);
@@ -227,7 +227,7 @@ export default function IncorrectGradingPage() {
 
     const computeStats = (gd?: any) => {
         if (!gd) return { total: undefined, correct: undefined, wrong: undefined, unanswered: undefined };
-        
+
         if (gd.total_questions !== undefined) {
             return {
                 total: gd.total_questions,
@@ -236,7 +236,7 @@ export default function IncorrectGradingPage() {
                 unanswered: gd.unanswered || 0
             };
         }
-        
+
         const total = gd.total_questions ?? gd.total_possible ?? gd.question_scores?.length ?? gd.wrong_questions?.length ?? undefined;
         const correct = gd.correct_answers ?? (Array.isArray(gd.question_scores) ? gd.question_scores.filter((q: any) => q.is_correct).length : undefined);
         const unanswered = gd.unanswered ?? 0;
@@ -396,11 +396,18 @@ export default function IncorrectGradingPage() {
 
                                             <div className="space-y-4">
                                                 <div className="grid grid-cols-1 gap-2">
-                                                    <Dialog>
+                                                    <Dialog onOpenChange={(open) => {
+                                                        if (open) {
+                                                            const worksheetKey = `${worksheet.student.tokenNumber}-${worksheet.worksheetNumber}`;
+                                                            if (!worksheet.gradingDetails && !gradingDetailsCache[worksheetKey] && !fetchingGradingDetails[worksheetKey]) {
+                                                                loadGradingDetails(worksheet.student.tokenNumber, worksheet.worksheetNumber, worksheet.grade);
+                                                            }
+                                                        }
+                                                    }}>
                                                         <DialogTrigger asChild>
-                                                            <Button 
-                                                                type="button" 
-                                                                variant="outline" 
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
                                                                 className="w-full"
                                                             >
                                                                 <Eye className="h-4 w-4 mr-2" />
@@ -419,7 +426,7 @@ export default function IncorrectGradingPage() {
                                                                     const worksheetKey = `${worksheet.student.tokenNumber}-${worksheet.worksheetNumber}`;
                                                                     const isLoading = fetchingGradingDetails[worksheetKey];
                                                                     const pythonGradingDetails = gradingDetailsCache[worksheetKey];
-                                                                    
+
                                                                     const gradingDetails = worksheet.gradingDetails || pythonGradingDetails;
 
                                                                     if (isLoading) {
@@ -437,7 +444,7 @@ export default function IncorrectGradingPage() {
                                                                         return (
                                                                             <div className="text-center py-8">
                                                                                 <p className="text-muted-foreground">No grading details found in database for this worksheet.</p>
-                                                                                <Button 
+                                                                                <Button
                                                                                     className="mt-4"
                                                                                     onClick={() => loadGradingDetails(worksheet.student.tokenNumber, worksheet.worksheetNumber, worksheet.grade)}
                                                                                     disabled={isLoading}
@@ -535,9 +542,9 @@ export default function IncorrectGradingPage() {
 
                                                     <Dialog>
                                                         <DialogTrigger asChild>
-                                                            <Button 
-                                                                type="button" 
-                                                                variant="outline" 
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
                                                                 className="w-full"
                                                                 onClick={() => loadWorksheetImages(worksheet.student.tokenNumber, worksheet.worksheetNumber)}
                                                             >
@@ -585,8 +592,8 @@ export default function IncorrectGradingPage() {
                                                                                         Page {index + 1}
                                                                                     </div>
                                                                                     <div className="p-2">
-                                                                                        <img 
-                                                                                            src={imageUrl} 
+                                                                                        <img
+                                                                                            src={imageUrl}
                                                                                             alt={`Worksheet page ${index + 1}`}
                                                                                             className="w-full h-auto rounded border"
                                                                                             onError={(e) => {
