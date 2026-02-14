@@ -175,6 +175,39 @@ describe('cloudflare grading consumer queue semantics', () => {
     expect(fetchCalls.some((c) => c.url.endsWith('/fail'))).toBe(true);
   });
 
+  it('acks and drops invalid queue messages without calling backend', async () => {
+    const ack = vi.fn();
+    const retry = vi.fn();
+
+    const env: any = {
+      BACKEND_BASE_URL: 'https://backend.example',
+      BACKEND_WORKER_TOKEN: 'token',
+      GEMINI_API_KEY: 'gemini',
+      IMAGES_BUCKET: makeR2Bucket({}),
+      ASSETS_BUCKET: makeR2Bucket({}),
+    };
+
+    await worker.queue(
+      {
+        messages: [
+          {
+            id: 'm-invalid',
+            attempts: 1,
+            body: { v: 1, enqueuedAt: new Date().toISOString() }, // missing jobId
+            ack,
+            retry,
+          },
+        ],
+      },
+      env,
+      {} as any
+    );
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+    expect(fetchCalls).toEqual([]);
+  });
+
   it('requeues + retries on retryable Gemini errors (no ack)', async () => {
     const backendBase = 'https://backend.example';
 
