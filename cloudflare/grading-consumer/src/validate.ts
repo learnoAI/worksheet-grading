@@ -16,7 +16,7 @@ export function assertExtractedQuestions(value: unknown): ExtractedQuestions {
     if (typeof (q as any).student_answer !== 'string') throw new Error('OCR student_answer must be a string');
   }
 
-  return value as ExtractedQuestions;
+  return value as unknown as ExtractedQuestions;
 }
 
 function assertQuestionScore(value: unknown): QuestionScore {
@@ -31,7 +31,7 @@ function assertQuestionScore(value: unknown): QuestionScore {
   if (typeof v.max_points !== 'number') throw new Error('max_points must be a number');
   if (typeof v.is_correct !== 'boolean') throw new Error('is_correct must be a boolean');
   if (typeof v.feedback !== 'string') throw new Error('feedback must be a string');
-  return value as QuestionScore;
+  return value as unknown as QuestionScore;
 }
 
 export function assertGradingResult(value: unknown): GradingResult {
@@ -50,6 +50,5 @@ export function assertGradingResult(value: unknown): GradingResult {
   if (typeof v.overall_feedback !== 'string') throw new Error('overall_feedback must be a string');
 
   v.question_scores = v.question_scores.map(assertQuestionScore);
-  return value as GradingResult;
+  return value as unknown as GradingResult;
 }
-
