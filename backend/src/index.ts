@@ -11,6 +11,7 @@ import worksheetProcessingRoutes from './routes/worksheetProcessingRoutes';
 import classRoutes from './routes/classRoutes';
 import schoolRoutes from './routes/schoolRoutes';
 import gradingJobRoutes from './routes/gradingJobRoutes';
+import internalGradingWorkerRoutes from './routes/internalGradingWorkerRoutes';
 import config from './config/env';
 
 // Legacy Bull queue remains available and enabled by default for backward compatibility.
@@ -41,6 +42,7 @@ app.use('/api/worksheet-processing', worksheetProcessingRoutes); // Add workshee
 app.use('/api/classes', classRoutes); // Add class management routes
 app.use('/api/schools', schoolRoutes); // Add school management routes
 app.use('/api/grading-jobs', gradingJobRoutes); // Add grading job routes
+app.use('/internal/grading-worker', internalGradingWorkerRoutes);
 
 // Health check route
 app.get('/health', (req: Request, res: Response) => {
