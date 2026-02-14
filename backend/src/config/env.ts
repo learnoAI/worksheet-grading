@@ -56,6 +56,7 @@ export default {
         consumerName: process.env.CF_CONSUMER_NAME || 'grading-worker',
         apiBaseUrl: process.env.CF_API_BASE_URL || process.env.CLOUDFLARE_API_BASE_URL || 'https://api.cloudflare.com/client/v4'
     },
+    gradingWorkerToken: process.env.GRADING_WORKER_TOKEN || '',
     grading: {
         queueMode: gradingQueueMode,
         maxConcurrent: parseNumber(process.env.GRADING_MAX_CONCURRENT, 5),
