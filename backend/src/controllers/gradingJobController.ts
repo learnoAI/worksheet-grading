@@ -282,6 +282,42 @@ export const getJobStatus = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'Job not found' });
         }
 
+        // Some legacy/partial deployments may mark the job completed without persisting worksheetId.
+        // Recover it opportunistically so the frontend can fetch the graded worksheet immediately.
+        if (job.status === GradingJobStatus.COMPLETED && !job.worksheetId) {
+            const worksheetId = await findMatchingWorksheet({
+                id: job.id,
+                studentId: job.studentId,
+                classId: job.classId,
+                worksheetNumber: job.worksheetNumber,
+                submittedOn: job.submittedOn,
+                createdAt: job.createdAt,
+                status: job.status,
+                enqueuedAt: job.enqueuedAt,
+                startedAt: job.startedAt,
+                lastHeartbeatAt: job.lastHeartbeatAt
+            });
+
+            if (worksheetId) {
+                await prisma.gradingJob.update({
+                    where: { id: job.id },
+                    data: {
+                        worksheetId,
+                        dispatchError: null,
+                        errorMessage: null
+                    }
+                });
+
+                return res.json({
+                    success: true,
+                    job: {
+                        ...job,
+                        worksheetId
+                    }
+                });
+            }
+        }
+
         if (job.status === GradingJobStatus.QUEUED || job.status === GradingJobStatus.PROCESSING) {
             const recovery = await recoverStuckJob({
                 id: job.id,
