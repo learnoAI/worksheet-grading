@@ -1,4 +1,5 @@
-import { GradingApiResponse, GradingResult, QuestionScore } from './types';
+import type { GradingApiResponse } from './types';
+import type { GradingResult, QuestionScore } from './schemas';
 
 function partition(scores: QuestionScore[]): {
   correct: QuestionScore[];
@@ -41,4 +42,3 @@ export function toBackendGradingResponse(result: GradingResult): GradingApiRespo
     overall_feedback: result.overall_feedback,
   };
 }
-

@@ -4,8 +4,14 @@ import { loadAnswerKey, loadCustomPrompt } from './assets';
 import { geminiGenerateJson, GeminiHttpError } from './gemini';
 import { buildAiGradingPrompt, buildBookGradingPrompt, buildOcrPrompt } from './prompts';
 import { toBackendGradingResponse } from './gradingTransform';
-import { assertExtractedQuestions, assertGradingResult } from './validate';
-import type { ExtractedQuestions, GradingResult, JobPayload } from './types';
+import {
+  ExtractedQuestionsJsonSchema,
+  ExtractedQuestionsSchema,
+  GradingResultJsonSchema,
+  GradingResultSchema,
+} from './schemas';
+import type { ExtractedQuestions, GradingResult } from './schemas';
+import type { JobPayload } from './types';
 
 interface Env {
   BACKEND_BASE_URL: string;
@@ -82,6 +88,10 @@ function isRetryableHttpStatus(status: number): boolean {
 
 function isRetryableError(error: unknown): boolean {
   if (error instanceof NonRetryableError) return false;
+
+  if (error instanceof Error && error.name === 'ZodError') {
+    return true;
+  }
 
   if (error instanceof BackendHttpError) {
     return isRetryableHttpStatus(error.status);
@@ -178,11 +188,12 @@ async function processJob(env: Env, backend: BackendClient, jobId: string, onAcq
       apiKey: env.GEMINI_API_KEY,
       model: env.GEMINI_OCR_MODEL || 'gemini-2.0-flash',
       responseMimeType: 'application/json',
+      responseJsonSchema: ExtractedQuestionsJsonSchema,
       temperature: 0.1,
       parts: [{ text: ocrPrompt }, ...imageParts],
     });
 
-    const extractedQuestions = assertExtractedQuestions(extracted.parsed);
+    const extractedQuestions = ExtractedQuestionsSchema.parse(extracted.parsed);
 
     const answerKey = await loadAnswerKey(env.ASSETS_BUCKET);
     const answers = answerKey[String(job.worksheetNumber)];
@@ -197,11 +208,12 @@ async function processJob(env: Env, backend: BackendClient, jobId: string, onAcq
         ? (env.GEMINI_BOOK_GRADING_MODEL || 'gemini-2.0-flash')
         : (env.GEMINI_AI_GRADING_MODEL || 'gemini-3-flash-preview'),
       responseMimeType: 'application/json',
+      responseJsonSchema: GradingResultJsonSchema,
       temperature: 0.1,
       parts: [{ text: gradingPrompt }],
     });
 
-    const gradingResult = assertGradingResult(grading.parsed);
+    const gradingResult = GradingResultSchema.parse(grading.parsed);
     const backendResponse = toBackendGradingResponse(gradingResult);
 
     await backend.complete(jobId, backendResponse);

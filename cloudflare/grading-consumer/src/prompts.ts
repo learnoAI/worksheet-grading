@@ -1,4 +1,4 @@
-import { ExtractedQuestions } from './types';
+import type { ExtractedQuestions } from './schemas';
 
 const TOTAL_POSSIBLE_POINTS = 40;
 
@@ -79,4 +79,3 @@ Each question_scores[] item must include:
 question_number, question, student_answer, correct_answer, points_earned, max_points, is_correct, feedback.
 `;
 }
-
