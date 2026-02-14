@@ -1,2 +1,15 @@
 cloudflare-queue
 backend-python
+
+# Node
+**/node_modules/
+**/dist/
+**/.wrangler/
+
+# Env files
+**/.env
+**/.env.*
+!.env.example
+
+# Misc
+.DS_Store
