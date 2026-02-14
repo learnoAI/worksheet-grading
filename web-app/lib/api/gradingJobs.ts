@@ -61,7 +61,9 @@ export const gradingJobsAPI = {
     pollJobStatus: async (
         jobId: string,
         onUpdate: (job: GradingJob) => void,
-        maxAttempts: number = 60,
+        // AI grading can take several minutes under load (queue backlog + model runtime).
+        // Keep polling long enough that "AI Grade All" doesn't time out prematurely.
+        maxAttempts: number = 600,
         intervalMs: number = 3000
     ): Promise<GradingJob> => {
         return new Promise((resolve, reject) => {
