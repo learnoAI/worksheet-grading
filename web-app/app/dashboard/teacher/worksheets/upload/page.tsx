@@ -396,23 +396,50 @@ export default function UploadWorksheetPage() {
                                         return sw;
                                     }));
 
-                                    // If completed, fetch the graded worksheet data
-                                    if (updatedJob.status === 'COMPLETED' && updatedJob.worksheetId) {
-                                        worksheetAPI.getWorksheetById(updatedJob.worksheetId).then(gradedWs => {
-                                            setStudentWorksheets(prev => prev.map(sw => {
-                                                if (sw.jobId === job.id) {
-                                                    return {
-                                                        ...sw,
-                                                        grade: gradedWs.grade?.toString() || '',
-                                                        id: gradedWs.id,
-                                                        existing: true,
-                                                        isUploading: false,
-                                                        gradingDetails: (gradedWs as any).gradingDetails
-                                                    };
-                                                }
-                                                return sw;
-                                            }));
-                                        }).catch(() => { });
+                                    // If completed, fetch the graded worksheet data (grade + wrong answers).
+                                    if (updatedJob.status === 'COMPLETED') {
+                                        (async () => {
+                                            let gradedWs: any | null = null;
+
+                                            if (updatedJob.worksheetId) {
+                                                gradedWs = await worksheetAPI.getWorksheetById(updatedJob.worksheetId);
+                                            } else if (job.studentId) {
+                                                // Fallback: job completed but worksheetId wasn't persisted on the job yet.
+                                                const all = await worksheetAPI.getAllWorksheetsByClassStudentDate(selectedClass, job.studentId, submittedOn);
+                                                gradedWs =
+                                                    all.find((ws: any) => {
+                                                        const num = ws.worksheetNumber ?? ws.template?.worksheetNumber ?? 0;
+                                                        return num === job.worksheetNumber;
+                                                    }) || null;
+                                            }
+
+                                            if (!gradedWs) {
+                                                return;
+                                            }
+
+                                            const images = gradedWs.images || [];
+                                            const page1 = images.find((img: any) => img.pageNumber === 1);
+                                            const page2 = images.find((img: any) => img.pageNumber === 2);
+
+                                            setStudentWorksheets(prev =>
+                                                prev.map(sw => {
+                                                    if (sw.jobId === job.id) {
+                                                        return {
+                                                            ...sw,
+                                                            grade: gradedWs.grade?.toString() || '',
+                                                            id: gradedWs.id || sw.id,
+                                                            existing: true,
+                                                            isUploading: false,
+                                                            gradingDetails: gradedWs.gradingDetails,
+                                                            wrongQuestionNumbers: gradedWs.wrongQuestionNumbers || sw.wrongQuestionNumbers,
+                                                            page1Url: page1?.imageUrl ?? sw.page1Url,
+                                                            page2Url: page2?.imageUrl ?? sw.page2Url
+                                                        };
+                                                    }
+                                                    return sw;
+                                                })
+                                            );
+                                        })().catch(() => { });
                                     }
                                 }
                             ).catch(() => {
@@ -662,13 +689,39 @@ export default function UploadWorksheetPage() {
                         }
                     );
 
-                    if (completedJob.status === 'COMPLETED' && completedJob.worksheetId) {
-                        // Fetch the actual worksheet data to get grade
-                        const wsData = await worksheetAPI.getWorksheetById(completedJob.worksheetId);
+                    if (completedJob.status === 'COMPLETED') {
+                        // Fetch the actual worksheet data to get grade.
+                        // (Sometimes the job is marked COMPLETED before worksheetId is attached; handle that too.)
+                        let wsData: any | null = null;
+
+                        if (completedJob.worksheetId) {
+                            wsData = await worksheetAPI.getWorksheetById(completedJob.worksheetId);
+                        } else {
+                            for (let attempt = 0; attempt < 3 && !wsData; attempt++) {
+                                const all = await worksheetAPI.getAllWorksheetsByClassStudentDate(selectedClass, worksheet.studentId, submittedOn);
+                                wsData =
+                                    all.find((ws: any) => {
+                                        const num = ws.worksheetNumber ?? ws.template?.worksheetNumber ?? 0;
+                                        return num === worksheet.worksheetNumber;
+                                    }) || null;
+
+                                if (!wsData) {
+                                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                                }
+                            }
+                        }
+
+                        if (!wsData) {
+                            throw new Error('Grading completed but worksheet could not be fetched yet');
+                        }
+
                         const grade = wsData.grade || 0;
                         const gradingDetails = wsData.gradingDetails as GradingDetails;
                         // Use wrongQuestionNumbers from API (already calculated by backend)
-                        const wrongQuestionNumbers = (wsData as any).wrongQuestionNumbers || '';
+                        const wrongQuestionNumbers = wsData.wrongQuestionNumbers || '';
+                        const images = wsData.images || [];
+                        const page1 = images.find((img: any) => img.pageNumber === 1);
+                        const page2 = images.find((img: any) => img.pageNumber === 2);
 
                         setStudentWorksheets(prev => prev.map(sw =>
                             sw.worksheetEntryId === worksheet.worksheetEntryId
@@ -679,9 +732,12 @@ export default function UploadWorksheetPage() {
                                     jobStatus: 'COMPLETED',
                                     gradingDetails,
                                     wrongQuestionNumbers,
+                                    page1Url: page1?.imageUrl ?? sw.page1Url,
+                                    page2Url: page2?.imageUrl ?? sw.page2Url,
                                     page1File: null,
                                     page2File: null,
-                                    id: completedJob.worksheetId
+                                    existing: true,
+                                    id: wsData.id || completedJob.worksheetId
                                 }
                                 : sw
                         ));
