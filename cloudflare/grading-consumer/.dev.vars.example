@@ -1,0 +1,15 @@
+# Used by `wrangler dev`. For production, prefer:
+# - `wrangler secret put GEMINI_API_KEY`
+# - `wrangler secret put BACKEND_WORKER_TOKEN`
+# - `wrangler vars set BACKEND_BASE_URL=...`
+
+BACKEND_BASE_URL=https://your-backend.example.com
+BACKEND_WORKER_TOKEN=REPLACE_ME
+GEMINI_API_KEY=REPLACE_ME
+
+GEMINI_OCR_MODEL=gemini-2.0-flash
+GEMINI_AI_GRADING_MODEL=gemini-3-flash-preview
+GEMINI_BOOK_GRADING_MODEL=gemini-2.0-flash
+
+HEARTBEAT_INTERVAL_MS=60000
+
