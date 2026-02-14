@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 
 // Declare global prisma variable to prevent multiple instances in development
@@ -8,6 +9,10 @@ declare global {
 
 // Initialize Prisma Client with connection pooling and error handling
 const prismaClientSingleton = () => {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is not set. Ensure environment variables are loaded before Prisma initializes.');
+  }
+
   return new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
     errorFormat: 'minimal',

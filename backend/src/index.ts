@@ -1,6 +1,6 @@
+import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes';
 import userRoutes from './routes/userRoutes';
 import worksheetRoutes from './routes/worksheetRoutes';
@@ -12,9 +12,6 @@ import classRoutes from './routes/classRoutes';
 import schoolRoutes from './routes/schoolRoutes';
 import gradingJobRoutes from './routes/gradingJobRoutes';
 import config from './config/env';
-
-// Load environment variables
-dotenv.config();
 
 // Legacy Bull queue remains available and enabled by default for backward compatibility.
 if (process.env.ENABLE_LEGACY_BULL_QUEUE !== 'false') {
