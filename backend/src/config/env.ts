@@ -49,9 +49,10 @@ export default {
     cloudflare: {
         accountId: process.env.CF_ACCOUNT_ID || '',
         queueId: process.env.CF_QUEUE_ID || '',
-        apiToken: process.env.CF_API_TOKEN || '',
+        // Support both names: CF_* is used by this app, CLOUDFLARE_* is commonly used elsewhere.
+        apiToken: process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN || '',
         consumerName: process.env.CF_CONSUMER_NAME || 'grading-worker',
-        apiBaseUrl: process.env.CF_API_BASE_URL || 'https://api.cloudflare.com/client/v4'
+        apiBaseUrl: process.env.CF_API_BASE_URL || process.env.CLOUDFLARE_API_BASE_URL || 'https://api.cloudflare.com/client/v4'
     },
     grading: {
         queueMode: gradingQueueMode,
