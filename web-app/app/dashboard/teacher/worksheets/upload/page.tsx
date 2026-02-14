@@ -779,12 +779,13 @@ export default function UploadWorksheetPage() {
                     }
                 } catch (pollError) {
                     console.error('Polling error:', pollError);
+                    const message = pollError instanceof Error ? pollError.message : 'Grading failed';
                     setStudentWorksheets(prev => prev.map(sw =>
                         sw.worksheetEntryId === worksheet.worksheetEntryId
                             ? { ...sw, isUploading: false, jobStatus: 'FAILED' }
                             : sw
                     ));
-                    toast.error(`Grading failed for ${worksheet.name}`);
+                    toast.error(`Grading failed for ${worksheet.name}: ${message}`);
                     return { success: false };
                 }
 
