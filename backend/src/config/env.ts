@@ -60,6 +60,7 @@ export default {
     grading: {
         queueMode: gradingQueueMode,
         pullWorkerEnabled: process.env.GRADING_PULL_WORKER_ENABLED === 'true',
+        fastMaxPages: parseNumber(process.env.GRADING_FAST_MAX_PAGES, 4),
         maxConcurrent: parseNumber(process.env.GRADING_MAX_CONCURRENT, 5),
         minTimeMs: parseNumber(process.env.GRADING_MIN_TIME_MS, 200),
         workerConcurrency: parseNumber(process.env.GRADING_WORKER_CONCURRENCY, 5),

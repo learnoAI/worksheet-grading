@@ -165,6 +165,17 @@ export const processWorksheets = async (req: Request, res: Response) => {
         return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
+    if (
+        config.grading.queueMode === 'cloudflare' &&
+        !config.grading.pullWorkerEnabled &&
+        files.length > config.grading.fastMaxPages
+    ) {
+        return res.status(400).json({
+            success: false,
+            error: `Too many images. Maximum ${config.grading.fastMaxPages} pages are supported in queue mode right now.`
+        });
+    }
+
     let jobId: string | null = null;
 
     try {

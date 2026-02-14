@@ -21,6 +21,7 @@ Optional:
 - `GEMINI_AI_GRADING_MODEL` (default `gemini-3-flash-preview`)
 - `GEMINI_BOOK_GRADING_MODEL` (default `gemini-2.0-flash`)
 - `HEARTBEAT_INTERVAL_MS` (default `60000`)
+- `FAST_MAX_PAGES` (default `4`)
 
 ## Assets bucket layout
 - `answers_by_worksheet.json`
@@ -44,4 +45,3 @@ for f in ./assets-out/prompts/*.txt; do
   wrangler r2 object put "worksheet-grading-assets/prompts/$(basename "$f")" --file "$f"
 done
 ```
-

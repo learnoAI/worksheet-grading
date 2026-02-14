@@ -15,6 +15,7 @@ interface Env {
   GEMINI_AI_GRADING_MODEL?: string;
   GEMINI_BOOK_GRADING_MODEL?: string;
   HEARTBEAT_INTERVAL_MS?: string;
+  FAST_MAX_PAGES?: string;
   IMAGES_BUCKET: R2Bucket;
   ASSETS_BUCKET: R2Bucket;
 }
@@ -60,7 +61,7 @@ function parseQueueMessage(payload: unknown): QueueMessageV1 {
 }
 
 async function loadImageParts(env: Env, job: JobPayload): Promise<Array<{ inline_data: { mime_type: string; data: string } }>> {
-  const maxPages = 4;
+  const maxPages = Math.max(1, Number.parseInt(env.FAST_MAX_PAGES || '4', 10) || 4);
   if (job.images.length > maxPages) {
     throw new Error(`Too many images for fast path: ${job.images.length} (max ${maxPages})`);
   }
@@ -200,4 +201,3 @@ export default {
     }
   },
 };
-

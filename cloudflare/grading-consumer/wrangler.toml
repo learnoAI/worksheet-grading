@@ -10,6 +10,7 @@ compatibility_date = "2026-02-14"
 # - GEMINI_AI_GRADING_MODEL (default: gemini-3-flash-preview)
 # - GEMINI_BOOK_GRADING_MODEL (default: gemini-2.0-flash)
 # - HEARTBEAT_INTERVAL_MS (default: 60000)
+# - FAST_MAX_PAGES (default: 4)
 
 [[r2_buckets]]
 binding = "IMAGES_BUCKET"
@@ -24,4 +25,3 @@ queue = "grading-fast"
 max_batch_size = 1
 max_batch_timeout = 5
 # dead_letter_queue = "grading-fast-dlq"
-
