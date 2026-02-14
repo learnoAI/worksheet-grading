@@ -31,6 +31,8 @@ if (process.env.NODE_ENV !== 'production') {
   globalThis.prisma = prisma;
 }
 
+const isTestEnv = process.env.NODE_ENV === 'test';
+
 // Initial connection with retry logic
 let connectionAttempts = 0;
 const maxAttempts = 3;
@@ -56,25 +58,29 @@ const connectWithRetry = async () => {
 };
 
 // Start connection
-connectWithRetry();
+if (!isTestEnv) {
+  connectWithRetry();
+}
 
 // Graceful shutdown
-process.on('beforeExit', async () => {
-  console.log('🔄 Disconnecting from database...');
-  await prisma.$disconnect();
-});
+if (!isTestEnv) {
+  process.on('beforeExit', async () => {
+    console.log('🔄 Disconnecting from database...');
+    await prisma.$disconnect();
+  });
 
-process.on('SIGINT', async () => {
-  console.log('🔄 Graceful shutdown - disconnecting from database...');
-  await prisma.$disconnect();
-  process.exit(0);
-});
+  process.on('SIGINT', async () => {
+    console.log('🔄 Graceful shutdown - disconnecting from database...');
+    await prisma.$disconnect();
+    process.exit(0);
+  });
 
-process.on('SIGTERM', async () => {
-  console.log('🔄 Graceful shutdown - disconnecting from database...');
-  await prisma.$disconnect();
-  process.exit(0);
-});
+  process.on('SIGTERM', async () => {
+    console.log('🔄 Graceful shutdown - disconnecting from database...');
+    await prisma.$disconnect();
+    process.exit(0);
+  });
+}
 
 // Connection health check utility
 export const checkDatabaseConnection = async (): Promise<boolean> => {
