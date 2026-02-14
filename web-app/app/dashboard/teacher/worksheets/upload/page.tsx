@@ -120,6 +120,37 @@ const sortStudentsByTokenNumber = <T extends { tokenNumber: string }>(students: 
     });
 };
 
+async function allSettledWithConcurrency<T, R>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<R>
+): Promise<Array<PromiseSettledResult<R>>> {
+    const concurrency = Math.max(1, Math.min(limit, items.length));
+    const results: Array<PromiseSettledResult<R>> = new Array(items.length);
+    let index = 0;
+
+    const runners = Array.from({ length: concurrency }, async () => {
+        while (true) {
+            const current = index;
+            index += 1;
+
+            if (current >= items.length) {
+                return;
+            }
+
+            try {
+                const value = await worker(items[current]);
+                results[current] = { status: 'fulfilled', value };
+            } catch (reason) {
+                results[current] = { status: 'rejected', reason };
+            }
+        }
+    });
+
+    await Promise.all(runners);
+    return results;
+}
+
 
 export default function UploadWorksheetPage() {
     const { user } = useAuth();
@@ -754,6 +785,7 @@ export default function UploadWorksheetPage() {
                             : sw
                     ));
                     toast.error(`Grading failed for ${worksheet.name}`);
+                    return { success: false };
                 }
 
                 return { success: true };
@@ -799,17 +831,18 @@ export default function UploadWorksheetPage() {
             return;
         }
 
-
         setStudentWorksheets(prev => prev.map(sw =>
-            studentsWithFiles.some(s => s.studentId === sw.studentId)
+            studentsWithFiles.some(s => s.worksheetEntryId === sw.worksheetEntryId)
                 ? { ...sw, isUploading: true }
                 : sw
         ));
 
         try {
             toast.info(`Processing ${studentsWithFiles.length} worksheet${studentsWithFiles.length !== 1 ? 's' : ''}`);
-            const results = await Promise.allSettled(
-                studentsWithFiles.map(worksheet => handleUpload(worksheet))
+            const results = await allSettledWithConcurrency(
+                studentsWithFiles,
+                3,
+                (worksheet) => handleUpload(worksheet)
             );
 
             let successful = 0;
