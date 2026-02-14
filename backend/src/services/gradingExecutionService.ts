@@ -44,6 +44,7 @@ interface GradingJobWithImages extends GradingJob {
     images: {
         id: string;
         s3Key: string;
+        storageProvider: 'S3' | 'R2';
         pageNumber: number;
         mimeType: string;
     }[];
@@ -161,6 +162,7 @@ async function loadJobWithImages(jobId: string): Promise<GradingJobWithImages> {
                 select: {
                     id: true,
                     s3Key: true,
+                    storageProvider: true,
                     pageNumber: true,
                     mimeType: true
                 }
@@ -227,7 +229,7 @@ export async function executeGradingJob(
 
     const files: PythonApiFile[] = [];
     for (const image of job.images) {
-        const buffer = await downloadFromS3(image.s3Key);
+        const buffer = await downloadFromS3(image.s3Key, image.storageProvider === 'R2' ? 'r2' : 's3');
         files.push({
             filename: `page-${image.pageNumber}.jpg`,
             contentType: image.mimeType,

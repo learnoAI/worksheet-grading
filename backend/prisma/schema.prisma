@@ -243,6 +243,11 @@ enum NotificationStatus {
   UNREAD
 }
 
+enum StorageProvider {
+  S3
+  R2
+}
+
 enum GradingJobStatus {
   QUEUED
   PROCESSING
@@ -290,6 +295,7 @@ model GradingJobImage {
   id           String     @id @default(uuid())
   gradingJobId String
   gradingJob   GradingJob @relation(fields: [gradingJobId], references: [id], onDelete: Cascade)
+  storageProvider StorageProvider @default(S3)
   imageUrl     String
   s3Key        String
   pageNumber   Int

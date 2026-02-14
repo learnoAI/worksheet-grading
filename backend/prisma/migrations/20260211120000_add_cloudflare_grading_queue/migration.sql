@@ -1,3 +1,6 @@
+-- CreateEnum
+CREATE TYPE "StorageProvider" AS ENUM ('S3', 'R2');
+
 -- AlterTable
 ALTER TABLE "GradingJob"
   ADD COLUMN "worksheetName" TEXT,
@@ -14,6 +17,7 @@ ALTER TABLE "GradingJob"
 CREATE TABLE "GradingJobImage" (
   "id" TEXT NOT NULL,
   "gradingJobId" TEXT NOT NULL,
+  "storageProvider" "StorageProvider" NOT NULL DEFAULT 'S3',
   "imageUrl" TEXT NOT NULL,
   "s3Key" TEXT NOT NULL,
   "pageNumber" INTEGER NOT NULL,

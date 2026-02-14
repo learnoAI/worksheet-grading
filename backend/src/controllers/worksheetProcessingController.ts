@@ -53,6 +53,7 @@ async function storeJobImages(jobId: string, files: MulterFile[], req: Request):
             await prisma.gradingJobImage.create({
                 data: {
                     gradingJobId: jobId,
+                    storageProvider: config.objectStorage.provider === 'r2' ? 'R2' : 'S3',
                     imageUrl,
                     s3Key: key,
                     pageNumber,

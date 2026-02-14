@@ -7,7 +7,12 @@ function parseNumber(value: string | undefined, fallback: number): number {
     return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseStorageProvider(value: string | undefined): 's3' | 'r2' {
+    return value?.toLowerCase() === 'r2' ? 'r2' : 's3';
+}
+
 const gradingQueueMode = process.env.GRADING_QUEUE_MODE === 'cloudflare' ? 'cloudflare' : 'inline';
+const storageProvider = parseStorageProvider(process.env.OBJECT_STORAGE_PROVIDER);
 
 export default {
     port: process.env.APP_PORT || 5100,
@@ -27,6 +32,17 @@ export default {
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
         region: process.env.AWS_REGION || 'us-east-1',
         s3BucketName: process.env.AWS_S3_BUCKET_NAME || 'worksheet-images'
+    },
+    objectStorage: {
+        provider: storageProvider
+    },
+    r2: {
+        accountId: process.env.R2_ACCOUNT_ID || process.env.CF_ACCOUNT_ID || '',
+        accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+        bucketName: process.env.R2_BUCKET_NAME || '',
+        endpoint: process.env.R2_ENDPOINT || '',
+        publicBaseUrl: process.env.R2_PUBLIC_BASE_URL || ''
     },
     redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
     pythonApiUrl: process.env.PYTHON_API_URL || 'https://saarthi-api-jzugp.ondigitalocean.app/',
