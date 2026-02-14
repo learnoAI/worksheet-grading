@@ -24,4 +24,5 @@ bucket_name = "worksheet-grading-assets"
 queue = "grading-fast"
 max_batch_size = 1
 max_batch_timeout = 5
+max_retries = 5
 dead_letter_queue = "grading-fast-dlq"

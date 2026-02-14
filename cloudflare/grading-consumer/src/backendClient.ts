@@ -5,6 +5,18 @@ export interface BackendClientEnv {
   BACKEND_WORKER_TOKEN: string;
 }
 
+export class BackendHttpError extends Error {
+  readonly status: number;
+  readonly responseText: string;
+
+  constructor(status: number, responseText: string) {
+    super(`Backend request failed (${status}): ${responseText}`);
+    this.name = 'BackendHttpError';
+    this.status = status;
+    this.responseText = responseText;
+  }
+}
+
 export class BackendClient {
   private readonly baseUrl: string;
   private readonly token: string;
@@ -47,6 +59,13 @@ export class BackendClient {
     });
   }
 
+  async requeue(jobId: string, reason: string): Promise<void> {
+    await this.requestJson(`/internal/grading-worker/jobs/${encodeURIComponent(jobId)}/requeue`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
   private async requestJson<T = unknown>(path: string, init: RequestInit): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...init,
@@ -59,7 +78,7 @@ export class BackendClient {
 
     const text = await res.text();
     if (!res.ok) {
-      throw new Error(`Backend request failed (${res.status}): ${text}`);
+      throw new BackendHttpError(res.status, text);
     }
 
     if (!text) {
@@ -73,4 +92,3 @@ export class BackendClient {
     }
   }
 }
-

@@ -9,6 +9,18 @@ export interface GeminiGenerateOptions {
   responseMimeType?: string;
 }
 
+export class GeminiHttpError extends Error {
+  readonly status: number;
+  readonly responseText: string;
+
+  constructor(status: number, responseText: string) {
+    super(`Gemini request failed (${status}): ${responseText}`);
+    this.name = 'GeminiHttpError';
+    this.status = status;
+    this.responseText = responseText;
+  }
+}
+
 function extractText(responseJson: any): string {
   const candidates = Array.isArray(responseJson?.candidates) ? responseJson.candidates : [];
   const first = candidates[0];
@@ -50,7 +62,7 @@ export async function geminiGenerateJson<T>(options: GeminiGenerateOptions): Pro
 
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Gemini request failed (${res.status}): ${text}`);
+    throw new GeminiHttpError(res.status, text);
   }
 
   let json: any;
@@ -72,4 +84,3 @@ export async function geminiGenerateJson<T>(options: GeminiGenerateOptions): Pro
     throw new Error(`Failed to parse Gemini JSON payload: ${(e as Error).message}. Payload preview: ${preview}`);
   }
 }
-
