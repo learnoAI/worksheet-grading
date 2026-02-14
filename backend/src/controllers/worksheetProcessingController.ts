@@ -46,7 +46,8 @@ async function storeJobImages(jobId: string, files: MulterFile[], req: Request):
     await Promise.all(
         files.map(async (file, index) => {
             const pageNumber = parsePageNumber(req, index);
-            const key = `grading-jobs/${jobId}/${Date.now()}-page${pageNumber}-${sanitizeFilename(file.originalname)}`;
+            // Match the legacy upload key layout to maximize compatibility with existing S3 bucket policies.
+            const key = `worksheets/${jobId}/${Date.now()}-page${pageNumber}-${sanitizeFilename(file.originalname)}`;
             const imageUrl = await uploadToS3(file.buffer, key, file.mimetype);
 
             await prisma.gradingJobImage.create({

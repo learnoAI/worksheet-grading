@@ -30,8 +30,38 @@ export const uploadToS3 = async (
         ACL: 'public-read'
     };
 
-    const result = await s3.upload(params).promise();
-    return result.Location;
+    try {
+        const result = await s3.upload(params).promise();
+        return result.Location;
+    } catch (error: any) {
+        // Some buckets reject ACL headers (owner-enforced ACLs or missing PutObjectAcl permission).
+        // Retry once without ACL for compatibility with those buckets.
+        const code = typeof error?.code === 'string' ? error.code : '';
+        const message = typeof error?.message === 'string' ? error.message : '';
+        const shouldRetryWithoutAcl =
+            code === 'AccessControlListNotSupported' ||
+            code === 'AccessDenied' ||
+            message.includes('Access Denied') ||
+            (message.includes('ACL') && message.includes('not supported'));
+
+        if (!shouldRetryWithoutAcl) {
+            throw error;
+        }
+
+        const fallbackParams = {
+            Bucket: config.aws.s3BucketName,
+            Key: key,
+            Body: buffer,
+            ContentType: contentType
+        };
+
+        try {
+            const fallbackResult = await s3.upload(fallbackParams).promise();
+            return fallbackResult.Location;
+        } catch (fallbackError) {
+            throw fallbackError;
+        }
+    }
 };
 
 /**
