@@ -91,7 +91,15 @@ async function consumeOnce(): Promise<void> {
 
 export async function startGradingWorker(): Promise<void> {
     if (config.grading.queueMode !== 'cloudflare') {
-        aiGradingLogger.info('Grading worker is disabled because queue mode is not cloudflare');
+        aiGradingLogger.info('Grading pull worker is disabled because queue mode is not cloudflare');
+        await new Promise(() => {
+            // Keep process alive to avoid restart loops in environments that always run worker dynos.
+        });
+        return;
+    }
+
+    if (!config.grading.pullWorkerEnabled) {
+        aiGradingLogger.info('Grading pull worker is disabled (GRADING_PULL_WORKER_ENABLED=false)');
         await new Promise(() => {
             // Keep process alive to avoid restart loops in environments that always run worker dynos.
         });
@@ -100,6 +108,7 @@ export async function startGradingWorker(): Promise<void> {
 
     aiGradingLogger.info('Grading worker started', {
         queueMode: config.grading.queueMode,
+        pullWorkerEnabled: config.grading.pullWorkerEnabled,
         workerConcurrency: config.grading.workerConcurrency,
         pollBatchSize: config.grading.queuePollBatchSize,
         pollIntervalMs: config.grading.queuePollIntervalMs
