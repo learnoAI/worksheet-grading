@@ -1,6 +1,12 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
-import { acquireGradingJobLease, markGradingJobCompleted, markGradingJobFailed, touchGradingJobHeartbeat } from '../services/gradingJobLifecycleService';
+import {
+    acquireGradingJobLease,
+    markGradingJobCompleted,
+    markGradingJobFailed,
+    requeueGradingJobForRetry,
+    touchGradingJobHeartbeat
+} from '../services/gradingJobLifecycleService';
 import { persistWorksheetForGradingJobId } from '../services/gradingWorksheetPersistenceService';
 import { GradingApiResponse } from '../services/gradingTypes';
 import { logError } from '../services/errorLogService';
@@ -167,5 +173,28 @@ export async function fail(req: Request, res: Response): Promise<Response> {
         });
 
         return res.status(500).json({ success: false, error: 'Failed to mark job failed' });
+    }
+}
+
+/**
+ * POST /internal/grading-worker/jobs/:jobId/requeue
+ * Body: { reason?: string }
+ *
+ * Releases a PROCESSING lease back to QUEUED for retry (does not clear enqueuedAt).
+ */
+export async function requeue(req: Request, res: Response): Promise<Response> {
+    const { jobId } = req.params;
+    const reason = isObject(req.body) && typeof req.body.reason === 'string' ? req.body.reason : undefined;
+
+    try {
+        await requeueGradingJobForRetry(jobId, reason);
+        return res.json({ success: true });
+    } catch (error) {
+        await logError('internal-grading-worker-requeue', error instanceof Error ? error : new Error('Requeue failed'), {
+            jobId
+        }).catch(() => {
+            // best effort
+        });
+        return res.status(500).json({ success: false, error: 'Failed to requeue job' });
     }
 }

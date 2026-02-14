@@ -1,6 +1,24 @@
 import { GradingJobStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 
+export async function requeueGradingJobForRetry(jobId: string, reason?: string): Promise<void> {
+    const now = new Date();
+    await prisma.gradingJob.update({
+        where: { id: jobId },
+        data: {
+            status: GradingJobStatus.QUEUED,
+            // Keep enqueuedAt intact: the message is already in Cloudflare Queues and will be retried there.
+            // If we cleared enqueuedAt, the DO dispatch loop could republish duplicates.
+            dispatchError: reason || null,
+            startedAt: null,
+            lastHeartbeatAt: null,
+            completedAt: null,
+            lastErrorAt: now,
+            errorMessage: null
+        }
+    });
+}
+
 export async function acquireGradingJobLease(jobId: string): Promise<boolean> {
     const now = new Date();
     const result = await prisma.gradingJob.updateMany({
