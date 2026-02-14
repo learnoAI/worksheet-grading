@@ -137,12 +137,10 @@ export async function complete(req: Request, res: Response): Promise<Response> {
             // best effort
         });
 
-        // If persistence failed, mark the job failed so UI can surface it.
-        await markGradingJobFailed(jobId, message).catch(() => {
-            // best effort
-        });
-
-        return res.status(500).json({ success: false, error: 'Failed to persist grading result' });
+        // Important: do NOT mark the job FAILED here.
+        // This endpoint is called from an at-least-once queue consumer; persistence failures can be transient.
+        // The Cloudflare worker should retry (and/or requeue the job) on 5xx responses.
+        return res.status(500).json({ success: false, error: message });
     }
 }
 
@@ -171,4 +169,3 @@ export async function fail(req: Request, res: Response): Promise<Response> {
         return res.status(500).json({ success: false, error: 'Failed to mark job failed' });
     }
 }
-
