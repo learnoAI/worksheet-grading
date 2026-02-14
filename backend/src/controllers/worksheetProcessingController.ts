@@ -213,6 +213,7 @@ export const processWorksheets = async (req: Request, res: Response) => {
         });
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorDetails = error as { code?: string; statusCode?: number; requestId?: string; name?: string } | undefined;
 
         if (jobId) {
             await prisma.gradingJob
@@ -234,7 +235,11 @@ export const processWorksheets = async (req: Request, res: Response) => {
             jobId,
             studentId,
             classId,
-            worksheetNumber
+            worksheetNumber,
+            errorCode: errorDetails?.code,
+            errorStatusCode: errorDetails?.statusCode,
+            errorRequestId: errorDetails?.requestId,
+            errorName: errorDetails?.name
         }).catch(() => {
             // best effort
         });
