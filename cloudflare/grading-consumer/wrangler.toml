@@ -14,7 +14,7 @@ compatibility_date = "2026-02-14"
 
 [[r2_buckets]]
 binding = "IMAGES_BUCKET"
-bucket_name = "worksheet-images"
+bucket_name = "worksheet-grading-files"
 
 [[r2_buckets]]
 binding = "ASSETS_BUCKET"
@@ -24,4 +24,4 @@ bucket_name = "worksheet-grading-assets"
 queue = "grading-fast"
 max_batch_size = 1
 max_batch_timeout = 5
-# dead_letter_queue = "grading-fast-dlq"
+dead_letter_queue = "grading-fast-dlq"
