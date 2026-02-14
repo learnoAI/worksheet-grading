@@ -121,4 +121,71 @@ describe('gradingWorksheetPersistenceService', () => {
     expect(createArgs.data.isRepeated).toBe(true);
     expect(createArgs.data.wrongQuestionNumbers).toBe('1');
   });
+
+  it('is idempotent across duplicate deliveries (second call updates the same worksheet)', async () => {
+    const submittedOn = new Date('2026-02-14T12:34:56.789Z');
+
+    mockPrisma.worksheet.upsert.mockResolvedValue({ id: 'ws-dup' });
+
+    // First call: no existing worksheet.
+    mockPrisma.worksheet.findFirst.mockResolvedValueOnce(null);
+
+    const first = await persistWorksheetForGradingJob(
+      {
+        studentId: 'student-1',
+        classId: 'class-1',
+        teacherId: 'teacher-1',
+        worksheetNumber: 15,
+        submittedOn,
+        isRepeated: false,
+      },
+      {
+        success: true,
+        grade: 30,
+        total_possible: 40,
+        total_questions: 1,
+        correct_answers: 1,
+        wrong_answers: 0,
+        unanswered: 0,
+        grade_percentage: 75,
+        question_scores: [],
+        wrong_questions: [],
+        unanswered_questions: [],
+        overall_feedback: 'ok',
+      }
+    );
+
+    // Second call: worksheet already exists (simulates duplicate queue delivery).
+    mockPrisma.worksheet.findFirst.mockResolvedValueOnce({ id: 'ws-dup' });
+
+    const second = await persistWorksheetForGradingJob(
+      {
+        studentId: 'student-1',
+        classId: 'class-1',
+        teacherId: 'teacher-1',
+        worksheetNumber: 15,
+        submittedOn,
+        isRepeated: false,
+      },
+      {
+        success: true,
+        grade: 31,
+        total_possible: 40,
+        total_questions: 1,
+        correct_answers: 1,
+        wrong_answers: 0,
+        unanswered: 0,
+        grade_percentage: 77.5,
+        question_scores: [],
+        wrong_questions: [],
+        unanswered_questions: [],
+        overall_feedback: 'ok',
+      }
+    );
+
+    expect(first.worksheetId).toBe('ws-dup');
+    expect(second.worksheetId).toBe('ws-dup');
+    expect(first.action).toBe('CREATED');
+    expect(second.action).toBe('UPDATED');
+  });
 });
