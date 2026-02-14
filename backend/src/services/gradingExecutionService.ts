@@ -313,36 +313,84 @@ export async function executeGradingJob(
             }
         });
     } catch (error: any) {
-        if (error?.code !== 'P2002') {
-            throw error;
-        }
+        const message = error instanceof Error ? error.message : String(error);
 
-        const alreadyCreated = await prisma.worksheet.findFirst({
-            where: {
-                studentId: job.studentId,
-                classId: job.classId,
-                worksheetNumber: job.worksheetNumber,
-                submittedOn: submittedOnDate
-            },
-            select: { id: true }
-        });
-
-        if (!alreadyCreated) {
-            throw error;
-        }
-
-        worksheet = await prisma.worksheet.update({
-            where: { id: alreadyCreated.id },
-            data: {
-                grade: pythonResponse.grade,
-                status: ProcessingStatus.COMPLETED,
-                outOf: pythonResponse.total_possible || 40,
-                mongoDbId: pythonResponse.mongodb_id,
-                gradingDetails,
-                wrongQuestionNumbers,
-                isRepeated: job.isRepeated
+        // If the DB is missing the unique index that Prisma uses for upsert ON CONFLICT,
+        // fall back to a non-upsert path so grading can still complete.
+        if (
+            message.includes('no unique or exclusion constraint matching the ON CONFLICT specification') ||
+            message.includes('code: "42P10"') ||
+            message.includes('code: 42P10')
+        ) {
+            if (existing) {
+                worksheet = await prisma.worksheet.update({
+                    where: { id: existing.id },
+                    data: {
+                        grade: pythonResponse.grade,
+                        status: ProcessingStatus.COMPLETED,
+                        outOf: pythonResponse.total_possible || 40,
+                        mongoDbId: pythonResponse.mongodb_id,
+                        gradingDetails,
+                        wrongQuestionNumbers,
+                        isRepeated: job.isRepeated,
+                        worksheetNumber: job.worksheetNumber
+                    }
+                });
+            } else {
+                worksheet = await prisma.worksheet.create({
+                    data: {
+                        classId: job.classId,
+                        studentId: job.studentId,
+                        submittedById: job.teacherId,
+                        templateId: template?.id,
+                        worksheetNumber: job.worksheetNumber,
+                        grade: pythonResponse.grade,
+                        notes: `Auto-graded worksheet ${job.worksheetNumber}`,
+                        status: ProcessingStatus.COMPLETED,
+                        outOf: pythonResponse.total_possible || 40,
+                        submittedOn: submittedOnDate,
+                        isAbsent: false,
+                        isRepeated: job.isRepeated,
+                        isCorrectGrade: false,
+                        isIncorrectGrade: false,
+                        mongoDbId: pythonResponse.mongodb_id,
+                        gradingDetails,
+                        wrongQuestionNumbers
+                    }
+                });
             }
-        });
+        } else if (error?.code === 'P2002') {
+            // Handle race conditions where the row was created between findFirst and create.
+
+            const alreadyCreated = await prisma.worksheet.findFirst({
+                where: {
+                    studentId: job.studentId,
+                    classId: job.classId,
+                    worksheetNumber: job.worksheetNumber,
+                    submittedOn: submittedOnDate
+                },
+                select: { id: true }
+            });
+
+            if (!alreadyCreated) {
+                throw error;
+            }
+
+            worksheet = await prisma.worksheet.update({
+                where: { id: alreadyCreated.id },
+                data: {
+                    grade: pythonResponse.grade,
+                    status: ProcessingStatus.COMPLETED,
+                    outOf: pythonResponse.total_possible || 40,
+                    mongoDbId: pythonResponse.mongodb_id,
+                    gradingDetails,
+                    wrongQuestionNumbers,
+                    isRepeated: job.isRepeated
+                }
+            });
+        } else {
+            throw error;
+        }
     }
 
     return {
