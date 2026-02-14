@@ -1,0 +1,27 @@
+name = "worksheet-grading-consumer"
+main = "src/index.ts"
+compatibility_date = "2026-02-14"
+
+# Configure these in Cloudflare dashboard or via `wrangler secret put` / `wrangler vars set`:
+# - BACKEND_BASE_URL
+# - BACKEND_WORKER_TOKEN
+# - GEMINI_API_KEY
+# - GEMINI_OCR_MODEL (default: gemini-2.0-flash)
+# - GEMINI_AI_GRADING_MODEL (default: gemini-3-flash-preview)
+# - GEMINI_BOOK_GRADING_MODEL (default: gemini-2.0-flash)
+# - HEARTBEAT_INTERVAL_MS (default: 60000)
+
+[[r2_buckets]]
+binding = "IMAGES_BUCKET"
+bucket_name = "worksheet-images"
+
+[[r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "worksheet-grading-assets"
+
+[[queues.consumers]]
+queue = "grading-fast"
+max_batch_size = 1
+max_batch_timeout = 5
+# dead_letter_queue = "grading-fast-dlq"
+
