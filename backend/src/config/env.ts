@@ -15,7 +15,9 @@ const gradingQueueMode = process.env.GRADING_QUEUE_MODE === 'cloudflare' ? 'clou
 const storageProvider = parseStorageProvider(process.env.OBJECT_STORAGE_PROVIDER);
 
 export default {
-    port: process.env.APP_PORT || 5100,
+    // DigitalOcean App Platform (and most PaaS) injects `PORT` for web services.
+    // Keep `APP_PORT` for local/dev overrides.
+    port: parseNumber(process.env.PORT || process.env.APP_PORT, 5100),
     nodeEnv: process.env.NODE_ENV || 'development',
     jwtSecret: process.env.JWT_SECRET || 'your-secret-key',
     corsOrigins: process.env.CORS_ORIGINS ?
