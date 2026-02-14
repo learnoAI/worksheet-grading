@@ -7,6 +7,7 @@ export interface GeminiGenerateOptions {
   >;
   temperature?: number;
   responseMimeType?: string;
+  responseJsonSchema?: unknown;
 }
 
 export class GeminiHttpError extends Error {
@@ -41,33 +42,59 @@ export async function geminiGenerateJson<T>(options: GeminiGenerateOptions): Pro
   const model = options.model;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-  const body = {
+  const baseBody = {
     contents: [
       {
         role: 'user',
         parts: options.parts,
       },
     ],
-    generationConfig: {
-      temperature: typeof options.temperature === 'number' ? options.temperature : 0.1,
-      ...(options.responseMimeType ? { response_mime_type: options.responseMimeType } : {}),
-    },
   };
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  // Gemini REST docs show GenerationConfig uses lowerCamelCase JSON keys.
+  // Some tooling/docs mention snake_case; we keep a narrow fallback for compatibility.
+  const generationConfigCamel = {
+    temperature: typeof options.temperature === 'number' ? options.temperature : 0.1,
+    ...(options.responseMimeType ? { responseMimeType: options.responseMimeType } : {}),
+    ...(options.responseJsonSchema ? { responseJsonSchema: options.responseJsonSchema } : {}),
+  };
 
-  const text = await res.text();
-  if (!res.ok) {
-    throw new GeminiHttpError(res.status, text);
+  const generationConfigSnake = {
+    temperature: typeof options.temperature === 'number' ? options.temperature : 0.1,
+    ...(options.responseMimeType ? { response_mime_type: options.responseMimeType } : {}),
+    ...(options.responseJsonSchema ? { response_json_schema: options.responseJsonSchema } : {}),
+  };
+
+  async function doFetch(generationConfig: Record<string, unknown>): Promise<{ status: number; text: string }> {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...baseBody,
+        generationConfig,
+      }),
+    });
+    const text = await res.text();
+    return { status: res.status, text };
+  }
+
+  let response = await doFetch(generationConfigCamel);
+  if (response.status === 400) {
+    const looksLikeUnknownField =
+      response.text.includes('Unknown name') &&
+      (response.text.includes('responseMimeType') || response.text.includes('responseJsonSchema'));
+    if (looksLikeUnknownField) {
+      response = await doFetch(generationConfigSnake);
+    }
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new GeminiHttpError(response.status, response.text);
   }
 
   let json: any;
   try {
-    json = JSON.parse(text);
+    json = JSON.parse(response.text);
   } catch {
     throw new Error('Gemini response was not valid JSON');
   }
