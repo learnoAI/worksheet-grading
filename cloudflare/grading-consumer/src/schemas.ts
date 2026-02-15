@@ -54,5 +54,21 @@ export type GradingResult = z.infer<typeof GradingResultSchema>;
 
 // Gemini structured output schema derived from the Zod definitions above.
 // Docs: https://ai.google.dev/gemini-api/docs/structured-output
-export const ExtractedQuestionsJsonSchema = zodToJsonSchema(ExtractedQuestionsSchema, 'ExtractedQuestions');
-export const GradingResultJsonSchema = zodToJsonSchema(GradingResultSchema, 'GradingResult');
+function toGeminiResponseJsonSchema(schema: z.ZodTypeAny): unknown {
+  // Important: Gemini structured output supports a JSON Schema *subset* and rejects $ref/definitions.
+  const jsonSchema: any = zodToJsonSchema(schema, { $refStrategy: 'none' });
+
+  // Remove meta fields that are not needed (and occasionally rejected by schema validators).
+  if (jsonSchema && typeof jsonSchema === 'object') {
+    delete jsonSchema.$schema;
+    delete jsonSchema.$ref;
+    delete jsonSchema.definitions;
+    delete jsonSchema.$defs;
+    delete jsonSchema.title;
+  }
+
+  return jsonSchema;
+}
+
+export const ExtractedQuestionsJsonSchema = toGeminiResponseJsonSchema(ExtractedQuestionsSchema);
+export const GradingResultJsonSchema = toGeminiResponseJsonSchema(GradingResultSchema);
