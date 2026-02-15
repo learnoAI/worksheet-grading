@@ -9,6 +9,8 @@ export interface PersistWorksheetResult {
     grade: number | null;
 }
 
+type DbClient = Prisma.TransactionClient | typeof prisma;
+
 function normalizeSubmittedOnDate(submittedOn: Date | null): Date {
     const date = submittedOn ? new Date(submittedOn) : new Date();
     date.setUTCHours(0, 0, 0, 0);
@@ -54,14 +56,15 @@ export async function persistWorksheetForGradingJob(
         | 'submittedOn'
         | 'isRepeated'
     >,
-    gradingResponse: GradingApiResponse
+    gradingResponse: GradingApiResponse,
+    db: DbClient = prisma
 ): Promise<PersistWorksheetResult> {
     if (!gradingResponse.success) {
         throw new Error(gradingResponse.error || 'Grading response was not successful');
     }
 
     const template = await withRetry(() =>
-        prisma.worksheetTemplate.findFirst({
+        db.worksheetTemplate.findFirst({
             where: { worksheetNumber: job.worksheetNumber },
             select: { id: true }
         })
@@ -71,7 +74,7 @@ export async function persistWorksheetForGradingJob(
     const gradingDetails = buildGradingDetails(gradingResponse);
     const wrongQuestionNumbers = buildWrongQuestionNumbers(gradingResponse);
 
-    const existing = await prisma.worksheet.findFirst({
+    const existing = await db.worksheet.findFirst({
         where: {
             studentId: job.studentId,
             classId: job.classId,
@@ -85,7 +88,7 @@ export async function persistWorksheetForGradingJob(
 
     let worksheet;
     try {
-        worksheet = await prisma.worksheet.upsert({
+        worksheet = await db.worksheet.upsert({
             where: {
                 unique_worksheet_per_student_day: {
                     studentId: job.studentId,
@@ -135,7 +138,7 @@ export async function persistWorksheetForGradingJob(
             message.includes('code: 42P10')
         ) {
             if (existing) {
-                worksheet = await prisma.worksheet.update({
+                worksheet = await db.worksheet.update({
                     where: { id: existing.id },
                     data: {
                         grade: gradingResponse.grade,
@@ -149,7 +152,7 @@ export async function persistWorksheetForGradingJob(
                     }
                 });
             } else {
-                worksheet = await prisma.worksheet.create({
+                worksheet = await db.worksheet.create({
                     data: {
                         classId: job.classId,
                         studentId: job.studentId,
@@ -174,7 +177,7 @@ export async function persistWorksheetForGradingJob(
         } else if (error?.code === 'P2002') {
             // Handle race conditions where the row was created between findFirst and create.
 
-            const alreadyCreated = await prisma.worksheet.findFirst({
+            const alreadyCreated = await db.worksheet.findFirst({
                 where: {
                     studentId: job.studentId,
                     classId: job.classId,
@@ -188,7 +191,7 @@ export async function persistWorksheetForGradingJob(
                 throw error;
             }
 
-            worksheet = await prisma.worksheet.update({
+            worksheet = await db.worksheet.update({
                 where: { id: alreadyCreated.id },
                 data: {
                     grade: gradingResponse.grade,
@@ -214,9 +217,10 @@ export async function persistWorksheetForGradingJob(
 
 export async function persistWorksheetForGradingJobId(
     jobId: string,
-    gradingResponse: GradingApiResponse
+    gradingResponse: GradingApiResponse,
+    db: DbClient = prisma
 ): Promise<PersistWorksheetResult> {
-    const job = await prisma.gradingJob.findUnique({
+    const job = await db.gradingJob.findUnique({
         where: { id: jobId },
         select: {
             studentId: true,
@@ -232,5 +236,5 @@ export async function persistWorksheetForGradingJobId(
         throw new Error(`Grading job not found: ${jobId}`);
     }
 
-    return persistWorksheetForGradingJob(job, gradingResponse);
+    return persistWorksheetForGradingJob(job, gradingResponse, db);
 }
