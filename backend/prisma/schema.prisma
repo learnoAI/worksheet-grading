@@ -272,6 +272,7 @@ model GradingJob {
   worksheetId     String?          // Set after worksheet created/updated
   errorMessage    String?
   dispatchError   String?
+  leaseId         String?
   attemptCount    Int              @default(0)
   enqueuedAt      DateTime?
   startedAt       DateTime?
