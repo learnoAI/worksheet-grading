@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import {
     acquireGradingJobLease,
-    markGradingJobCompleted,
     markGradingJobFailed,
     requeueGradingJobForRetry,
     touchGradingJobHeartbeat
@@ -10,6 +9,7 @@ import {
 import { persistWorksheetForGradingJobId } from '../services/gradingWorksheetPersistenceService';
 import { GradingApiResponse } from '../services/gradingTypes';
 import { logError } from '../services/errorLogService';
+import { GradingJobStatus } from '@prisma/client';
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -44,8 +44,8 @@ export async function acquireJob(req: Request, res: Response): Promise<Response>
     const { jobId } = req.params;
 
     try {
-        const acquired = await acquireGradingJobLease(jobId);
-        if (!acquired) {
+        const leaseId = await acquireGradingJobLease(jobId);
+        if (!leaseId) {
             return res.json({ success: true, acquired: false });
         }
 
@@ -81,6 +81,7 @@ export async function acquireJob(req: Request, res: Response): Promise<Response>
         return res.json({
             success: true,
             acquired: true,
+            leaseId,
             job
         });
     } catch (error) {
@@ -99,9 +100,17 @@ export async function acquireJob(req: Request, res: Response): Promise<Response>
  */
 export async function heartbeat(req: Request, res: Response): Promise<Response> {
     const { jobId } = req.params;
+    const leaseId = isObject(req.body) && typeof req.body.leaseId === 'string' ? req.body.leaseId : '';
+
+    if (!leaseId) {
+        return res.status(400).json({ success: false, error: 'leaseId is required' });
+    }
 
     try {
-        await touchGradingJobHeartbeat(jobId);
+        const updated = await touchGradingJobHeartbeat(jobId, leaseId);
+        if (!updated) {
+            return res.status(409).json({ success: false, error: 'Lease mismatch' });
+        }
         return res.json({ success: true });
     } catch (error) {
         await logError('internal-grading-worker-heartbeat', error instanceof Error ? error : new Error('Heartbeat failed'), {
@@ -119,23 +128,84 @@ export async function heartbeat(req: Request, res: Response): Promise<Response> 
  */
 export async function complete(req: Request, res: Response): Promise<Response> {
     const { jobId } = req.params;
+    const leaseId = isObject(req.body) && typeof req.body.leaseId === 'string' ? req.body.leaseId : '';
     const gradingResponse = getGradingResponseFromBody(req.body);
+
+    if (!leaseId) {
+        return res.status(400).json({ success: false, error: 'leaseId is required' });
+    }
 
     if (!gradingResponse) {
         return res.status(400).json({ success: false, error: 'Invalid grading response payload' });
     }
 
     try {
-        const persisted = await persistWorksheetForGradingJobId(jobId, gradingResponse);
-        await markGradingJobCompleted(jobId, persisted.worksheetId);
+        const persisted = await prisma.$transaction(async (tx) => {
+            const rows = await tx.$queryRaw<Array<{ id: string; status: string; leaseId: string | null; worksheetId: string | null }>>`
+                SELECT "id", "status", "leaseId", "worksheetId"
+                FROM "GradingJob"
+                WHERE "id" = ${jobId}
+                FOR UPDATE
+            `;
 
-        return res.json({
-            success: true,
-            worksheetId: persisted.worksheetId,
-            action: persisted.action
+            const current = rows[0];
+            if (!current) {
+                return null;
+            }
+
+            if (current.status === GradingJobStatus.COMPLETED) {
+                return {
+                    worksheetId: current.worksheetId,
+                    action: 'ALREADY_COMPLETED' as const
+                };
+            }
+
+            if (current.status !== GradingJobStatus.PROCESSING || current.leaseId !== leaseId) {
+                throw Object.assign(new Error('Lease mismatch'), { code: 'LEASE_MISMATCH' });
+            }
+
+            const persistedWorksheet = await persistWorksheetForGradingJobId(jobId, gradingResponse, tx);
+
+            const now = new Date();
+            const updated = await tx.gradingJob.updateMany({
+                where: {
+                    id: jobId,
+                    status: GradingJobStatus.PROCESSING,
+                    leaseId
+                },
+                data: {
+                    status: GradingJobStatus.COMPLETED,
+                    worksheetId: persistedWorksheet.worksheetId,
+                    completedAt: now,
+                    lastHeartbeatAt: now,
+                    leaseId: null,
+                    errorMessage: null,
+                    dispatchError: null
+                }
+            });
+
+            if (updated.count === 0) {
+                throw Object.assign(new Error('Lease mismatch'), { code: 'LEASE_MISMATCH' });
+            }
+
+            return {
+                worksheetId: persistedWorksheet.worksheetId,
+                action: persistedWorksheet.action
+            };
         });
+
+        if (!persisted) {
+            return res.status(404).json({ success: false, error: 'Job not found' });
+        }
+
+        return res.json({ success: true, worksheetId: persisted.worksheetId, action: persisted.action });
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown completion error';
+        const code = (error as any)?.code;
+
+        if (code === 'LEASE_MISMATCH') {
+            return res.status(409).json({ success: false, error: 'Lease mismatch' });
+        }
 
         await logError('internal-grading-worker-complete', error instanceof Error ? error : new Error(message), {
             jobId
@@ -156,14 +226,22 @@ export async function complete(req: Request, res: Response): Promise<Response> {
  */
 export async function fail(req: Request, res: Response): Promise<Response> {
     const { jobId } = req.params;
+    const leaseId = isObject(req.body) && typeof req.body.leaseId === 'string' ? req.body.leaseId : '';
     const errorMessage = isObject(req.body) && typeof req.body.errorMessage === 'string' ? req.body.errorMessage : '';
+
+    if (!leaseId) {
+        return res.status(400).json({ success: false, error: 'leaseId is required' });
+    }
 
     if (!errorMessage) {
         return res.status(400).json({ success: false, error: 'errorMessage is required' });
     }
 
     try {
-        await markGradingJobFailed(jobId, errorMessage);
+        const failed = await markGradingJobFailed(jobId, leaseId, errorMessage);
+        if (!failed) {
+            return res.status(409).json({ success: false, error: 'Lease mismatch' });
+        }
         return res.json({ success: true });
     } catch (error) {
         await logError('internal-grading-worker-fail', error instanceof Error ? error : new Error('Fail handler failed'), {
@@ -184,10 +262,18 @@ export async function fail(req: Request, res: Response): Promise<Response> {
  */
 export async function requeue(req: Request, res: Response): Promise<Response> {
     const { jobId } = req.params;
+    const leaseId = isObject(req.body) && typeof req.body.leaseId === 'string' ? req.body.leaseId : '';
     const reason = isObject(req.body) && typeof req.body.reason === 'string' ? req.body.reason : undefined;
 
+    if (!leaseId) {
+        return res.status(400).json({ success: false, error: 'leaseId is required' });
+    }
+
     try {
-        await requeueGradingJobForRetry(jobId, reason);
+        const updated = await requeueGradingJobForRetry(jobId, leaseId, reason);
+        if (!updated) {
+            return res.status(409).json({ success: false, error: 'Lease mismatch' });
+        }
         return res.json({ success: true });
     } catch (error) {
         await logError('internal-grading-worker-requeue', error instanceof Error ? error : new Error('Requeue failed'), {

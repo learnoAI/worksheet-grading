@@ -16,14 +16,14 @@ export interface RunGradingJobResult {
 }
 
 export async function runGradingJob(jobId: string): Promise<RunGradingJobResult> {
-    const leaseAcquired = await acquireGradingJobLease(jobId);
+    const leaseId = await acquireGradingJobLease(jobId);
 
-    if (!leaseAcquired) {
+    if (!leaseId) {
         return { status: 'skipped' };
     }
 
     const heartbeatTimer = setInterval(() => {
-        void touchGradingJobHeartbeat(jobId).catch(() => {
+        void touchGradingJobHeartbeat(jobId, leaseId).catch(() => {
             // Best effort; stale watchdog handles recovery.
         });
     }, config.grading.heartbeatIntervalMs);
@@ -31,11 +31,15 @@ export async function runGradingJob(jobId: string): Promise<RunGradingJobResult>
     try {
         const result = await executeGradingJob(jobId, config.pythonApiUrl, {
             onHeartbeat: async () => {
-                await touchGradingJobHeartbeat(jobId);
+                await touchGradingJobHeartbeat(jobId, leaseId);
             }
         });
 
-        await markGradingJobCompleted(jobId, result.worksheetId);
+        const completed = await markGradingJobCompleted(jobId, leaseId, result.worksheetId);
+        if (!completed) {
+            // Another worker owns the lease (or the job was requeued/recovered). Do not overwrite.
+            return { status: 'skipped' };
+        }
 
         aiGradingLogger.info('Grading job completed', {
             jobId,
@@ -52,7 +56,11 @@ export async function runGradingJob(jobId: string): Promise<RunGradingJobResult>
         const message = error instanceof Error ? error.message : 'Unknown grading error';
 
         try {
-            await markGradingJobFailed(jobId, message);
+            const failed = await markGradingJobFailed(jobId, leaseId, message);
+            if (!failed) {
+                // Lease lost; do not overwrite job state.
+                return { status: 'skipped' };
+            }
         } catch (markError) {
             const persistenceError = markError instanceof Error ? markError.message : 'Unknown persistence error';
             throw new Error(`Failed to persist grading failure for job ${jobId}: ${persistenceError}`);

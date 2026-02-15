@@ -81,7 +81,8 @@ async function recoverStuckJob(job: RecoverableJob): Promise<{
                 worksheetId,
                 completedAt: new Date(),
                 dispatchError: null,
-                errorMessage: null
+                errorMessage: null,
+                leaseId: null
             }
         });
 
@@ -103,6 +104,7 @@ async function recoverStuckJob(job: RecoverableJob): Promise<{
                 data: {
                     status: GradingJobStatus.QUEUED,
                     enqueuedAt: null,
+                    leaseId: null,
                     startedAt: null,
                     lastHeartbeatAt: null,
                     completedAt: null,
@@ -127,7 +129,8 @@ async function recoverStuckJob(job: RecoverableJob): Promise<{
                 status: GradingJobStatus.FAILED,
                 errorMessage: 'Job timed out without completion',
                 completedAt: new Date(),
-                lastErrorAt: new Date()
+                lastErrorAt: new Date(),
+                leaseId: null
             }
         });
 

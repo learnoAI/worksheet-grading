@@ -40,6 +40,7 @@ async function dispatchPendingJobs(): Promise<void> {
         data: {
             status: GradingJobStatus.QUEUED,
             enqueuedAt: null,
+            leaseId: null,
             startedAt: null,
             lastHeartbeatAt: null,
             completedAt: null,
