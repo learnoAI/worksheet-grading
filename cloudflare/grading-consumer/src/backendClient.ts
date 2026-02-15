@@ -39,30 +39,31 @@ export class BackendClient {
     });
   }
 
-  async heartbeat(jobId: string): Promise<void> {
+  async heartbeat(jobId: string, leaseId: string): Promise<void> {
     await this.requestJson(`/internal/grading-worker/jobs/${encodeURIComponent(jobId)}/heartbeat`, {
       method: 'POST',
+      body: JSON.stringify({ leaseId }),
     });
   }
 
-  async complete(jobId: string, gradingResponse: GradingApiResponse): Promise<void> {
+  async complete(jobId: string, leaseId: string, gradingResponse: GradingApiResponse): Promise<void> {
     await this.requestJson(`/internal/grading-worker/jobs/${encodeURIComponent(jobId)}/complete`, {
       method: 'POST',
-      body: JSON.stringify({ gradingResponse }),
+      body: JSON.stringify({ leaseId, gradingResponse }),
     });
   }
 
-  async fail(jobId: string, errorMessage: string): Promise<void> {
+  async fail(jobId: string, leaseId: string, errorMessage: string): Promise<void> {
     await this.requestJson(`/internal/grading-worker/jobs/${encodeURIComponent(jobId)}/fail`, {
       method: 'POST',
-      body: JSON.stringify({ errorMessage }),
+      body: JSON.stringify({ leaseId, errorMessage }),
     });
   }
 
-  async requeue(jobId: string, reason: string): Promise<void> {
+  async requeue(jobId: string, leaseId: string, reason: string): Promise<void> {
     await this.requestJson(`/internal/grading-worker/jobs/${encodeURIComponent(jobId)}/requeue`, {
       method: 'POST',
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ leaseId, reason }),
     });
   }
 

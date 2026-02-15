@@ -24,6 +24,7 @@ export interface JobPayload {
 export interface BackendAcquireResponse {
   success: boolean;
   acquired: boolean;
+  leaseId?: string;
   job?: JobPayload;
   error?: string;
 }
@@ -79,4 +80,3 @@ export interface GradingApiResponse {
   overall_feedback?: string;
   error?: string;
 }
-

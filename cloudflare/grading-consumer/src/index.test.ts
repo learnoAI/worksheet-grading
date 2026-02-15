@@ -120,6 +120,7 @@ describe('cloudflare grading consumer queue semantics', () => {
         return jsonResponse({
           success: true,
           acquired: true,
+          leaseId: 'lease-2',
           job: {
             id: 'job-2',
             status: 'QUEUED',
@@ -218,6 +219,7 @@ describe('cloudflare grading consumer queue semantics', () => {
         return jsonResponse({
           success: true,
           acquired: true,
+          leaseId: 'lease-3',
           job: {
             id: 'job-3',
             status: 'QUEUED',
@@ -296,6 +298,7 @@ describe('cloudflare grading consumer queue semantics', () => {
         return jsonResponse({
           success: true,
           acquired: true,
+          leaseId: 'lease-5',
           job: {
             id: 'job-5',
             status: 'QUEUED',
@@ -400,6 +403,7 @@ describe('cloudflare grading consumer queue semantics', () => {
         return jsonResponse({
           success: true,
           acquired: true,
+          leaseId: 'lease-6',
           job: {
             id: 'job-6',
             status: 'QUEUED',
@@ -507,6 +511,7 @@ describe('cloudflare grading consumer queue semantics', () => {
         return jsonResponse({
           success: true,
           acquired: true,
+          leaseId: 'lease-4',
           job: {
             id: 'job-4',
             status: 'QUEUED',
@@ -573,5 +578,114 @@ describe('cloudflare grading consumer queue semantics', () => {
     expect(retry).not.toHaveBeenCalled();
     expect(ack).toHaveBeenCalledTimes(1);
     expect(fetchCalls.some((c) => c.url.endsWith('/fail'))).toBe(true);
+  });
+
+  it('acks (no retry, no fail) when backend rejects completion with 409 lease mismatch', async () => {
+    const backendBase = 'https://backend.example';
+
+    (globalThis.fetch as any).mockImplementation(async (url: any, init?: any) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-7/acquire`)) {
+        return jsonResponse({
+          success: true,
+          acquired: true,
+          leaseId: 'lease-7',
+          job: {
+            id: 'job-7',
+            status: 'QUEUED',
+            tokenNo: '123',
+            worksheetName: '15',
+            worksheetNumber: 15,
+            submittedOn: new Date().toISOString(),
+            isRepeated: false,
+            studentId: 's',
+            classId: 'c',
+            teacherId: 't',
+            images: [{ s3Key: 'img-1', storageProvider: 'R2', pageNumber: 1, mimeType: 'image/jpeg' }],
+          },
+        });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-7/heartbeat`)) {
+        return jsonResponse({ success: true });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-7/complete`)) {
+        return jsonResponse({ success: false, error: 'Lease mismatch' }, 409);
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-7/fail`)) {
+        throw new Error('Worker should not mark FAILED on lease mismatch');
+      }
+
+      throw new Error(`Unexpected fetch: ${String(url)}`);
+    });
+
+    (geminiGenerateJson as any)
+      .mockResolvedValueOnce({
+        parsed: { questions: [{ question_number: 1, question: '1+1', student_answer: '2' }] },
+        rawText: '{"questions":[{"question_number":1,"question":"1+1","student_answer":"2"}]}',
+      })
+      .mockResolvedValueOnce({
+        parsed: {
+          total_questions: 1,
+          overall_score: 40,
+          grade_percentage: 100,
+          question_scores: [
+            {
+              question_number: 1,
+              question: '1+1',
+              student_answer: '2',
+              correct_answer: '2',
+              points_earned: 40,
+              max_points: 40,
+              is_correct: true,
+              feedback: 'good',
+            },
+          ],
+          correct_answers: 1,
+          wrong_answers: 0,
+          unanswered: 0,
+          overall_feedback: 'great',
+        },
+        rawText: '{}',
+      });
+
+    const ack = vi.fn();
+    const retry = vi.fn();
+
+    const env: any = {
+      BACKEND_BASE_URL: backendBase,
+      BACKEND_WORKER_TOKEN: 'token',
+      GEMINI_API_KEY: 'gemini',
+      IMAGES_BUCKET: makeR2Bucket({
+        'img-1': { bytes: new Uint8Array([1, 2, 3]) },
+      }),
+      ASSETS_BUCKET: makeR2Bucket({
+        'answers_by_worksheet.json': { text: JSON.stringify({ '15': [] }) },
+      }),
+    };
+
+    await worker.queue(
+      {
+        messages: [
+          {
+            id: 'm7',
+            attempts: 1,
+            body: { v: 1, jobId: 'job-7', enqueuedAt: new Date().toISOString() },
+            ack,
+            retry,
+          },
+        ],
+      },
+      env,
+      {} as any
+    );
+
+    expect(retry).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(fetchCalls.some((c) => c.url.endsWith('/complete'))).toBe(true);
+    expect(fetchCalls.some((c) => c.url.endsWith('/fail'))).toBe(false);
   });
 });

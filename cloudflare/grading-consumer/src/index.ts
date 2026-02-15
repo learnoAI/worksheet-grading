@@ -147,7 +147,12 @@ async function loadImageParts(env: Env, job: JobPayload): Promise<Array<{ inline
   return parts;
 }
 
-async function processJob(env: Env, backend: BackendClient, jobId: string, onAcquired: () => void): Promise<'completed' | 'skipped'> {
+async function processJob(
+  env: Env,
+  backend: BackendClient,
+  jobId: string,
+  onAcquired: (leaseId: string) => void
+): Promise<'completed' | 'skipped'> {
   const acquire = await backend.acquire(jobId);
   if (!acquire.success) {
     throw new Error(acquire.error || 'Acquire failed');
@@ -156,7 +161,12 @@ async function processJob(env: Env, backend: BackendClient, jobId: string, onAcq
     return 'skipped';
   }
 
-  onAcquired();
+  const leaseId = acquire.leaseId;
+  if (typeof leaseId !== 'string' || leaseId.trim().length === 0) {
+    throw new Error('Backend acquire did not return leaseId');
+  }
+
+  onAcquired(leaseId);
   const job = acquire.job;
 
   if (!job.tokenNo || !job.worksheetName) {
@@ -172,13 +182,13 @@ async function processJob(env: Env, backend: BackendClient, jobId: string, onAcq
 
   try {
     heartbeatTimer = setInterval(() => {
-      void backend.heartbeat(jobId).catch(() => {
+      void backend.heartbeat(jobId, leaseId).catch(() => {
         // best effort; backend stale-job watchdog handles recovery
       });
     }, heartbeatMs) as unknown as number;
 
     // Ensure we start with a heartbeat so stale watchdog doesn't race.
-    await backend.heartbeat(jobId).catch(() => {});
+    await backend.heartbeat(jobId, leaseId).catch(() => {});
 
     const imageParts = await loadImageParts(env, job);
     const customPrompt = await loadCustomPrompt(env.ASSETS_BUCKET, job.worksheetNumber);
@@ -216,7 +226,7 @@ async function processJob(env: Env, backend: BackendClient, jobId: string, onAcq
     const gradingResult = GradingResultSchema.parse(grading.parsed);
     const backendResponse = toBackendGradingResponse(gradingResult);
 
-    await backend.complete(jobId, backendResponse);
+    await backend.complete(jobId, leaseId, backendResponse);
     return 'completed';
   } finally {
     if (heartbeatTimer !== null) {
@@ -233,11 +243,13 @@ export default {
     for (const message of batch.messages || []) {
       let jobId: string | null = null;
       let acquired = false;
+      let leaseId: string | null = null;
       try {
         const parsed = parseQueueMessage(message.body);
         jobId = parsed.jobId;
-        await processJob(env, backend, parsed.jobId, () => {
+        await processJob(env, backend, parsed.jobId, (acquiredLeaseId) => {
           acquired = true;
+          leaseId = acquiredLeaseId;
         });
         message.ack();
       } catch (error) {
@@ -249,12 +261,22 @@ export default {
           error: error instanceof Error ? error.message : String(error),
         });
 
+        if (error instanceof BackendHttpError && error.status === 409) {
+          // Another worker owns the lease now. ACK to drop this delivery without mutating job state.
+          try {
+            message.ack();
+          } catch {
+            // Ignore.
+          }
+          continue;
+        }
+
         const reason = error instanceof Error ? error.message : String(error);
         const retryable = isRetryableError(error);
 
-        if (jobId && acquired && retryable && attempts < maxAttempts) {
+        if (jobId && acquired && leaseId && retryable && attempts < maxAttempts) {
           // Release the PROCESSING lease so the next delivery can re-acquire immediately.
-          await backend.requeue(jobId, reason).catch((requeueErr) => {
+          await backend.requeue(jobId, leaseId, reason).catch((requeueErr) => {
             console.error('Failed to requeue job after retryable error', {
               jobId,
               error: requeueErr instanceof Error ? requeueErr.message : String(requeueErr),
@@ -272,8 +294,8 @@ export default {
           continue;
         }
 
-        if (jobId && acquired) {
-          await backend.fail(jobId, reason).catch((failErr) => {
+        if (jobId && acquired && leaseId) {
+          await backend.fail(jobId, leaseId, reason).catch((failErr) => {
             console.error('Failed to mark job failed', {
               jobId,
               error: failErr instanceof Error ? failErr.message : String(failErr),
