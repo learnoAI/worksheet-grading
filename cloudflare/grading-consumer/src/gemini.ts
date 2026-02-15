@@ -22,6 +22,42 @@ export class GeminiHttpError extends Error {
   }
 }
 
+function stripJsonCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : trimmed;
+}
+
+function parseJsonWithFallback<T>(rawText: string): T {
+  const candidates: string[] = [];
+  const stripped = stripJsonCodeFence(rawText);
+  candidates.push(stripped);
+
+  const firstObj = stripped.indexOf('{');
+  const lastObj = stripped.lastIndexOf('}');
+  if (firstObj !== -1 && lastObj > firstObj) {
+    candidates.push(stripped.slice(firstObj, lastObj + 1));
+  }
+
+  const firstArr = stripped.indexOf('[');
+  const lastArr = stripped.lastIndexOf(']');
+  if (firstArr !== -1 && lastArr > firstArr) {
+    candidates.push(stripped.slice(firstArr, lastArr + 1));
+  }
+
+  let lastErr: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as T;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  const preview = stripped.length > 800 ? `${stripped.slice(0, 800)}...` : stripped;
+  throw new Error(`Failed to parse Gemini JSON payload: ${(lastErr as Error)?.message || String(lastErr)}. Payload preview: ${preview}`);
+}
+
 function extractText(responseJson: any): string {
   const candidates = Array.isArray(responseJson?.candidates) ? responseJson.candidates : [];
   const first = candidates[0];
@@ -40,7 +76,7 @@ function extractText(responseJson: any): string {
 export async function geminiGenerateJson<T>(options: GeminiGenerateOptions): Promise<{ parsed: T; rawText: string }> {
   const apiKey = options.apiKey;
   const model = options.model;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   const baseBody = {
     contents: [
@@ -68,7 +104,10 @@ export async function geminiGenerateJson<T>(options: GeminiGenerateOptions): Pro
   async function doFetch(generationConfig: Record<string, unknown>): Promise<{ status: number; text: string }> {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
       body: JSON.stringify({
         ...baseBody,
         generationConfig,
@@ -104,10 +143,5 @@ export async function geminiGenerateJson<T>(options: GeminiGenerateOptions): Pro
     throw new Error('Gemini response did not include text content');
   }
 
-  try {
-    return { parsed: JSON.parse(rawText) as T, rawText };
-  } catch (e) {
-    const preview = rawText.length > 800 ? `${rawText.slice(0, 800)}...` : rawText;
-    throw new Error(`Failed to parse Gemini JSON payload: ${(e as Error).message}. Payload preview: ${preview}`);
-  }
+  return { parsed: parseJsonWithFallback<T>(rawText), rawText };
 }
