@@ -6,6 +6,7 @@ import {
     PulledQueueMessage
 } from '../services/queue/gradingQueue';
 import { runGradingJob } from '../services/gradingJobRunner';
+import { captureGradingPipelineEvent } from '../services/posthogService';
 
 async function runWithConcurrency<T>(
     items: T[],
@@ -41,8 +42,17 @@ async function processMessage(message: PulledQueueMessage): Promise<boolean> {
             messageId: message.id,
             error: error instanceof Error ? error.message : 'Invalid message'
         });
+        captureGradingPipelineEvent('pull_worker_invalid_message_dropped', String(message.id), {
+            messageId: message.id,
+            error: error instanceof Error ? error.message : 'Invalid message'
+        });
         return true;
     }
+
+    captureGradingPipelineEvent('pull_worker_message_processing_started', parsed.jobId, {
+        jobId: parsed.jobId,
+        messageId: message.id
+    });
 
     const result = await runGradingJob(parsed.jobId);
 
@@ -50,6 +60,26 @@ async function processMessage(message: PulledQueueMessage): Promise<boolean> {
         aiGradingLogger.debug('Skipped queue message; job not in QUEUED state', {
             jobId: parsed.jobId,
             messageId: message.id
+        });
+        captureGradingPipelineEvent('pull_worker_message_skipped', parsed.jobId, {
+            jobId: parsed.jobId,
+            messageId: message.id
+        });
+    }
+
+    if (result.status === 'completed') {
+        captureGradingPipelineEvent('pull_worker_message_completed', parsed.jobId, {
+            jobId: parsed.jobId,
+            messageId: message.id,
+            worksheetId: result.worksheetId
+        });
+    }
+
+    if (result.status === 'failed') {
+        captureGradingPipelineEvent('pull_worker_message_failed', parsed.jobId, {
+            jobId: parsed.jobId,
+            messageId: message.id,
+            error: result.errorMessage
         });
     }
 

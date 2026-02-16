@@ -9,6 +9,7 @@ import {
 import { persistWorksheetForGradingJobId } from '../services/gradingWorksheetPersistenceService';
 import { GradingApiResponse } from '../services/gradingTypes';
 import { logError } from '../services/errorLogService';
+import { captureGradingPipelineEvent } from '../services/posthogService';
 import { GradingJobStatus } from '@prisma/client';
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -42,10 +43,15 @@ function getGradingResponseFromBody(body: unknown): GradingApiResponse | null {
  */
 export async function acquireJob(req: Request, res: Response): Promise<Response> {
     const { jobId } = req.params;
+    captureGradingPipelineEvent('worker_acquire_requested', jobId, { jobId });
 
     try {
         const leaseId = await acquireGradingJobLease(jobId);
         if (!leaseId) {
+            captureGradingPipelineEvent('worker_acquire_skipped', jobId, {
+                jobId,
+                reason: 'already_processing_or_terminal'
+            });
             return res.json({ success: true, acquired: false });
         }
 
@@ -75,8 +81,16 @@ export async function acquireJob(req: Request, res: Response): Promise<Response>
         });
 
         if (!job) {
+            captureGradingPipelineEvent('worker_acquire_job_not_found', jobId, { jobId });
             return res.status(404).json({ success: false, error: 'Job not found' });
         }
+
+        captureGradingPipelineEvent('worker_acquire_succeeded', jobId, {
+            jobId,
+            leaseId,
+            imagesCount: job.images.length,
+            worksheetNumber: job.worksheetNumber
+        });
 
         return res.json({
             success: true,
@@ -91,6 +105,11 @@ export async function acquireJob(req: Request, res: Response): Promise<Response>
             // best effort
         });
 
+        captureGradingPipelineEvent('worker_acquire_failed', jobId, {
+            jobId,
+            error: error instanceof Error ? error.message : 'Acquire failed'
+        });
+
         return res.status(500).json({ success: false, error: 'Failed to acquire job' });
     }
 }
@@ -101,6 +120,7 @@ export async function acquireJob(req: Request, res: Response): Promise<Response>
 export async function heartbeat(req: Request, res: Response): Promise<Response> {
     const { jobId } = req.params;
     const leaseId = isObject(req.body) && typeof req.body.leaseId === 'string' ? req.body.leaseId : '';
+    const phase = isObject(req.body) && typeof req.body.phase === 'string' ? req.body.phase : 'interval';
 
     if (!leaseId) {
         return res.status(400).json({ success: false, error: 'leaseId is required' });
@@ -109,7 +129,18 @@ export async function heartbeat(req: Request, res: Response): Promise<Response> 
     try {
         const updated = await touchGradingJobHeartbeat(jobId, leaseId);
         if (!updated) {
+            captureGradingPipelineEvent('worker_heartbeat_lease_mismatch', jobId, {
+                jobId,
+                leaseId,
+                phase
+            });
             return res.status(409).json({ success: false, error: 'Lease mismatch' });
+        }
+        if (phase === 'initial') {
+            captureGradingPipelineEvent('worker_heartbeat_initial', jobId, {
+                jobId,
+                leaseId
+            });
         }
         return res.json({ success: true });
     } catch (error) {
@@ -117,6 +148,13 @@ export async function heartbeat(req: Request, res: Response): Promise<Response> 
             jobId
         }).catch(() => {
             // best effort
+        });
+
+        captureGradingPipelineEvent('worker_heartbeat_failed', jobId, {
+            jobId,
+            leaseId,
+            phase,
+            error: error instanceof Error ? error.message : 'Heartbeat failed'
         });
         return res.status(500).json({ success: false, error: 'Failed to update heartbeat' });
     }
@@ -140,6 +178,11 @@ export async function complete(req: Request, res: Response): Promise<Response> {
     }
 
     try {
+        captureGradingPipelineEvent('worker_complete_requested', jobId, {
+            jobId,
+            leaseId
+        });
+
         const persisted = await prisma.$transaction(async (tx) => {
             const rows = await tx.$queryRaw<Array<{ id: string; status: string; leaseId: string | null; worksheetId: string | null }>>`
                 SELECT "id", "status", "leaseId", "worksheetId"
@@ -195,8 +238,19 @@ export async function complete(req: Request, res: Response): Promise<Response> {
         });
 
         if (!persisted) {
+            captureGradingPipelineEvent('worker_complete_job_not_found', jobId, {
+                jobId,
+                leaseId
+            });
             return res.status(404).json({ success: false, error: 'Job not found' });
         }
+
+        captureGradingPipelineEvent('worker_complete_succeeded', jobId, {
+            jobId,
+            leaseId,
+            worksheetId: persisted.worksheetId,
+            action: persisted.action
+        });
 
         return res.json({ success: true, worksheetId: persisted.worksheetId, action: persisted.action });
     } catch (error) {
@@ -204,6 +258,10 @@ export async function complete(req: Request, res: Response): Promise<Response> {
         const code = (error as any)?.code;
 
         if (code === 'LEASE_MISMATCH') {
+            captureGradingPipelineEvent('worker_complete_lease_mismatch', jobId, {
+                jobId,
+                leaseId
+            });
             return res.status(409).json({ success: false, error: 'Lease mismatch' });
         }
 
@@ -211,6 +269,12 @@ export async function complete(req: Request, res: Response): Promise<Response> {
             jobId
         }).catch(() => {
             // best effort
+        });
+
+        captureGradingPipelineEvent('worker_complete_failed', jobId, {
+            jobId,
+            leaseId,
+            error: message
         });
 
         // Important: do NOT mark the job FAILED here.
@@ -240,14 +304,30 @@ export async function fail(req: Request, res: Response): Promise<Response> {
     try {
         const failed = await markGradingJobFailed(jobId, leaseId, errorMessage);
         if (!failed) {
+            captureGradingPipelineEvent('worker_fail_lease_mismatch', jobId, {
+                jobId,
+                leaseId
+            });
             return res.status(409).json({ success: false, error: 'Lease mismatch' });
         }
+
+        captureGradingPipelineEvent('worker_fail_succeeded', jobId, {
+            jobId,
+            leaseId,
+            errorMessage
+        });
         return res.json({ success: true });
     } catch (error) {
         await logError('internal-grading-worker-fail', error instanceof Error ? error : new Error('Fail handler failed'), {
             jobId
         }).catch(() => {
             // best effort
+        });
+
+        captureGradingPipelineEvent('worker_fail_failed', jobId, {
+            jobId,
+            leaseId,
+            error: error instanceof Error ? error.message : 'Fail handler failed'
         });
 
         return res.status(500).json({ success: false, error: 'Failed to mark job failed' });
@@ -272,14 +352,30 @@ export async function requeue(req: Request, res: Response): Promise<Response> {
     try {
         const updated = await requeueGradingJobForRetry(jobId, leaseId, reason);
         if (!updated) {
+            captureGradingPipelineEvent('worker_requeue_lease_mismatch', jobId, {
+                jobId,
+                leaseId
+            });
             return res.status(409).json({ success: false, error: 'Lease mismatch' });
         }
+
+        captureGradingPipelineEvent('worker_requeue_succeeded', jobId, {
+            jobId,
+            leaseId,
+            reason
+        });
         return res.json({ success: true });
     } catch (error) {
         await logError('internal-grading-worker-requeue', error instanceof Error ? error : new Error('Requeue failed'), {
             jobId
         }).catch(() => {
             // best effort
+        });
+
+        captureGradingPipelineEvent('worker_requeue_failed', jobId, {
+            jobId,
+            leaseId,
+            error: error instanceof Error ? error.message : 'Requeue failed'
         });
         return res.status(500).json({ success: false, error: 'Failed to requeue job' });
     }

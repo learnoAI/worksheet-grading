@@ -39,10 +39,10 @@ export class BackendClient {
     });
   }
 
-  async heartbeat(jobId: string, leaseId: string): Promise<void> {
+  async heartbeat(jobId: string, leaseId: string, phase: 'initial' | 'interval' = 'interval'): Promise<void> {
     await this.requestJson(`/internal/grading-worker/jobs/${encodeURIComponent(jobId)}/heartbeat`, {
       method: 'POST',
-      body: JSON.stringify({ leaseId }),
+      body: JSON.stringify({ leaseId, phase }),
     });
   }
 

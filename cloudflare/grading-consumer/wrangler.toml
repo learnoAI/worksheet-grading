@@ -2,13 +2,15 @@ name = "worksheet-grading-consumer"
 main = "src/index.ts"
 compatibility_date = "2026-02-14"
 
-# Configure these in Cloudflare dashboard or via `wrangler secret put` / `wrangler vars set`:
+# Configure these in Cloudflare dashboard or via `wrangler secret put` (+ `wrangler deploy --var KEY:value` for non-secrets):
 # - BACKEND_BASE_URL
 # - BACKEND_WORKER_TOKEN
 # - GEMINI_API_KEY
 # - GEMINI_OCR_MODEL (default: gemini-2.0-flash)
 # - GEMINI_AI_GRADING_MODEL (default: gemini-3-flash-preview)
 # - GEMINI_BOOK_GRADING_MODEL (default: gemini-2.0-flash)
+# - POSTHOG_API_KEY (optional; server-side event telemetry)
+# - POSTHOG_HOST (optional; default: https://us.i.posthog.com)
 # - HEARTBEAT_INTERVAL_MS (default: 60000)
 # - FAST_MAX_PAGES (default: 4)
 

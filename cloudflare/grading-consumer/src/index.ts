@@ -4,6 +4,7 @@ import { loadAnswerKey, loadCustomPrompt } from './assets';
 import { geminiGenerateJson, GeminiHttpError } from './gemini';
 import { buildAiGradingPrompt, buildBookGradingPrompt, buildOcrPrompt } from './prompts';
 import { toBackendGradingResponse } from './gradingTransform';
+import { createPosthogClient } from './posthog';
 import {
   ExtractedQuestionsJsonSchema,
   ExtractedQuestionsSchema,
@@ -23,9 +24,13 @@ interface Env {
   HEARTBEAT_INTERVAL_MS?: string;
   FAST_MAX_PAGES?: string;
   MAX_QUEUE_ATTEMPTS?: string;
+  POSTHOG_API_KEY?: string;
+  POSTHOG_HOST?: string;
   IMAGES_BUCKET: R2Bucket;
   ASSETS_BUCKET: R2Bucket;
 }
+
+type PosthogTracker = ReturnType<typeof createPosthogClient>;
 
 type QueueMessageV1 = { v: 1; jobId: string; enqueuedAt: string };
 
@@ -113,7 +118,10 @@ function isRetryableError(error: unknown): boolean {
   return false;
 }
 
-async function loadImageParts(env: Env, job: JobPayload): Promise<Array<{ inline_data: { mime_type: string; data: string } }>> {
+async function loadImageParts(
+  env: Env,
+  job: JobPayload
+): Promise<{ parts: Array<{ inline_data: { mime_type: string; data: string } }>; totalBytes: number }> {
   const maxPages = Math.max(1, Number.parseInt(env.FAST_MAX_PAGES || '4', 10) || 4);
   if (job.images.length > maxPages) {
     throw new NonRetryableError(`Too many images for fast path: ${job.images.length} (max ${maxPages})`);
@@ -126,6 +134,7 @@ async function loadImageParts(env: Env, job: JobPayload): Promise<Array<{ inline
   }
 
   const parts: Array<{ inline_data: { mime_type: string; data: string } }> = [];
+  let totalBytes = 0;
 
   for (const image of job.images) {
     const obj = await env.IMAGES_BUCKET.get(image.s3Key);
@@ -134,6 +143,7 @@ async function loadImageParts(env: Env, job: JobPayload): Promise<Array<{ inline
     }
 
     const bytes = await obj.arrayBuffer();
+    totalBytes += bytes.byteLength;
     const base64 = arrayBufferToBase64(bytes);
 
     parts.push({
@@ -144,20 +154,23 @@ async function loadImageParts(env: Env, job: JobPayload): Promise<Array<{ inline
     });
   }
 
-  return parts;
+  return { parts, totalBytes };
 }
 
 async function processJob(
   env: Env,
   backend: BackendClient,
   jobId: string,
+  tracker: PosthogTracker,
   onAcquired: (leaseId: string) => void
 ): Promise<'completed' | 'skipped'> {
+  tracker.capturePipeline('worker_acquire_requested', jobId, { jobId });
   const acquire = await backend.acquire(jobId);
   if (!acquire.success) {
     throw new Error(acquire.error || 'Acquire failed');
   }
   if (!acquire.acquired || !acquire.job) {
+    tracker.capturePipeline('worker_acquire_skipped', jobId, { jobId });
     return 'skipped';
   }
 
@@ -168,6 +181,12 @@ async function processJob(
 
   onAcquired(leaseId);
   const job = acquire.job;
+  tracker.capturePipeline('worker_acquire_succeeded', jobId, {
+    jobId,
+    leaseId,
+    imagesCount: job.images.length,
+    worksheetNumber: job.worksheetNumber,
+  });
 
   if (!job.tokenNo || !job.worksheetName) {
     throw new NonRetryableError('Job is missing tokenNo or worksheetName');
@@ -182,18 +201,46 @@ async function processJob(
 
   try {
     heartbeatTimer = setInterval(() => {
-      void backend.heartbeat(jobId, leaseId).catch(() => {
+      void backend.heartbeat(jobId, leaseId, 'interval').catch((error) => {
         // best effort; backend stale-job watchdog handles recovery
+        tracker.capturePipeline('worker_heartbeat_interval_failed', jobId, {
+          jobId,
+          leaseId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
     }, heartbeatMs) as unknown as number;
 
     // Ensure we start with a heartbeat so stale watchdog doesn't race.
-    await backend.heartbeat(jobId, leaseId).catch(() => {});
+    try {
+      await backend.heartbeat(jobId, leaseId, 'initial');
+      tracker.capturePipeline('worker_heartbeat_initial_succeeded', jobId, {
+        jobId,
+        leaseId,
+      });
+    } catch (error) {
+      tracker.capturePipeline('worker_heartbeat_initial_failed', jobId, {
+        jobId,
+        leaseId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
-    const imageParts = await loadImageParts(env, job);
+    const { parts: imageParts, totalBytes } = await loadImageParts(env, job);
+    tracker.capturePipeline('worker_images_loaded', jobId, {
+      jobId,
+      leaseId,
+      imagesCount: job.images.length,
+      totalBytes,
+    });
     const customPrompt = await loadCustomPrompt(env.ASSETS_BUCKET, job.worksheetNumber);
     const ocrPrompt = buildOcrPrompt(customPrompt);
 
+    tracker.capturePipeline('worker_ocr_started', jobId, {
+      jobId,
+      leaseId,
+      model: env.GEMINI_OCR_MODEL || 'gemini-2.0-flash',
+    });
     const extracted = await geminiGenerateJson<ExtractedQuestions>({
       apiKey: env.GEMINI_API_KEY,
       model: env.GEMINI_OCR_MODEL || 'gemini-2.0-flash',
@@ -204,6 +251,11 @@ async function processJob(
     });
 
     const extractedQuestions = ExtractedQuestionsSchema.parse(extracted.parsed);
+    tracker.capturePipeline('worker_ocr_succeeded', jobId, {
+      jobId,
+      leaseId,
+      extractedQuestionsCount: extractedQuestions.questions.length,
+    });
 
     const answerKey = await loadAnswerKey(env.ASSETS_BUCKET);
     const answers = answerKey[String(job.worksheetNumber)];
@@ -212,11 +264,18 @@ async function processJob(
       ? buildBookGradingPrompt(extractedQuestions, answers)
       : buildAiGradingPrompt(extractedQuestions);
 
+    const gradingModel = Array.isArray(answers) && answers.length > 0
+      ? (env.GEMINI_BOOK_GRADING_MODEL || 'gemini-2.0-flash')
+      : (env.GEMINI_AI_GRADING_MODEL || 'gemini-3-flash-preview');
+    tracker.capturePipeline('worker_grading_started', jobId, {
+      jobId,
+      leaseId,
+      model: gradingModel,
+      answerKeyMode: Array.isArray(answers) && answers.length > 0 ? 'book' : 'ai',
+    });
     const grading = await geminiGenerateJson<GradingResult>({
       apiKey: env.GEMINI_API_KEY,
-      model: Array.isArray(answers) && answers.length > 0
-        ? (env.GEMINI_BOOK_GRADING_MODEL || 'gemini-2.0-flash')
-        : (env.GEMINI_AI_GRADING_MODEL || 'gemini-3-flash-preview'),
+      model: gradingModel,
       responseMimeType: 'application/json',
       responseJsonSchema: GradingResultJsonSchema,
       temperature: 0.1,
@@ -224,9 +283,20 @@ async function processJob(
     });
 
     const gradingResult = GradingResultSchema.parse(grading.parsed);
+    tracker.capturePipeline('worker_grading_succeeded', jobId, {
+      jobId,
+      leaseId,
+      grade: gradingResult.overall_score,
+      totalQuestions: gradingResult.total_questions,
+      gradePercentage: gradingResult.grade_percentage,
+    });
     const backendResponse = toBackendGradingResponse(gradingResult);
 
     await backend.complete(jobId, leaseId, backendResponse);
+    tracker.capturePipeline('worker_complete_succeeded', jobId, {
+      jobId,
+      leaseId,
+    });
     return 'completed';
   } finally {
     if (heartbeatTimer !== null) {
@@ -238,20 +308,29 @@ async function processJob(
 export default {
   async queue(batch: any, env: Env, ctx: ExecutionContext): Promise<void> {
     const backend = new BackendClient(env);
+    const tracker = createPosthogClient(env, ctx);
     const maxAttempts = Math.max(1, parsePositiveInt(env.MAX_QUEUE_ATTEMPTS, 5));
 
     for (const message of batch.messages || []) {
       let jobId: string | null = null;
       let acquired = false;
       let leaseId: string | null = null;
+      tracker.capturePipeline('queue_message_received', String(message?.id || 'unknown'), {
+        messageId: message?.id,
+        attempts: typeof message?.attempts === 'number' ? message.attempts : null,
+      });
       try {
         const parsed = parseQueueMessage(message.body);
         jobId = parsed.jobId;
-        await processJob(env, backend, parsed.jobId, (acquiredLeaseId) => {
+        await processJob(env, backend, parsed.jobId, tracker, (acquiredLeaseId) => {
           acquired = true;
           leaseId = acquiredLeaseId;
         });
         message.ack();
+        tracker.capturePipeline('queue_message_acked_success', parsed.jobId, {
+          jobId: parsed.jobId,
+          messageId: message?.id,
+        });
       } catch (error) {
         const attempts = typeof message?.attempts === 'number' ? message.attempts : 1;
         console.error('Queue message processing failed', {
@@ -261,6 +340,14 @@ export default {
           error: error instanceof Error ? error.message : String(error),
         });
 
+        tracker.capturePipeline('queue_message_failed', String(jobId || message?.id || 'unknown'), {
+          jobId,
+          messageId: message?.id,
+          attempts,
+          error: error instanceof Error ? error.message : String(error),
+          retryable: isRetryableError(error),
+        });
+
         if (error instanceof BackendHttpError && error.status === 409) {
           // Another worker owns the lease now. ACK to drop this delivery without mutating job state.
           try {
@@ -268,6 +355,10 @@ export default {
           } catch {
             // Ignore.
           }
+          tracker.capturePipeline('queue_message_acked_lease_mismatch', String(jobId || message?.id || 'unknown'), {
+            jobId,
+            messageId: message?.id,
+          });
           continue;
         }
 
@@ -275,13 +366,34 @@ export default {
         const retryable = isRetryableError(error);
 
         if (jobId && acquired && leaseId && retryable && attempts < maxAttempts) {
+          const currentJobId = jobId;
+          const currentLeaseId = leaseId;
           // Release the PROCESSING lease so the next delivery can re-acquire immediately.
-          await backend.requeue(jobId, leaseId, reason).catch((requeueErr) => {
+          let requeueSucceeded = true;
+          await backend.requeue(currentJobId, currentLeaseId, reason).catch((requeueErr) => {
+            requeueSucceeded = false;
             console.error('Failed to requeue job after retryable error', {
-              jobId,
+              jobId: currentJobId,
+              error: requeueErr instanceof Error ? requeueErr.message : String(requeueErr),
+            });
+            tracker.capturePipeline('queue_message_requeue_failed', currentJobId, {
+              jobId: currentJobId,
+              leaseId: currentLeaseId,
+              messageId: message?.id,
+              attempts,
+              reason,
               error: requeueErr instanceof Error ? requeueErr.message : String(requeueErr),
             });
           });
+          if (requeueSucceeded) {
+            tracker.capturePipeline('queue_message_requeued_for_retry', currentJobId, {
+              jobId: currentJobId,
+              leaseId: currentLeaseId,
+              messageId: message?.id,
+              attempts,
+              reason,
+            });
+          }
         }
 
         if (retryable && attempts < maxAttempts) {
@@ -291,16 +403,43 @@ export default {
             // Fallback: let the batch fail so Cloudflare retries delivery.
             throw error;
           }
+          tracker.capturePipeline('queue_message_retry_scheduled', String(jobId || message?.id || 'unknown'), {
+            jobId,
+            messageId: message?.id,
+            attempts,
+            maxAttempts,
+          });
           continue;
         }
 
         if (jobId && acquired && leaseId) {
-          await backend.fail(jobId, leaseId, reason).catch((failErr) => {
+          const currentJobId = jobId;
+          const currentLeaseId = leaseId;
+          let failedMarked = true;
+          await backend.fail(currentJobId, currentLeaseId, reason).catch((failErr) => {
+            failedMarked = false;
             console.error('Failed to mark job failed', {
-              jobId,
+              jobId: currentJobId,
+              error: failErr instanceof Error ? failErr.message : String(failErr),
+            });
+            tracker.capturePipeline('queue_message_fail_marking_failed', currentJobId, {
+              jobId: currentJobId,
+              leaseId: currentLeaseId,
+              messageId: message?.id,
+              attempts,
+              reason,
               error: failErr instanceof Error ? failErr.message : String(failErr),
             });
           });
+          if (failedMarked) {
+            tracker.capturePipeline('queue_message_marked_failed', currentJobId, {
+              jobId: currentJobId,
+              leaseId: currentLeaseId,
+              messageId: message?.id,
+              attempts,
+              reason,
+            });
+          }
         }
 
         // Terminal: either non-retryable, or max attempts reached.
@@ -309,6 +448,13 @@ export default {
         } catch {
           // Ignore.
         }
+        tracker.capturePipeline('queue_message_acked_terminal', String(jobId || message?.id || 'unknown'), {
+          jobId,
+          messageId: message?.id,
+          attempts,
+          retryable,
+          maxAttempts,
+        });
       }
     }
   },

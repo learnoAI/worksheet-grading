@@ -56,6 +56,10 @@ export default {
         consumerName: process.env.CF_CONSUMER_NAME || 'grading-worker',
         apiBaseUrl: process.env.CF_API_BASE_URL || process.env.CLOUDFLARE_API_BASE_URL || 'https://api.cloudflare.com/client/v4'
     },
+    posthog: {
+        apiKey: process.env.POSTHOG_API_KEY || process.env.NEXT_PUBLIC_POSTHOG_KEY || '',
+        host: process.env.POSTHOG_HOST || process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
+    },
     gradingWorkerToken: process.env.GRADING_WORKER_TOKEN || '',
     grading: {
         queueMode: gradingQueueMode,

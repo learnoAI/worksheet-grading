@@ -2,6 +2,7 @@ import { GradingJobStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 import config from '../config/env';
 import { aiGradingLogger } from '../services/logger';
+import { captureGradingPipelineEvent } from '../services/posthogService';
 import {
     createGradingQueueMessage,
     getGradingQueueClient
@@ -26,7 +27,7 @@ async function dispatchPendingJobs(): Promise<void> {
     const queueClient = getGradingQueueClient();
     const staleCutoff = new Date(Date.now() - config.grading.staleProcessingMs);
 
-    await prisma.gradingJob.updateMany({
+    const staleRequeued = await prisma.gradingJob.updateMany({
         where: {
             status: GradingJobStatus.PROCESSING,
             OR: [
@@ -49,6 +50,13 @@ async function dispatchPendingJobs(): Promise<void> {
         }
     });
 
+    if (staleRequeued.count > 0) {
+        captureGradingPipelineEvent('dispatch_loop_stale_processing_requeued', 'dispatch-loop', {
+            count: staleRequeued.count,
+            staleProcessingMs: config.grading.staleProcessingMs
+        });
+    }
+
     const pendingJobs = await prisma.gradingJob.findMany({
         where: {
             status: GradingJobStatus.QUEUED,
@@ -68,6 +76,11 @@ async function dispatchPendingJobs(): Promise<void> {
             continue;
         }
 
+        captureGradingPipelineEvent('dispatch_loop_retry_attempt', job.id, {
+            jobId: job.id,
+            attemptCount: job.attemptCount
+        });
+
         const queueMessage = createGradingQueueMessage(job.id);
 
         try {
@@ -78,6 +91,11 @@ async function dispatchPendingJobs(): Promise<void> {
                     enqueuedAt: new Date(queueMessage.enqueuedAt),
                     dispatchError: null
                 }
+            });
+
+            captureGradingPipelineEvent('dispatch_loop_retry_succeeded', job.id, {
+                jobId: job.id,
+                queuedAt: queueMessage.enqueuedAt
             });
         } catch (error) {
             const dispatchError = error instanceof Error ? error.message : 'Failed to publish queue message';
@@ -96,6 +114,11 @@ async function dispatchPendingJobs(): Promise<void> {
                         increment: 1
                     }
                 }
+            });
+
+            captureGradingPipelineEvent('dispatch_loop_retry_failed', job.id, {
+                jobId: job.id,
+                error: dispatchError
             });
         }
     }

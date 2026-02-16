@@ -64,16 +64,19 @@ export const gradingJobsAPI = {
         // AI grading can take several minutes under load (queue backlog + model runtime).
         // Keep polling long enough that "AI Grade All" doesn't time out prematurely.
         maxAttempts: number = 600,
-        intervalMs: number = 3000
+        intervalMs: number = 3000,
+        maxConsecutiveErrors: number = 30
     ): Promise<GradingJob> => {
         return new Promise((resolve, reject) => {
             let attempts = 0;
+            let consecutiveErrors = 0;
 
             const poll = async () => {
                 try {
                     attempts++;
                     const response = await gradingJobsAPI.getJobStatus(jobId);
                     const job = response.job;
+                    consecutiveErrors = 0;
 
                     onUpdate(job);
 
@@ -89,11 +92,31 @@ export const gradingJobsAPI = {
 
                     setTimeout(poll, intervalMs);
                 } catch (error) {
-                    if (attempts < 3) {
-                        setTimeout(poll, intervalMs);
-                    } else {
+                    consecutiveErrors++;
+
+                    const message = error instanceof Error ? error.message : String(error);
+                    const isJobNotFound = message.toLowerCase().includes('job not found');
+
+                    if (isJobNotFound && consecutiveErrors >= 3) {
                         reject(error);
+                        return;
                     }
+
+                    if (consecutiveErrors >= maxConsecutiveErrors) {
+                        reject(
+                            new Error(
+                                `Polling interrupted after ${maxConsecutiveErrors} consecutive errors: ${message}`
+                            )
+                        );
+                        return;
+                    }
+
+                    if (attempts >= maxAttempts) {
+                        reject(new Error('Polling timeout'));
+                        return;
+                    }
+
+                    setTimeout(poll, intervalMs);
                 }
             };
 

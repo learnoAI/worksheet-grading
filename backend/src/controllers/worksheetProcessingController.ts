@@ -5,6 +5,7 @@ import { uploadToS3 } from '../services/s3Service';
 import config from '../config/env';
 import { aiGradingLogger } from '../services/logger';
 import { logError } from '../services/errorLogService';
+import { captureGradingPipelineEvent } from '../services/posthogService';
 import {
     createGradingQueueMessage,
     getGradingQueueClient
@@ -65,6 +66,11 @@ async function storeJobImages(jobId: string, files: MulterFile[], req: Request):
 }
 
 async function dispatchJob(jobId: string): Promise<{ dispatchState: DispatchState; queuedAt?: string }> {
+    captureGradingPipelineEvent('dispatch_attempt', jobId, {
+        jobId,
+        queueMode: config.grading.queueMode
+    });
+
     if (config.grading.queueMode === 'cloudflare') {
         try {
             const queueClient = getGradingQueueClient();
@@ -76,6 +82,13 @@ async function dispatchJob(jobId: string): Promise<{ dispatchState: DispatchStat
                     enqueuedAt: new Date(queueMessage.enqueuedAt),
                     dispatchError: null
                 }
+            });
+
+            captureGradingPipelineEvent('dispatch_succeeded', jobId, {
+                jobId,
+                queueMode: config.grading.queueMode,
+                dispatchState: 'DISPATCHED',
+                queuedAt: queueMessage.enqueuedAt
             });
 
             return {
@@ -99,6 +112,13 @@ async function dispatchJob(jobId: string): Promise<{ dispatchState: DispatchStat
                 // best effort
             });
 
+            captureGradingPipelineEvent('dispatch_failed', jobId, {
+                jobId,
+                queueMode: config.grading.queueMode,
+                dispatchState: 'PENDING_DISPATCH',
+                error: dispatchError
+            });
+
             return {
                 dispatchState: 'PENDING_DISPATCH'
             };
@@ -112,6 +132,13 @@ async function dispatchJob(jobId: string): Promise<{ dispatchState: DispatchStat
             enqueuedAt: new Date(queuedAt),
             dispatchError: null
         }
+    });
+
+    captureGradingPipelineEvent('dispatch_succeeded', jobId, {
+        jobId,
+        queueMode: config.grading.queueMode,
+        dispatchState: 'DISPATCHED',
+        queuedAt
     });
 
     setImmediate(() => {
@@ -157,11 +184,32 @@ export const processWorksheets = async (req: Request, res: Response) => {
         queueMode: config.grading.queueMode
     });
 
+    captureGradingPipelineEvent('request_received', String(submittedById || studentId || tokenNo || 'unknown'), {
+        tokenNo: tokenNo ? String(tokenNo) : null,
+        worksheetName: worksheetName ? String(worksheetName) : null,
+        worksheetNumber: worksheetNumber ? String(worksheetNumber) : null,
+        studentId: studentId ? String(studentId) : null,
+        classId: classId ? String(classId) : null,
+        filesCount: files.length,
+        queueMode: config.grading.queueMode
+    });
+
     if (!tokenNo || !worksheetName || files.length === 0) {
+        captureGradingPipelineEvent('request_rejected_validation', String(submittedById || studentId || 'unknown'), {
+            reason: 'missing_required_fields_token_or_worksheet_or_files',
+            filesCount: files.length
+        });
         return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
     if (!classId || !studentId || !worksheetNumber || !submittedById) {
+        captureGradingPipelineEvent('request_rejected_validation', String(submittedById || studentId || 'unknown'), {
+            reason: 'missing_required_fields_job_metadata',
+            hasClassId: Boolean(classId),
+            hasStudentId: Boolean(studentId),
+            hasWorksheetNumber: Boolean(worksheetNumber),
+            hasTeacherId: Boolean(submittedById)
+        });
         return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
@@ -170,6 +218,11 @@ export const processWorksheets = async (req: Request, res: Response) => {
         !config.grading.pullWorkerEnabled &&
         files.length > config.grading.fastMaxPages
     ) {
+        captureGradingPipelineEvent('request_rejected_validation', String(submittedById || studentId), {
+            reason: 'too_many_pages_fast_path',
+            filesCount: files.length,
+            maxPages: config.grading.fastMaxPages
+        });
         return res.status(400).json({
             success: false,
             error: `Too many images. Maximum ${config.grading.fastMaxPages} pages are supported in queue mode right now.`
@@ -202,7 +255,24 @@ export const processWorksheets = async (req: Request, res: Response) => {
 
         jobId = job.id;
 
+        captureGradingPipelineEvent('job_created', job.id, {
+            jobId: job.id,
+            studentId: String(studentId),
+            classId: String(classId),
+            teacherId: String(submittedById),
+            worksheetNumber: String(worksheetNumber),
+            worksheetName: String(worksheetName),
+            queueMode: config.grading.queueMode
+        });
+
         await storeJobImages(job.id, files, req);
+
+        captureGradingPipelineEvent('images_stored', job.id, {
+            jobId: job.id,
+            filesCount: files.length,
+            totalBytes: files.reduce((acc, file) => acc + file.size, 0),
+            storageProvider: config.objectStorage.provider
+        });
 
         const dispatchResult = await dispatchJob(job.id);
 
@@ -210,6 +280,13 @@ export const processWorksheets = async (req: Request, res: Response) => {
             jobId: job.id,
             dispatchState: dispatchResult.dispatchState,
             queuedAt: dispatchResult.queuedAt
+        });
+
+        captureGradingPipelineEvent('request_accepted', job.id, {
+            jobId: job.id,
+            dispatchState: dispatchResult.dispatchState,
+            queuedAt: dispatchResult.queuedAt,
+            status: 'queued'
         });
 
         return res.status(202).json({
@@ -259,6 +336,16 @@ export const processWorksheets = async (req: Request, res: Response) => {
         requestTimer.end('Grading request failed', {
             jobId,
             error: errorMessage
+        });
+
+        captureGradingPipelineEvent('request_failed', String(jobId || submittedById || studentId || 'unknown'), {
+            jobId,
+            studentId: studentId ? String(studentId) : null,
+            classId: classId ? String(classId) : null,
+            worksheetNumber: worksheetNumber ? String(worksheetNumber) : null,
+            error: errorMessage,
+            errorCode: errorDetails?.code,
+            errorStatusCode: errorDetails?.statusCode
         });
 
         return res.status(500).json({ success: false, error: 'Failed to queue grading job' });

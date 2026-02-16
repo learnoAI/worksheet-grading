@@ -67,6 +67,7 @@ interface StudentWorksheetCardProps {
     onSave: (worksheet: StudentWorksheet) => void;
     onAddWorksheet?: (studentId: string, currentWorksheetNumber: number) => void;
     onRemoveWorksheet?: (worksheetEntryId: string) => void;
+    isOffline?: boolean;
 }
 
 export function StudentWorksheetCard({
@@ -79,7 +80,8 @@ export function StudentWorksheetCard({
     onUpload,
     onSave,
     onAddWorksheet,
-    onRemoveWorksheet
+    onRemoveWorksheet,
+    isOffline = false
 }: StudentWorksheetCardProps) {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
@@ -530,20 +532,20 @@ export function StudentWorksheetCard({
                 <div className="flex w-full md:w-auto space-x-2">
                     <Button
                         onClick={() => onUpload(worksheet)}
-                        disabled={worksheet.isAbsent || worksheet.isUploading || (!worksheet.page1File && !worksheet.page2File) || !worksheet.worksheetNumber}
+                        disabled={isOffline || worksheet.isAbsent || worksheet.isUploading || (!worksheet.page1File && !worksheet.page2File) || !worksheet.worksheetNumber}
                         className="bg-blue-600 hover:bg-blue-700 text-white flex-1 md:flex-none"
                         size="sm"
                     >
-                        {worksheet.isUploading ? "Processing..." : "AI Grade"}
+                        {worksheet.isUploading ? "Processing..." : (isOffline ? "Offline" : "AI Grade")}
                     </Button>
                     <Button
                         onClick={() => onSave(worksheet)}
-                        disabled={worksheet.isUploading}
+                        disabled={isOffline || worksheet.isUploading}
                         variant="outline"
                         size="sm"
                         className="flex-1 md:flex-none"
                     >
-                        Save
+                        {isOffline ? 'Offline' : 'Save'}
                     </Button>
                 </div>
             </div>

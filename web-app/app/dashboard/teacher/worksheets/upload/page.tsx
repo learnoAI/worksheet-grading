@@ -77,6 +77,20 @@ interface StudentWorksheet {
     isNew?: boolean;
 }
 
+function isLikelyConnectivityError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+    return (
+        message.includes('failed to fetch') ||
+        message.includes('fetch failed') ||
+        message.includes('networkerror') ||
+        message.includes('network request failed') ||
+        message.includes('load failed') ||
+        message.includes('polling timeout') ||
+        message.includes('polling interrupted')
+    );
+}
+
 
 const sortStudentsByTokenNumber = <T extends { tokenNumber: string }>(students: T[]): T[] => {
     return [...students].sort((a, b) => {
@@ -130,6 +144,8 @@ export default function UploadWorksheetPage() {
     const [selectedClass, setSelectedClass] = useState<string>('');
     const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
     const [searchTerm, setSearchTerm] = useState<string>('');
+    const [isOnline, setIsOnline] = useState(true);
+    const [resumeRefreshKey, setResumeRefreshKey] = useState(0);
     const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
     const [worksheetStats, setWorksheetStats] = useState<WorksheetStats | null>(null);
 
@@ -221,6 +237,38 @@ export default function UploadWorksheetPage() {
 
         fetchInitialData();
     }, [user?.id]);
+
+    useEffect(() => {
+        const updateOnlineStatus = () => setIsOnline(window.navigator.onLine);
+
+        updateOnlineStatus();
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+
+        return () => {
+            window.removeEventListener('online', updateOnlineStatus);
+            window.removeEventListener('offline', updateOnlineStatus);
+        };
+    }, []);
+
+    useEffect(() => {
+        const triggerRefresh = () => setResumeRefreshKey((prev) => prev + 1);
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                triggerRefresh();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('focus', triggerRefresh);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', triggerRefresh);
+        };
+    }, []);
+
     useEffect(() => {
         const fetchStudentsAndWorksheets = async () => {
             if (!selectedClass) {
@@ -441,14 +489,12 @@ export default function UploadWorksheetPage() {
                                         })().catch(() => { });
                                     }
                                 }
-                            ).catch(() => {
-                                // Job polling failed - clear uploading state
-                                setStudentWorksheets(prev => prev.map(sw => {
-                                    if (sw.jobId === job.id) {
-                                        return { ...sw, isUploading: false };
-                                    }
-                                    return sw;
-                                }));
+                            ).catch((pollError) => {
+                                console.warn('Background job polling interrupted', {
+                                    jobId: job.id,
+                                    error: pollError instanceof Error ? pollError.message : String(pollError)
+                                });
+                                // Keep current row state untouched; refresh-on-resume and periodic page reload can resync.
                             });
                         });
                     }
@@ -465,7 +511,7 @@ export default function UploadWorksheetPage() {
         };
 
         fetchStudentsAndWorksheets();
-    }, [selectedClass, submittedOn]);
+    }, [selectedClass, submittedOn, resumeRefreshKey]);
 
     const handlePageFileChange = (studentId: string, pageNumber: number, file: File | null, worksheetEntryId: string) => {
         setStudentWorksheets(prev => prev.map(sw => {
@@ -591,6 +637,11 @@ export default function UploadWorksheetPage() {
 
         setStudentWorksheets(newWorksheets);
     }; const handleUpload = async (worksheet: StudentWorksheet) => {
+        if (!isOnline) {
+            toast.error('You are offline. Reconnect to submit grading.');
+            return { success: false };
+        }
+
         if (worksheet.isAbsent) {
             return;
         }
@@ -747,13 +798,27 @@ export default function UploadWorksheetPage() {
                     }
                 } catch (pollError) {
                     console.error('Polling error:', pollError);
-                    const message = pollError instanceof Error ? pollError.message : 'Grading failed';
+                    const message = pollError instanceof Error ? pollError.message : 'Grading status tracking interrupted';
+                    const likelyConnectivityError = isLikelyConnectivityError(pollError);
+
+                    if (likelyConnectivityError) {
+                        // Do not mark the job FAILED on client polling/network issues.
+                        // Job continues on backend/queue and will resync on next refresh/focus.
+                        setStudentWorksheets(prev => prev.map(sw =>
+                            sw.worksheetEntryId === worksheet.worksheetEntryId
+                                ? { ...sw, isUploading: true, jobStatus: sw.jobStatus || 'QUEUED' }
+                                : sw
+                        ));
+                        toast.info(`Connection interrupted for ${worksheet.name}. Grading continues in background.`);
+                        return { success: true, pending: true };
+                    }
+
                     setStudentWorksheets(prev => prev.map(sw =>
                         sw.worksheetEntryId === worksheet.worksheetEntryId
-                            ? { ...sw, isUploading: false, jobStatus: 'FAILED' }
+                            ? { ...sw, isUploading: false }
                             : sw
                     ));
-                    toast.error(`Grading failed for ${worksheet.name}: ${message}`);
+                    toast.error(`Could not track grading for ${worksheet.name}: ${message}`);
                     return { success: false };
                 }
 
@@ -792,6 +857,11 @@ export default function UploadWorksheetPage() {
         }
     };
     const handleBatchProcess = async () => {
+        if (!isOnline) {
+            toast.error('You are offline. Reconnect to submit grading.');
+            return;
+        }
+
         const studentsWithFiles = studentWorksheets.filter(sw =>
             !sw.isAbsent && (sw.page1File || sw.page2File) && sw.worksheetNumber
         );
@@ -843,6 +913,11 @@ export default function UploadWorksheetPage() {
 
 
     const handleSaveStudent = async (worksheet: StudentWorksheet) => {
+        if (!isOnline) {
+            toast.error('You are offline. Reconnect to save changes.');
+            return;
+        }
+
         if (!selectedClass) {
             toast.error('Please select a class first');
             return;
@@ -1042,6 +1117,11 @@ export default function UploadWorksheetPage() {
     };
 
     const handleSaveAllChanges = async () => {
+        if (!isOnline) {
+            toast.error('You are offline. Reconnect to save changes.');
+            return;
+        }
+
         setIsSaving(true);
 
         try {
@@ -1219,6 +1299,11 @@ export default function UploadWorksheetPage() {
 
                 {/* Grading Jobs Status Dashboard */}
                 <GradingJobsStatus className="mb-6" />
+                {!isOnline && (
+                    <div className="mb-6 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+                        You are offline. Upload, AI Grade, and Save actions are disabled until connection is restored.
+                    </div>
+                )}
                 {selectedClass && (
                     <div className="mb-6 space-y-3 md:space-y-0 md:flex md:items-center md:space-x-6 text-sm">
                         <div className="flex items-center justify-between bg-gray-50 rounded-md px-3 py-2 md:justify-start md:space-x-2">
@@ -1349,6 +1434,7 @@ export default function UploadWorksheetPage() {
                                                 onSave={handleSaveStudent}
                                                 onAddWorksheet={handleAddWorksheet}
                                                 onRemoveWorksheet={handleRemoveWorksheet}
+                                                isOffline={!isOnline}
                                             />
                                         ))}
                                     </div>
@@ -1362,7 +1448,7 @@ export default function UploadWorksheetPage() {
                             <div className="hidden md:flex justify-end mt-4 space-x-3">
                                 <Button
                                     onClick={handleBatchProcess}
-                                    disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) ||
+                                    disabled={!isOnline || isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) ||
                                         !studentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
                                     variant="secondary"
                                 >
@@ -1375,7 +1461,7 @@ export default function UploadWorksheetPage() {
                                 </Button>
                                 <Button
                                     onClick={handleSaveAllChanges}
-                                    disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
+                                    disabled={!isOnline || isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
                                 >
                                     {isSaving ? 'Saving Changes...' : 'Save All Changes'}
                                 </Button>
@@ -1393,7 +1479,7 @@ export default function UploadWorksheetPage() {
                                         </Button>
                                         <Button
                                             onClick={handleBatchProcess}
-                                            disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) ||
+                                            disabled={!isOnline || isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) ||
                                                 !studentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
                                             className="flex-1 h-12 text-sm font-medium"
                                             variant="secondary"
@@ -1402,7 +1488,7 @@ export default function UploadWorksheetPage() {
                                         </Button>
                                         <Button
                                             onClick={handleSaveAllChanges}
-                                            disabled={isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
+                                            disabled={!isOnline || isSaving || sortedStudentWorksheets.some(ws => ws.isUploading)}
                                             className="flex-1 h-12 text-sm font-medium"
                                         >
                                             {isSaving ? 'Saving...' : 'Save All'}

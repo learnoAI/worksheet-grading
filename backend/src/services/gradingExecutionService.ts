@@ -7,6 +7,7 @@ import { scheduleGrading } from './gradingLimiter';
 import { aiGradingLogger } from './logger';
 import { GradingApiResponse } from './gradingTypes';
 import { persistWorksheetForGradingJob } from './gradingWorksheetPersistenceService';
+import { captureGradingPipelineEvent } from './posthogService';
 
 interface ExecuteGradingJobResult {
     worksheetId: string;
@@ -53,6 +54,14 @@ async function callPythonApi(
         maxRetries
     });
 
+    captureGradingPipelineEvent('python_call_started', jobId, {
+        jobId,
+        tokenNo,
+        worksheetName,
+        filesCount: files.length,
+        maxRetries
+    });
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             if (onHeartbeat) {
@@ -93,22 +102,54 @@ async function callPythonApi(
                 grade: data.grade
             });
 
+            captureGradingPipelineEvent('python_call_succeeded', jobId, {
+                jobId,
+                tokenNo,
+                worksheetName,
+                attempt,
+                grade: data.grade,
+                gradePercentage: data.grade_percentage
+            });
+
             return data;
         } catch (error) {
             lastError = error instanceof Error ? error : new Error(String(error));
 
             const msg = lastError.message;
             if (msg.includes('400') || msg.includes('401') || msg.includes('403') || msg.includes('404')) {
+                captureGradingPipelineEvent('python_call_non_retryable_failed', jobId, {
+                    jobId,
+                    tokenNo,
+                    worksheetName,
+                    attempt,
+                    error: msg
+                });
                 throw lastError;
             }
 
             if (attempt < maxRetries) {
                 const delay = baseDelayMs * Math.pow(2, attempt - 1);
                 const jitter = delay * (0.7 + Math.random() * 0.6);
+                captureGradingPipelineEvent('python_call_retry_scheduled', jobId, {
+                    jobId,
+                    tokenNo,
+                    worksheetName,
+                    attempt,
+                    error: msg,
+                    retryDelayMs: Math.round(jitter)
+                });
                 await new Promise((resolve) => setTimeout(resolve, jitter));
             }
         }
     }
+
+    captureGradingPipelineEvent('python_call_retry_exhausted', jobId, {
+        jobId,
+        tokenNo,
+        worksheetName,
+        maxRetries,
+        error: lastError?.message || 'Unknown error'
+    });
 
     throw lastError;
 }
@@ -152,6 +193,12 @@ export async function executeGradingJob(
 ): Promise<ExecuteGradingJobResult> {
     const job = await loadJobWithImages(jobId);
 
+    captureGradingPipelineEvent('execution_started', jobId, {
+        jobId,
+        pythonApiUrl,
+        imagesCount: job.images.length
+    });
+
     const files: PythonApiFile[] = [];
     for (const image of job.images) {
         const buffer = await downloadFromS3(image.s3Key, image.storageProvider === 'R2' ? 'r2' : 's3');
@@ -170,5 +217,14 @@ export async function executeGradingJob(
         jobId,
         options.onHeartbeat
     );
-    return persistWorksheetForGradingJob(job, pythonResponse);
+    const persisted = await persistWorksheetForGradingJob(job, pythonResponse);
+
+    captureGradingPipelineEvent('execution_persisted', jobId, {
+        jobId,
+        worksheetId: persisted.worksheetId,
+        action: persisted.action,
+        grade: persisted.grade
+    });
+
+    return persisted;
 }
