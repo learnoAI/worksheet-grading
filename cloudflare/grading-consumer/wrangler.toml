@@ -24,7 +24,7 @@ bucket_name = "worksheet-grading-assets"
 
 [[queues.consumers]]
 queue = "grading-fast"
-max_batch_size = 1
+max_batch_size = 10
 max_batch_timeout = 1
 max_concurrency = 200
 max_retries = 5
