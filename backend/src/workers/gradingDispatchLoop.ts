@@ -35,6 +35,11 @@ async function dispatchPendingJobs(): Promise<void> {
                 {
                     lastHeartbeatAt: null,
                     startedAt: { lt: staleCutoff }
+                },
+                {
+                    lastHeartbeatAt: null,
+                    startedAt: null,
+                    updatedAt: { lt: staleCutoff }
                 }
             ]
         },
