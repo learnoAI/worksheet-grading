@@ -37,13 +37,15 @@ export type QuestionScore = z.infer<typeof QuestionScoreSchema>;
 
 export const GradingResultSchema = z
   .object({
-    total_questions: z.number().int(),
-    overall_score: z.number(),
-    grade_percentage: z.number(),
+    // Final grade is computed by our backend pipeline from per-question correctness.
+    // Keep these aggregate fields optional for backward compatibility with older prompts.
+    total_questions: z.number().int().optional(),
+    overall_score: z.number().optional(),
+    grade_percentage: z.number().optional(),
     question_scores: z.array(QuestionScoreSchema),
-    correct_answers: z.number().int(),
-    wrong_answers: z.number().int(),
-    unanswered: z.number().int(),
+    correct_answers: z.number().int().optional(),
+    wrong_answers: z.number().int().optional(),
+    unanswered: z.number().int().optional(),
     overall_feedback: z.string(),
     // Some graders include extra narrative fields; allow it without affecting persistence.
     reason_why: z.string().optional(),

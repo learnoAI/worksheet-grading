@@ -51,13 +51,13 @@ export interface QuestionScore {
 }
 
 export interface GradingResult {
-  total_questions: number;
-  overall_score: number;
-  grade_percentage: number;
+  total_questions?: number;
+  overall_score?: number;
+  grade_percentage?: number;
   question_scores: QuestionScore[];
-  correct_answers: number;
-  wrong_answers: number;
-  unanswered: number;
+  correct_answers?: number;
+  wrong_answers?: number;
+  unanswered?: number;
   overall_feedback: string;
   reason_why?: string;
 }

@@ -283,14 +283,19 @@ async function processJob(
     });
 
     const gradingResult = GradingResultSchema.parse(grading.parsed);
+    const backendResponse = toBackendGradingResponse(gradingResult, {
+      expectedTotalQuestions: extractedQuestions.questions.length,
+    });
     tracker.capturePipeline('worker_grading_succeeded', jobId, {
       jobId,
       leaseId,
-      grade: gradingResult.overall_score,
-      totalQuestions: gradingResult.total_questions,
-      gradePercentage: gradingResult.grade_percentage,
+      grade: backendResponse.grade,
+      totalQuestions: backendResponse.total_questions,
+      gradePercentage: backendResponse.grade_percentage,
+      aiReportedGrade: gradingResult.overall_score ?? null,
+      aiReportedTotalQuestions: gradingResult.total_questions ?? null,
+      aiReportedGradePercentage: gradingResult.grade_percentage ?? null,
     });
-    const backendResponse = toBackendGradingResponse(gradingResult);
 
     await backend.complete(jobId, leaseId, backendResponse);
     tracker.capturePipeline('worker_complete_succeeded', jobId, {

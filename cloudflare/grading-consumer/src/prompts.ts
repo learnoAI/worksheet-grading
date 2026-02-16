@@ -38,19 +38,18 @@ export function buildAiGradingPrompt(extracted: ExtractedQuestions): string {
 
   return `You are an expert teacher grading student worksheets. Below are the questions and student answers extracted from a worksheet.
 
-Please grade each answer and provide a score out of ${TOTAL_POSSIBLE_POINTS} total points (distribute points evenly among all questions).
-
 <Rules>
 1. No partial grading of a question.
 2. If a question is unanswered, it should receive 0 points.
 3. If a question is answered incorrectly, it should receive 0 points.
-4. No grades in decimals.
+4. Use points only at question level, with an even max_points split across questions so total is ${TOTAL_POSSIBLE_POINTS}.
+5. Do not compute or return a final overall score or percentage. The platform computes those deterministically.
 </Rules>
 
 ${formatted}
 
 IMPORTANT: Return your response in JSON with keys:
-total_questions, overall_score, grade_percentage, question_scores[], correct_answers, wrong_answers, unanswered, overall_feedback.
+question_scores[], overall_feedback.
 Each question_scores[] item must include:
 question_number, question, student_answer, correct_answer, points_earned, max_points, is_correct, feedback.
 `;
@@ -61,20 +60,19 @@ export function buildBookGradingPrompt(extracted: ExtractedQuestions, bookAnswer
 
   return `You are an expert teacher grading student worksheets. Below are the questions, student answers, and correct answers from the answer key.
 
-Please grade each answer and provide a score out of ${TOTAL_POSSIBLE_POINTS} total points (distribute points evenly among all questions).
-
 <Rules>
 1. No partial grading of a question.
 2. If a question is unanswered, it should receive 0 points.
 3. If a question is answered incorrectly, it should receive 0 points.
-4. No grades in decimals.
+4. Use points only at question level, with an even max_points split across questions so total is ${TOTAL_POSSIBLE_POINTS}.
 5. Compare the student answer with the provided correct answer.
+6. Do not compute or return a final overall score or percentage. The platform computes those deterministically.
 </Rules>
 
 ${formatted}
 
 IMPORTANT: Return your response in JSON with keys:
-total_questions, overall_score, grade_percentage, question_scores[], correct_answers, wrong_answers, unanswered, overall_feedback.
+question_scores[], overall_feedback.
 Each question_scores[] item must include:
 question_number, question, student_answer, correct_answer, points_earned, max_points, is_correct, feedback.
 `;
