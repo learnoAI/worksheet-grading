@@ -7,7 +7,7 @@ compatibility_date = "2026-02-14"
 # - BACKEND_WORKER_TOKEN
 # - GEMINI_API_KEY
 # - GEMINI_OCR_MODEL (default: gemini-2.0-flash)
-# - GEMINI_AI_GRADING_MODEL (default: gemini-3-flash-preview)
+# - GEMINI_AI_GRADING_MODEL (default: gemini-2.0-flash)
 # - GEMINI_BOOK_GRADING_MODEL (default: gemini-2.0-flash)
 # - POSTHOG_API_KEY (optional; server-side event telemetry)
 # - POSTHOG_HOST (optional; default: https://us.i.posthog.com)
@@ -25,6 +25,12 @@ bucket_name = "worksheet-grading-assets"
 [[queues.consumers]]
 queue = "grading-fast"
 max_batch_size = 1
-max_batch_timeout = 5
+max_batch_timeout = 1
+max_concurrency = 200
 max_retries = 5
 dead_letter_queue = "grading-fast-dlq"
+
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true

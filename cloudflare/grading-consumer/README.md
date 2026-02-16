@@ -18,7 +18,7 @@ Cloudflare Worker queue consumer that:
 
 Optional:
 - `GEMINI_OCR_MODEL` (default `gemini-2.0-flash`)
-- `GEMINI_AI_GRADING_MODEL` (default `gemini-3-flash-preview`)
+- `GEMINI_AI_GRADING_MODEL` (default `gemini-2.0-flash`)
 - `GEMINI_BOOK_GRADING_MODEL` (default `gemini-2.0-flash`)
 - `HEARTBEAT_INTERVAL_MS` (default `60000`)
 - `FAST_MAX_PAGES` (default `4`)

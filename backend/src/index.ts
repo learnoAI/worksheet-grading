@@ -13,6 +13,7 @@ import schoolRoutes from './routes/schoolRoutes';
 import gradingJobRoutes from './routes/gradingJobRoutes';
 import internalGradingWorkerRoutes from './routes/internalGradingWorkerRoutes';
 import config from './config/env';
+import { startGradingDispatchLoop } from './workers/gradingDispatchLoop';
 
 // Legacy Bull queue remains available and enabled by default for backward compatibility.
 if (process.env.ENABLE_LEGACY_BULL_QUEUE !== 'false') {
@@ -67,4 +68,9 @@ const APP_PORT = config.port;
 
 app.listen(APP_PORT, () => {
     console.log(`Server started on port ${APP_PORT}`);
+
+    if (config.grading.queueMode === 'cloudflare' && config.grading.dispatchLoopOnWeb) {
+        startGradingDispatchLoop();
+        console.log('Grading dispatch loop started in web process');
+    }
 });

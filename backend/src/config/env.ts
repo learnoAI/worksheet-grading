@@ -11,6 +11,20 @@ function parseStorageProvider(value: string | undefined): 's3' | 'r2' {
     return value?.toLowerCase() === 'r2' ? 'r2' : 's3';
 }
 
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+    if (value === undefined) {
+        return fallback;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') {
+        return true;
+    }
+    if (normalized === 'false') {
+        return false;
+    }
+    return fallback;
+}
+
 const gradingQueueMode = process.env.GRADING_QUEUE_MODE === 'cloudflare' ? 'cloudflare' : 'inline';
 const storageProvider = parseStorageProvider(process.env.OBJECT_STORAGE_PROVIDER);
 
@@ -72,6 +86,7 @@ export default {
         queuePollIntervalMs: parseNumber(process.env.GRADING_QUEUE_POLL_INTERVAL_MS, 2000),
         heartbeatIntervalMs: parseNumber(process.env.GRADING_HEARTBEAT_INTERVAL_MS, 10000),
         staleProcessingMs: parseNumber(process.env.GRADING_STALE_PROCESSING_MS, 180000),
-        dispatchLoopIntervalMs: parseNumber(process.env.GRADING_DISPATCH_LOOP_INTERVAL_MS, 5000)
+        dispatchLoopIntervalMs: parseNumber(process.env.GRADING_DISPATCH_LOOP_INTERVAL_MS, 5000),
+        dispatchLoopOnWeb: parseBoolean(process.env.GRADING_DISPATCH_LOOP_ON_WEB, true)
     }
 };

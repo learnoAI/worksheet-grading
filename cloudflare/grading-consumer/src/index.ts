@@ -266,7 +266,7 @@ async function processJob(
 
     const gradingModel = Array.isArray(answers) && answers.length > 0
       ? (env.GEMINI_BOOK_GRADING_MODEL || 'gemini-2.0-flash')
-      : (env.GEMINI_AI_GRADING_MODEL || 'gemini-3-flash-preview');
+      : (env.GEMINI_AI_GRADING_MODEL || 'gemini-2.0-flash');
     tracker.capturePipeline('worker_grading_started', jobId, {
       jobId,
       leaseId,
@@ -316,7 +316,8 @@ export default {
     const tracker = createPosthogClient(env, ctx);
     const maxAttempts = Math.max(1, parsePositiveInt(env.MAX_QUEUE_ATTEMPTS, 5));
 
-    for (const message of batch.messages || []) {
+    const messages = (batch.messages || []) as any[];
+    const messageTasks = messages.map(async (message) => {
       let jobId: string | null = null;
       let acquired = false;
       let leaseId: string | null = null;
@@ -364,7 +365,7 @@ export default {
             jobId,
             messageId: message?.id,
           });
-          continue;
+          return;
         }
 
         const reason = error instanceof Error ? error.message : String(error);
@@ -414,7 +415,7 @@ export default {
             attempts,
             maxAttempts,
           });
-          continue;
+          return;
         }
 
         if (jobId && acquired && leaseId) {
@@ -461,6 +462,12 @@ export default {
           maxAttempts,
         });
       }
+    });
+
+    const settled = await Promise.allSettled(messageTasks);
+    const rejected = settled.find((result) => result.status === 'rejected') as PromiseRejectedResult | undefined;
+    if (rejected) {
+      throw rejected.reason;
     }
   },
 };
