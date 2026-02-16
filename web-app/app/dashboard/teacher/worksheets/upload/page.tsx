@@ -145,7 +145,6 @@ export default function UploadWorksheetPage() {
     const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [isOnline, setIsOnline] = useState(true);
-    const [resumeRefreshKey, setResumeRefreshKey] = useState(0);
     const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
     const [worksheetStats, setWorksheetStats] = useState<WorksheetStats | null>(null);
 
@@ -248,24 +247,6 @@ export default function UploadWorksheetPage() {
         return () => {
             window.removeEventListener('online', updateOnlineStatus);
             window.removeEventListener('offline', updateOnlineStatus);
-        };
-    }, []);
-
-    useEffect(() => {
-        const triggerRefresh = () => setResumeRefreshKey((prev) => prev + 1);
-
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                triggerRefresh();
-            }
-        };
-
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('focus', triggerRefresh);
-
-        return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('focus', triggerRefresh);
         };
     }, []);
 
@@ -511,7 +492,7 @@ export default function UploadWorksheetPage() {
         };
 
         fetchStudentsAndWorksheets();
-    }, [selectedClass, submittedOn, resumeRefreshKey]);
+    }, [selectedClass, submittedOn]);
 
     const handlePageFileChange = (studentId: string, pageNumber: number, file: File | null, worksheetEntryId: string) => {
         setStudentWorksheets(prev => prev.map(sw => {
