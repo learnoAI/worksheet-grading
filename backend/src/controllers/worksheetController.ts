@@ -8,6 +8,21 @@ import fetch from 'node-fetch';
 
 interface MulterFile extends Express.Multer.File { }
 
+function getEffectiveWorksheetNumber(
+    worksheetNumber: number | null | undefined,
+    templateWorksheetNumber: number | null | undefined
+): number | null {
+    if (typeof worksheetNumber === 'number' && worksheetNumber > 0) {
+        return worksheetNumber;
+    }
+
+    if (typeof templateWorksheetNumber === 'number' && templateWorksheetNumber > 0) {
+        return templateWorksheetNumber;
+    }
+
+    return null;
+}
+
 /**
  * Upload a worksheet with multiple images
  * @route POST /api/worksheets/upload
@@ -613,6 +628,7 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
                 connect: { id: submittedById! }
             },
             grade: gradeValue,
+            worksheetNumber: worksheetNum,
             notes,
             status: ProcessingStatus.COMPLETED,
             outOf: 40,
@@ -824,7 +840,12 @@ export const getClassWorksheetsForDate = async (req: Request, res: Response) => 
                     studentId: true,
                     grade: true,
                     submittedOn: true,
-                    worksheetNumber: true
+                    worksheetNumber: true,
+                    template: {
+                        select: {
+                            worksheetNumber: true
+                        }
+                    }
                 },
                 orderBy: {
                     submittedOn: 'desc'
@@ -835,14 +856,26 @@ export const getClassWorksheetsForDate = async (req: Request, res: Response) => 
             const PROGRESSION_THRESHOLD = 32;
 
             for (const studentId of studentsWithoutWorksheets) {
-                const studentHistory = historyData.filter(h => h.studentId === studentId);
-                const completedNumbers = studentHistory
-                    .filter(h => h.worksheetNumber)
-                    .map(h => h.worksheetNumber);
+                const studentHistory = historyData
+                    .filter(h => h.studentId === studentId)
+                    .map((h) => ({
+                        ...h,
+                        effectiveWorksheetNumber: getEffectiveWorksheetNumber(
+                            h.worksheetNumber,
+                            h.template?.worksheetNumber ?? null
+                        )
+                    }));
 
-                const latest = studentHistory[0];
-                const lastWorksheetNumber = latest?.worksheetNumber ?? null;
-                const lastGrade = latest?.grade ?? null;
+                const completedNumbers = studentHistory
+                    .map(h => h.effectiveWorksheetNumber)
+                    .filter((worksheetNumber): worksheetNumber is number => worksheetNumber !== null);
+
+                const latestWithWorksheetNumber = studentHistory.find(
+                    (h) => h.effectiveWorksheetNumber !== null
+                );
+
+                const lastWorksheetNumber = latestWithWorksheetNumber?.effectiveWorksheetNumber ?? null;
+                const lastGrade = latestWithWorksheetNumber?.grade ?? null;
                 const uniqueCompleted = [...new Set(completedNumbers)];
 
                 // Calculate recommendation
@@ -1306,8 +1339,9 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
             dateFilter.lt = beforeDateObj;
         }
 
-        // Get student's last completed worksheet
-        const lastWorksheet = await prisma.worksheet.findFirst({
+        // Get student's worksheet history and resolve worksheet number from direct field
+        // with a template fallback for legacy rows.
+        const worksheetHistory = await prisma.worksheet.findMany({
             where: {
                 classId,
                 studentId,
@@ -1316,12 +1350,32 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
                 grade: { not: null },
                 ...(beforeDate ? { submittedOn: dateFilter } : {})
             },
+            select: {
+                grade: true,
+                worksheetNumber: true,
+                submittedOn: true,
+                template: {
+                    select: {
+                        worksheetNumber: true
+                    }
+                }
+            },
             orderBy: {
                 submittedOn: 'desc'
             }
         });
 
-        if (!lastWorksheet || !lastWorksheet.worksheetNumber) {
+        const lastWorksheet = worksheetHistory
+            .map((worksheet) => ({
+                ...worksheet,
+                effectiveWorksheetNumber: getEffectiveWorksheetNumber(
+                    worksheet.worksheetNumber,
+                    worksheet.template?.worksheetNumber ?? null
+                )
+            }))
+            .find((worksheet) => worksheet.effectiveWorksheetNumber !== null);
+
+        if (!lastWorksheet || lastWorksheet.effectiveWorksheetNumber === null) {
             // No previous worksheet, start from 1
             return res.status(200).json({
                 recommendedWorksheetNumber: 1,
@@ -1333,7 +1387,7 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
         }
 
         const lastGrade = lastWorksheet.grade || 0;
-        const lastWorksheetNumber = lastWorksheet.worksheetNumber;
+        const lastWorksheetNumber = lastWorksheet.effectiveWorksheetNumber;
 
         let recommendedWorksheetNumber: number;
         let isRepeated: boolean;
@@ -1347,9 +1401,18 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
                 where: {
                     classId,
                     studentId,
-                    worksheetNumber: recommendedWorksheetNumber,
                     status: ProcessingStatus.COMPLETED,
                     isAbsent: false,
+                    OR: [
+                        { worksheetNumber: recommendedWorksheetNumber },
+                        {
+                            template: {
+                                is: {
+                                    worksheetNumber: recommendedWorksheetNumber
+                                }
+                            }
+                        }
+                    ],
                     ...(beforeDate ? { submittedOn: dateFilter } : {})
                 }
             });

@@ -285,6 +285,9 @@ export default function UploadWorksheetPage() {
                             const images = worksheet.images || [];
                             const page1 = images.find((img: any) => img.pageNumber === 1);
                             const page2 = images.find((img: any) => img.pageNumber === 2);
+                            const existingWorksheetNumber = worksheet.worksheetNumber > 0
+                                ? worksheet.worksheetNumber
+                                : (worksheet.template?.worksheetNumber || 0);
 
                             return {
                                 worksheetEntryId: `${student.id}-${index}`,
@@ -292,7 +295,7 @@ export default function UploadWorksheetPage() {
                                 name: student.name,
                                 tokenNumber: student.tokenNumber,
                                 id: worksheet.id || '',
-                                worksheetNumber: worksheet.isAbsent ? 0 : (worksheet.template?.worksheetNumber || 0),
+                                worksheetNumber: worksheet.isAbsent ? 0 : existingWorksheetNumber,
                                 grade: worksheet.isAbsent ? '' : (worksheet.grade?.toString() || ''),
                                 existing: true,
                                 isAbsent: !!worksheet.isAbsent,
