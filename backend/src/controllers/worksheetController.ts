@@ -950,7 +950,11 @@ export const getIncorrectGradingWorksheets = async (req: Request, res: Response)
             include: {
                 student: { select: { id: true, name: true, tokenNumber: true } },
                 submittedBy: { select: { name: true, username: true } },
-                class: { select: { name: true } }
+                class: { select: { name: true } },
+                images: {
+                    select: { imageUrl: true, pageNumber: true },
+                    orderBy: { pageNumber: 'asc' }
+                }
             },
             orderBy: [
                 { submittedOn: 'desc' },
@@ -963,7 +967,9 @@ export const getIncorrectGradingWorksheets = async (req: Request, res: Response)
             worksheetNumber: worksheet.worksheetNumber || 0,
             grade: worksheet.grade || 0,
             submittedOn: worksheet.submittedOn,
+            updatedAt: worksheet.updatedAt,
             adminComments: worksheet.adminComments,
+            wrongQuestionNumbers: worksheet.wrongQuestionNumbers,
             student: {
                 id: worksheet.student?.id || null,
                 name: worksheet.student?.name || 'Unknown',
@@ -974,21 +980,58 @@ export const getIncorrectGradingWorksheets = async (req: Request, res: Response)
                 username: worksheet.submittedBy.username
             },
             class: { name: worksheet.class.name },
-            gradingDetails: worksheet.gradingDetails
+            gradingDetails: worksheet.gradingDetails,
+            images: worksheet.images
         }));
 
-        const seen = new Set<string>();
-        const deduped: typeof transformed = [] as any;
+        const scoreWorksheet = (worksheet: (typeof transformed)[number]): number => {
+            let score = 0;
+            if (worksheet.gradingDetails) score += 4;
+            if (worksheet.images.length > 0) score += 2;
+            if (worksheet.wrongQuestionNumbers) score += 1;
+            return score;
+        };
+
+        const dedupedByKey = new Map<string, (typeof transformed)[number]>();
         for (const w of transformed) {
             const dt = w.submittedOn ? new Date(w.submittedOn as any) : new Date(0);
             const dateKey = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
             const studentKey = w.student?.id || 'unknown';
             const key = `${studentKey}|${w.worksheetNumber}|${dateKey}`;
-            if (!seen.has(key)) {
-                seen.add(key);
-                deduped.push(w);
+
+            const current = dedupedByKey.get(key);
+            if (!current) {
+                dedupedByKey.set(key, w);
+                continue;
+            }
+
+            const currentScore = scoreWorksheet(current);
+            const nextScore = scoreWorksheet(w);
+            if (nextScore > currentScore) {
+                dedupedByKey.set(key, w);
+                continue;
+            }
+
+            if (nextScore === currentScore) {
+                const currentUpdatedAt = current.updatedAt ? new Date(current.updatedAt).getTime() : 0;
+                const nextUpdatedAt = w.updatedAt ? new Date(w.updatedAt).getTime() : 0;
+                if (nextUpdatedAt > currentUpdatedAt) {
+                    dedupedByKey.set(key, w);
+                }
             }
         }
+
+        const submittedOnTime = (value: unknown): number => {
+            if (!value) return 0;
+            const timestamp = new Date(value as any).getTime();
+            return Number.isFinite(timestamp) ? timestamp : 0;
+        };
+
+        const deduped = Array.from(dedupedByKey.values()).sort((a, b) => {
+            const dateDiff = submittedOnTime(b.submittedOn) - submittedOnTime(a.submittedOn);
+            if (dateDiff !== 0) return dateDiff;
+            return a.worksheetNumber - b.worksheetNumber;
+        });
 
         const total = deduped.length;
         const startIdx = (pageNum - 1) * sizeNum;
@@ -999,10 +1042,12 @@ export const getIncorrectGradingWorksheets = async (req: Request, res: Response)
             grade: w.grade,
             submittedOn: w.submittedOn,
             adminComments: w.adminComments,
+            wrongQuestionNumbers: w.wrongQuestionNumbers,
             student: { name: w.student.name, tokenNumber: w.student.tokenNumber },
             submittedBy: { name: w.submittedBy.name, username: w.submittedBy.username },
             class: { name: w.class.name },
-            gradingDetails: w.gradingDetails
+            gradingDetails: w.gradingDetails,
+            images: w.images
         }));
 
         return res.status(200).json({ data, total, page: pageNum, pageSize: sizeNum });
