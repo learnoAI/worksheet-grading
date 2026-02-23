@@ -3,7 +3,7 @@ import { validationResult } from 'express-validator';
 import prisma from '../utils/prisma';
 import { uploadToS3 } from '../services/s3Service';
 import { enqueueWorksheet } from '../services/queueService';
-import { GradingJobStatus, ProcessingStatus } from '@prisma/client';
+import { GradingJobStatus, Prisma, ProcessingStatus } from '@prisma/client';
 import fetch from 'node-fetch';
 
 interface MulterFile extends Express.Multer.File { }
@@ -652,7 +652,7 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
                     isAbsent: true,
                     isRepeated: false, // Can't be repeated if absent
                     isIncorrectGrade: false, // Absent students can't have incorrect grades
-                    gradingDetails: null,
+                    gradingDetails: Prisma.DbNull,
                     wrongQuestionNumbers: null
                 }
             });
