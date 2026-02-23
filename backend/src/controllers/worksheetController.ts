@@ -3,7 +3,7 @@ import { validationResult } from 'express-validator';
 import prisma from '../utils/prisma';
 import { uploadToS3 } from '../services/s3Service';
 import { enqueueWorksheet } from '../services/queueService';
-import { ProcessingStatus } from '@prisma/client';
+import { GradingJobStatus, ProcessingStatus } from '@prisma/client';
 import fetch from 'node-fetch';
 
 interface MulterFile extends Express.Multer.File { }
@@ -21,6 +21,64 @@ function getEffectiveWorksheetNumber(
     }
 
     return null;
+}
+
+function getFirstPositiveNumber(...values: Array<number | null | undefined>): number | null {
+    for (const value of values) {
+        if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+            return value;
+        }
+    }
+    return null;
+}
+
+function parseWorksheetNumberFromNotes(notes: string | null | undefined): number | null {
+    if (!notes) {
+        return null;
+    }
+
+    const match = notes.match(/worksheet\s*#?\s*(\d+)/i);
+    if (!match) {
+        return null;
+    }
+
+    const parsed = Number.parseInt(match[1], 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseDateInputToUtcStart(dateInput: string): Date | null {
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput);
+    if (dateOnlyMatch) {
+        const year = Number(dateOnlyMatch[1]);
+        const month = Number(dateOnlyMatch[2]);
+        const day = Number(dateOnlyMatch[3]);
+        return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    }
+
+    const parsed = new Date(dateInput);
+    if (Number.isNaN(parsed.getTime())) {
+        return null;
+    }
+    parsed.setUTCHours(0, 0, 0, 0);
+    return parsed;
+}
+
+function parseDateInputToUtcEndExclusive(dateInput: string): Date | null {
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput);
+    if (dateOnlyMatch) {
+        const year = Number(dateOnlyMatch[1]);
+        const month = Number(dateOnlyMatch[2]);
+        const day = Number(dateOnlyMatch[3]);
+        return new Date(Date.UTC(year, month - 1, day + 1, 0, 0, 0, 0));
+    }
+
+    const parsed = new Date(dateInput);
+    if (Number.isNaN(parsed.getTime())) {
+        return null;
+    }
+    parsed.setUTCHours(0, 0, 0, 0);
+    parsed.setUTCDate(parsed.getUTCDate() + 1);
+    return parsed;
 }
 
 /**
@@ -245,6 +303,12 @@ export const getWorksheetById = async (req: Request, res: Response) => {
                     select: {
                         id: true,
                         name: true
+                    }
+                },
+                template: {
+                    select: {
+                        id: true,
+                        worksheetNumber: true
                     }
                 },
                 images: true
@@ -550,7 +614,7 @@ export const findAllWorksheetsByClassStudentDate = async (req: Request, res: Res
 // Update a graded worksheet
 export const updateGradedWorksheet = async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isIncorrectGrade, gradingDetails } = req.body;
+    const { classId, studentId, worksheetNumber, grade, notes, submittedOn, isAbsent, isRepeated, isIncorrectGrade, gradingDetails, wrongQuestionNumbers } = req.body;
     const submittedById = req.user?.userId;
 
     try {
@@ -588,6 +652,8 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
                     isAbsent: true,
                     isRepeated: false, // Can't be repeated if absent
                     isIncorrectGrade: false, // Absent students can't have incorrect grades
+                    gradingDetails: null,
+                    wrongQuestionNumbers: null
                 }
             });
 
@@ -641,7 +707,8 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
             isAbsent: false,
             isRepeated: isRepeated || false,
             isIncorrectGrade: isIncorrectGrade || false,
-            gradingDetails: gradingDetails || null,
+            gradingDetails: gradingDetails === undefined ? existingWorksheet.gradingDetails : (gradingDetails || null),
+            wrongQuestionNumbers: wrongQuestionNumbers === undefined ? existingWorksheet.wrongQuestionNumbers : (wrongQuestionNumbers || null),
         }
 
         const worksheet = await prisma.worksheet.update({
@@ -931,18 +998,33 @@ export const getIncorrectGradingWorksheets = async (req: Request, res: Response)
             status: ProcessingStatus.COMPLETED,
         };
 
-        if (startDate || endDate) {
-            const submittedOn: any = {};
-            if (startDate) {
-                const start = new Date(startDate);
-                submittedOn.gte = start;
+        const startBoundary = startDate ? parseDateInputToUtcStart(String(startDate)) : null;
+        const endBoundary = endDate ? parseDateInputToUtcEndExclusive(String(endDate)) : null;
+
+        if ((startDate && !startBoundary) || (endDate && !endBoundary)) {
+            return res.status(400).json({ message: 'Invalid startDate/endDate values' });
+        }
+        if (startBoundary && endBoundary && startBoundary >= endBoundary) {
+            return res.status(400).json({ message: 'startDate must be before or equal to endDate' });
+        }
+
+        if (startBoundary || endBoundary) {
+            const dateRange: { gte?: Date; lt?: Date } = {};
+            if (startBoundary) {
+                dateRange.gte = startBoundary;
             }
-            if (endDate) {
-                const end = new Date(endDate);
-                const endExclusive = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() + 1));
-                submittedOn.lt = endExclusive;
+            if (endBoundary) {
+                dateRange.lt = endBoundary;
             }
-            where.submittedOn = submittedOn;
+
+            where.AND = [
+                {
+                    OR: [
+                        { submittedOn: dateRange },
+                        { createdAt: dateRange }
+                    ]
+                }
+            ];
         }
 
         const worksheets = await prisma.worksheet.findMany({
@@ -951,6 +1033,7 @@ export const getIncorrectGradingWorksheets = async (req: Request, res: Response)
                 student: { select: { id: true, name: true, tokenNumber: true } },
                 submittedBy: { select: { name: true, username: true } },
                 class: { select: { name: true } },
+                template: { select: { worksheetNumber: true } },
                 images: {
                     select: { imageUrl: true, pageNumber: true },
                     orderBy: { pageNumber: 'asc' }
@@ -962,27 +1045,193 @@ export const getIncorrectGradingWorksheets = async (req: Request, res: Response)
             ]
         });
 
-        const transformed = worksheets.map(worksheet => ({
-            id: worksheet.id,
-            worksheetNumber: worksheet.worksheetNumber || 0,
-            grade: worksheet.grade || 0,
-            submittedOn: worksheet.submittedOn,
-            updatedAt: worksheet.updatedAt,
-            adminComments: worksheet.adminComments,
-            wrongQuestionNumbers: worksheet.wrongQuestionNumbers,
-            student: {
-                id: worksheet.student?.id || null,
-                name: worksheet.student?.name || 'Unknown',
-                tokenNumber: worksheet.student?.tokenNumber || 'N/A'
-            },
-            submittedBy: {
-                name: worksheet.submittedBy.name,
-                username: worksheet.submittedBy.username
-            },
-            class: { name: worksheet.class.name },
-            gradingDetails: worksheet.gradingDetails,
-            images: worksheet.images
-        }));
+        const worksheetIds = worksheets.map((worksheet) => worksheet.id);
+        const gradingJobsWithImages = worksheetIds.length > 0
+            ? await prisma.gradingJob.findMany({
+                where: {
+                    worksheetId: { in: worksheetIds },
+                    status: GradingJobStatus.COMPLETED
+                },
+                select: {
+                    worksheetId: true,
+                    worksheetNumber: true,
+                    updatedAt: true,
+                    images: {
+                        select: { imageUrl: true, pageNumber: true },
+                        orderBy: { pageNumber: 'asc' }
+                    }
+                }
+            })
+            : [];
+
+        const jobContextByWorksheet = new Map<string, {
+            updatedAtMs: number;
+            images: Array<{ imageUrl: string; pageNumber: number }>;
+            worksheetNumber: number | null;
+        }>();
+        for (const gradingJob of gradingJobsWithImages) {
+            if (!gradingJob.worksheetId || gradingJob.images.length === 0) {
+                continue;
+            }
+
+            const updatedAtMs = gradingJob.updatedAt.getTime();
+            const gradingJobWorksheetNumber = getFirstPositiveNumber(gradingJob.worksheetNumber);
+            const existing = jobContextByWorksheet.get(gradingJob.worksheetId);
+            if (!existing) {
+                jobContextByWorksheet.set(gradingJob.worksheetId, {
+                    updatedAtMs,
+                    images: gradingJob.images,
+                    worksheetNumber: gradingJobWorksheetNumber
+                });
+                continue;
+            }
+
+            const shouldReplace =
+                gradingJob.images.length > existing.images.length ||
+                (gradingJob.images.length === existing.images.length && updatedAtMs > existing.updatedAtMs) ||
+                (existing.worksheetNumber === null && gradingJobWorksheetNumber !== null);
+
+            if (shouldReplace) {
+                jobContextByWorksheet.set(gradingJob.worksheetId, {
+                    updatedAtMs,
+                    images: gradingJob.images,
+                    worksheetNumber: gradingJobWorksheetNumber
+                });
+            }
+        }
+
+        const unresolvedWorksheets = worksheets.filter((worksheet) => {
+            if (worksheet.images.length > 0) {
+                return false;
+            }
+            const imagesFromLinkedJob = jobContextByWorksheet.get(worksheet.id)?.images || [];
+            return imagesFromLinkedJob.length === 0;
+        });
+
+        if (unresolvedWorksheets.length > 0) {
+            const unresolvedStudentIds = Array.from(new Set(
+                unresolvedWorksheets
+                    .map((worksheet) => worksheet.studentId)
+                    .filter((studentId): studentId is string => !!studentId)
+            ));
+            const unresolvedClassIds = Array.from(new Set(unresolvedWorksheets.map((worksheet) => worksheet.classId)));
+            const unresolvedWorksheetNumbers = Array.from(new Set(
+                unresolvedWorksheets
+                    .map((worksheet) => getFirstPositiveNumber(
+                        worksheet.worksheetNumber,
+                        worksheet.template?.worksheetNumber ?? null,
+                        jobContextByWorksheet.get(worksheet.id)?.worksheetNumber ?? null,
+                        parseWorksheetNumberFromNotes(worksheet.notes)
+                    ))
+                    .filter((worksheetNumber): worksheetNumber is number => worksheetNumber !== null)
+            ));
+
+            if (unresolvedStudentIds.length > 0 && unresolvedClassIds.length > 0 && unresolvedWorksheetNumbers.length > 0) {
+                const fallbackJobs = await prisma.gradingJob.findMany({
+                    where: {
+                        status: GradingJobStatus.COMPLETED,
+                        studentId: { in: unresolvedStudentIds },
+                        classId: { in: unresolvedClassIds },
+                        worksheetNumber: { in: unresolvedWorksheetNumbers }
+                    },
+                    select: {
+                        studentId: true,
+                        classId: true,
+                        worksheetNumber: true,
+                        submittedOn: true,
+                        updatedAt: true,
+                        images: {
+                            select: { imageUrl: true, pageNumber: true },
+                            orderBy: { pageNumber: 'asc' }
+                        }
+                    }
+                });
+
+                const getUtcDayBounds = (date: Date): { start: Date; endExclusive: Date } => {
+                    const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+                    const endExclusive = new Date(start);
+                    endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+                    return { start, endExclusive };
+                };
+
+                for (const worksheet of unresolvedWorksheets) {
+                    const worksheetNumberForMatching = getFirstPositiveNumber(
+                        worksheet.worksheetNumber,
+                        worksheet.template?.worksheetNumber ?? null,
+                        jobContextByWorksheet.get(worksheet.id)?.worksheetNumber ?? null,
+                        parseWorksheetNumberFromNotes(worksheet.notes)
+                    );
+
+                    if (!worksheet.studentId || !worksheetNumberForMatching) {
+                        continue;
+                    }
+
+                    const worksheetDateBase = worksheet.submittedOn || worksheet.createdAt;
+                    const { start, endExclusive } = getUtcDayBounds(worksheetDateBase);
+
+                    const candidates = fallbackJobs.filter((job) =>
+                        job.studentId === worksheet.studentId &&
+                        job.classId === worksheet.classId &&
+                        job.worksheetNumber === worksheetNumberForMatching &&
+                        job.submittedOn >= start &&
+                        job.submittedOn < endExclusive &&
+                        job.images.length > 0
+                    );
+
+                    if (candidates.length === 0) {
+                        continue;
+                    }
+
+                    candidates.sort((a, b) => {
+                        if (b.images.length !== a.images.length) {
+                            return b.images.length - a.images.length;
+                        }
+                        return b.updatedAt.getTime() - a.updatedAt.getTime();
+                    });
+
+                    const best = candidates[0];
+                    jobContextByWorksheet.set(worksheet.id, {
+                        updatedAtMs: best.updatedAt.getTime(),
+                        images: best.images,
+                        worksheetNumber: getFirstPositiveNumber(best.worksheetNumber)
+                    });
+                }
+            }
+        }
+
+        const transformed = worksheets.map(worksheet => {
+            const linkedJobContext = jobContextByWorksheet.get(worksheet.id);
+            const effectiveWorksheetNumber = getFirstPositiveNumber(
+                worksheet.worksheetNumber,
+                worksheet.template?.worksheetNumber ?? null,
+                linkedJobContext?.worksheetNumber ?? null,
+                parseWorksheetNumberFromNotes(worksheet.notes)
+            ) || 0;
+
+            return {
+                id: worksheet.id,
+                worksheetNumber: effectiveWorksheetNumber,
+                grade: worksheet.grade || 0,
+                submittedOn: worksheet.submittedOn,
+                updatedAt: worksheet.updatedAt,
+                adminComments: worksheet.adminComments,
+                wrongQuestionNumbers: worksheet.wrongQuestionNumbers,
+                student: {
+                    id: worksheet.student?.id || null,
+                    name: worksheet.student?.name || 'Unknown',
+                    tokenNumber: worksheet.student?.tokenNumber || 'N/A'
+                },
+                submittedBy: {
+                    name: worksheet.submittedBy.name,
+                    username: worksheet.submittedBy.username
+                },
+                class: { name: worksheet.class.name },
+                gradingDetails: worksheet.gradingDetails,
+                images: worksheet.images.length > 0
+                    ? worksheet.images
+                    : (linkedJobContext?.images || [])
+            };
+        });
 
         const scoreWorksheet = (worksheet: (typeof transformed)[number]): number => {
             let score = 0;
@@ -1187,17 +1436,27 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
 
     try {
         const { startDate, endDate } = req.body;
+        const startBoundary = startDate ? parseDateInputToUtcStart(String(startDate)) : null;
+        const endBoundaryExclusive = endDate ? parseDateInputToUtcEndExclusive(String(endDate)) : null;
+
+        if ((startDate && !startBoundary) || (endDate && !endBoundaryExclusive)) {
+            return res.status(400).json({ message: 'Invalid startDate/endDate values' });
+        }
+        if (startBoundary && endBoundaryExclusive && startBoundary >= endBoundaryExclusive) {
+            return res.status(400).json({ message: 'startDate must be before or equal to endDate' });
+        }
 
         // Build the request body for Python API
         const requestBody: { full: boolean; start_time?: string; end_time?: string } = {
             full: !startDate && !endDate, // full is true if no dates provided
         };
 
-        if (startDate) {
-            requestBody.start_time = startDate;
+        if (startBoundary) {
+            requestBody.start_time = startBoundary.toISOString();
         }
-        if (endDate) {
-            requestBody.end_time = endDate;
+        if (endBoundaryExclusive) {
+            const endBoundaryInclusive = new Date(endBoundaryExclusive.getTime() - 1);
+            requestBody.end_time = endBoundaryInclusive.toISOString();
         }
 
         const response = await fetch(`${pythonApiUrl}/total-ai-graded`, {

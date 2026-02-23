@@ -348,11 +348,25 @@ export default function IncorrectGradingPage() {
                         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
                             <div className="md:col-span-2">
                                 <Label className="text-sm">Start date</Label>
-                                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                                <Input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => {
+                                        setStartDate(e.target.value);
+                                        setPage(1);
+                                    }}
+                                />
                             </div>
                             <div className="md:col-span-2">
                                 <Label className="text-sm">End date</Label>
-                                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                                <Input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => {
+                                        setEndDate(e.target.value);
+                                        setPage(1);
+                                    }}
+                                />
                             </div>
                             <div className="flex gap-2">
                                 <Button
@@ -444,6 +458,11 @@ export default function IncorrectGradingPage() {
                                                                 type="button" 
                                                                 variant="outline" 
                                                                 className="w-full"
+                                                                onClick={() => {
+                                                                    if (!worksheet.gradingDetails && !gradingDetailsCache[worksheet.id] && !fetchingGradingDetails[worksheet.id]) {
+                                                                        loadGradingDetails(worksheet.id, worksheet.student.tokenNumber, worksheet.worksheetNumber, worksheet.grade);
+                                                                    }
+                                                                }}
                                                             >
                                                                 <Eye className="h-4 w-4 mr-2" />
                                                                 View Grading Details
