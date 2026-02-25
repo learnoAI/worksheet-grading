@@ -1,0 +1,64 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every mathematical question and its corresponding final student answer from the provided worksheet image.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST be a single JSON object containing a `"questions"` array, exactly matching this structure:
+```json
+{
+  "questions": [
+    {
+      "question_number": <integer>,
+      "question": "<string>",
+      "student_answer": "<string>"
+    }
+  ]
+}
+```
+
+**EXTRACTION & FORMATTING RULES:**
+
+1. **`question_number` (Integer):**
+   - Extract ONLY the numeric value of the question (e.g., `1`, `2`, `3`).
+   - Do NOT include "Q" or ".". The output must be an integer, not a string.
+
+2. **`question` (String):**
+   - Must include the exact label as printed on the page, followed by a space, the top number, the "x" sign, and the bottom number.
+   - **Crucial:** Pay close attention to the label prefix. Question 1 is typically just `"1."`, while subsequent questions use `"Q2."`, `"Q3."`, etc.
+   - Flatten the vertical math problem into a single horizontal string (e.g., `"1. 807 x 47"` or `"Q2. 958 x 39"`).
+   - Do NOT include newline characters.
+
+3. **`student_answer` (String):**
+   - Extract **ONLY the final answer** (the bottom-most number written below the calculation line).
+   - **DO NOT** include any intermediate workings, stacked addition steps, or scratchpad numbers. Some questions act as examples (like Q1, Q6, Q11) and have full steps written out; you must ignore the intermediate steps and strictly capture the final product at the bottom.
+   - Extract exactly what the student wrote. If the final answer slot is completely blank, use an empty string `""`.
+
+**HANDWRITING & IMAGE ARTIFACT GUIDELINES:**
+- **Red Marking Lines:** There is a large red diagonal line drawn across parts of the worksheet. **Ignore it.** Do not let it alter your interpretation of digits (e.g., do not let the red line turn a `0` into an `8` or a `6`).
+- Look very closely at digit formation to avoid transcription errors. Carefully distinguish:
+  - **0** vs **6** vs **8**
+  - **1** vs **7** vs **4**
+  - **5** vs **3**
+
+**PROCESSING ORDER:**
+- Process the grid systematically.
+- Sort the final JSON array by `question_number` in strict ascending order (1 through 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Here's a breakdown of the worksheet's characteristics:
+
+*   **Question Type:** Math - Vertical multiplication of a 3-digit number by a 2-digit number.
+*   **Examples Present:** Yes. Questions 1, 6, 11, 16, 21, 26, 31, and 36 show the full, step-by-step multiplication process, serving as examples. The target JSON only extracts the final answer for these.
+*   **Answer Format:** For the example questions, the student has filled out the intermediate steps. For the rest of the questions, the student has written the final product directly below a horizontal line under the problem. Some answers are written slightly offset due to space constraints or the red marking line.
+*   **Structural Quirks:**
+    *   The worksheet is laid out in a grid pattern (columns and rows).
+    *   Questions are numbered sequentially across the rows (Q1, Q6, Q11, Q16 in the first row of the first image).
+    *   The question numbering format is generally "Q [number].", except for the very first question which is just "1.".
+    *   The target JSON combines the question number, the multiplication problem, and the 'x' sign into a single string for the `question` field (e.g., "Q2. 958 x 39").
+    *   There is a large red line drawn diagonally across some sections of the worksheet, which crosses over some numbers but doesn't obscure them entirely.
+    *   Some problems have intermediate steps shown, but the target JSON only requires the final student answer located at the bottom of the calculation.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

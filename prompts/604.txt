@@ -1,0 +1,53 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. Pay special attention to the continuity of question numbers across multiple columns and pages.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST wrap your output in a root object with the key `"worksheet_data"`.
+Respond exactly in the following JSON structure:
+{
+  "worksheet_data": [
+    {
+      "question_number": <integer>,
+      "question": "<string>",
+      "student_answer": "<string>"
+    }
+  ]
+}
+
+**DO NOT** use dynamic keys (like "Q1", "A1"). **DO NOT** nest the objects further.
+
+**FORMATTING RULES:**
+1. **question_number Field (INTEGER):**
+   - Must be a strict integer (e.g., `1`, `2`, `10`).
+   - Strip the "Q" prefix and any periods from the visual label. For example, if you see "Q1.", output `1`.
+2. **question Field (STRING):**
+   - Must include the original label exactly as written, followed by the equation.
+   - Example: "Q1. 14 - 8 ="
+   - Must flatten vertical text into a single horizontal line.
+   - **NO** newline characters in the string.
+3. **student_answer Field (STRING):**
+   - Extract exactly what the student wrote in pencil after the equals sign.
+   - Return the answer as a string (e.g., "6").
+   - If the answer slot is blank, use an empty string `""`.
+
+**STRUCTURE & PROCESSING ORDER (CRITICAL):**
+- **Continuous Numbering:** The questions appear in vertical columns and span multiple pages (e.g., Q1-Q20 on the first, Q21-Q40 on the second). Read carefully to correctly capture numbers like Q21-Q40. **DO NOT** mistakenly restart numbering at Q1 if the sequence continues.
+- **No Duplicates:** There should be no duplicate `question_number` values. 
+- **Sorting:** You MUST sort the final JSON array by `question_number` in strictly **numerical ascending order** (1, 2, 3, ..., 9, 10, 11...). Do not sort alphabetically (e.g., 1, 10, 11, 2).
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Subtraction problems (equations).
+*   **Examples Present:** None.
+*   **Answer Format:** Handwritten numbers filling out an equation after the equals sign.
+*   **Structural Quirks:** Two vertical columns of questions per page. Numbering format includes a "Q" prefix (e.g., "Q1.", "Q21."). The numbering continues consecutively across the two images, suggesting they are consecutive pages (Q1-Q20 on the first, Q21-Q40 on the second).
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

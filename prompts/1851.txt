@@ -1,0 +1,66 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every subtraction problem and its corresponding student answer from the image provided. 
+
+**WORKSHEET CONTEXT:**
+- The image contains a grid of vertical subtraction problems (3-digit number minus 1-digit number).
+- Each problem has a label to the left (e.g., "Q1.").
+- The student's answer is handwritten in pencil below the horizontal line for each problem.
+- Read top-to-bottom within each column, moving left-to-right across the columns.
+
+**STRICT JSON SCHEMA:**
+You must output a single JSON object with a root key `"questions"` containing an array of objects. Use exactly this structure:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 432 - 2",
+      "student_answer": "430"
+    }
+  ]
+}
+```
+
+**FIELD EXTRACTION RULES:**
+
+1. **`question_number` (Integer):**
+   - Must be an **integer** representing the numeric part of the label.
+   - Example: If the label is "Q1.", output `1`. DO NOT output the string "Q1".
+
+2. **`question` (String):**
+   - Must be flattened into a single horizontal string formatted exactly as: `"[Label] [Top Number] - [Bottom Number]"`
+   - Example: `"Q1. 432 - 2"`
+   - Ensure there is a space before and after the minus sign.
+   - **CRITICAL BOUNDARY RULE:** Stop extracting the question at the horizontal line. **DO NOT** append the student's handwritten answer to this string under any circumstances.
+
+3. **`student_answer` (String):**
+   - Extract exactly what the student wrote *below* the horizontal line.
+   - If the answer slot is blank, use an empty string `""`.
+   - Must be returned as a string.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation to avoid misclassifications.
+- Carefully distinguish **9** vs **8**, **6** vs **0**, and **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Extract all questions present.
+- Sort the final array by `question_number` in ascending order (1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Here's a breakdown of the worksheet's key features to guide the OCR process:
+
+*   **Question Type:** Vertical subtraction problems (3-digit minus 1-digit).
+*   **Examples Present:** None explicitly marked as examples. All boxes contain completed problems.
+*   **Answer Format:** The student writes the numerical answer below a drawn horizontal line in each cell.
+*   **Structural Quirks:**
+    *   The page is divided into a grid (4 columns by 5 rows).
+    *   Each cell contains one problem, labeled with a question number (e.g., "Q1.", "Q6.", etc.) positioned to the left of the numbers.
+    *   The problems are ordered top-to-bottom within each column, moving left-to-right across the columns.
+    *   The question string needs to be formatted linearly for the JSON output (e.g., "Q1. 432 - 2").
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

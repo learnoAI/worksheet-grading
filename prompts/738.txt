@@ -1,0 +1,67 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every arithmetic question and its corresponding student answer from the image provided.
+
+**WORKSHEET CONTEXT & EXCLUSIONS:**
+- The worksheet contains two vertical columns of questions. Ensure you extract them all and sort the final output by `question_number` in ascending order (1 to 40).
+- **IGNORE** grading marks: Do not transcribe the large, handwritten red checkmarks or red lines. Focus only on the printed text and pencil handwriting.
+- **IGNORE** extraneous elements: Do not extract headers (Name, Token Number, Marks), footers (Saarthi Education, date/time), or background watermarks (e.g., POCO M5).
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST be a single JSON object containing a root key `"worksheet_data"`, which holds an array of objects. Do not return a raw array. 
+
+Each object in the array must strictly use these exact keys: `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+
+1. **`question_number` (Integer):**
+   - You must strip away the "Q" prefix and the period.
+   - Example: If the label is "Q1.", the value must be the integer `1`. If "Q21.", use `21`.
+   
+2. **`question` (String):**
+   - Must include the full printed label, the multiplication problem, and the equals sign.
+   - Example: `"Q1. 4 x 2 ="`
+   - Flatten vertical text into a single horizontal string. **NO** newline characters.
+
+3. **`student_answer` (String):**
+   - Extract exactly the numerical digit(s) the student wrote in pencil to the right of the `=` sign.
+   - Look closely at digit formation (e.g., distinguish 9 vs 8, 6 vs 0, 1 vs 7 vs 4).
+   - If the answer slot is blank, return an empty string `""`.
+   - The answer must be a string (e.g., `"8"`, `"15"`).
+
+**EXAMPLE OUTPUT STRUCTURE:**
+```json
+{
+  "worksheet_data": [
+    {
+      "question_number": 1,
+      "question": "Q1. 4 x 2 =",
+      "student_answer": "8"
+    },
+    {
+      "question_number": 2,
+      "question": "Q2. 5 x 2 =",
+      "student_answer": "10"
+    }
+  ]
+}
+```
+
+Return ONLY the raw, valid JSON. Do not include any conversational text or markdown formatting blocks.
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is an analysis of the worksheet to help formulate OCR instructions:
+
+*   **Question Type:** Simple arithmetic equations (Multiplication).
+*   **Examples Present:** None. The worksheet begins directly with the first problem.
+*   **Answer Format:** Fill-in-the-blank style. The student writes the numerical answer directly to the right of the printed equals (`=`) sign.
+*   **Structural Quirks:**
+    *   **Two-Column Layout:** The questions are arranged in two distinct vertical columns separated by a vertical dividing line.
+    *   **Consistent Numbering:** Every question follows a strict prefix format (e.g., "Q1.", "Q21.").
+    *   **Grading Marks:** Large, handwritten red checkmarks and lines overlay the text, which the OCR must ignore to extract the underlying numbers accurately.
+    *   **Extraneous Information:** The page contains headers (Name, Token Number, Marks), footers (Saarthi Education, date/time), and watermarks (POCO M5) that should be excluded from the final data extraction.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

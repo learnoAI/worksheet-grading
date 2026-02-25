@@ -1,0 +1,49 @@
+You are a specialized OCR system designed to extract math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question (including solved examples) and its corresponding answer from the image provided. Ignore any stray blue pen marks crossing over certain questions (like 5, 6, 15, and 16).
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output must be a single JSON object containing a `"questions"` array. 
+Do not output a raw list.
+The structure MUST strictly match:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 30 ÷ 6 =",
+      "student_answer": "5"
+    }
+  ]
+}
+```
+{format_instructions}
+
+**KEY RULES & DATA TYPES:**
+1. **`question_number`**: Must be an INTEGER (e.g., `1`), NOT a string.
+2. **`question`**: 
+   - Must be a string.
+   - Must start with "Q" followed by a space, the number, a period, and a space (e.g., `"Q 1. "`, `"Q 10. "`).
+   - Must include the full mathematical equation up to the equals sign (e.g., `"Q 1. 30 ÷ 6 ="`).
+   - Use the standard division symbol `÷` (\u00f7).
+   - Do NOT include newline characters.
+3. **`student_answer`**: 
+   - Must be a string (e.g., `"5"`).
+   - Extract the number written after the equals sign (including pre-filled solved examples for Q1-Q3).
+   - If the answer slot is truly blank, use an empty string `""`.
+
+**HANDWRITING EXTRACTION & LAYOUT GUIDELINES:**
+- The worksheet has two columns (Q1-Q10 on the left, Q11-Q20 on the right). Process both columns and sort the final output by `question_number` in ascending order (1 through 20).
+- Look closely at digit formation (distinguish 9 vs 8, 6 vs 0, 1 vs 7 vs 4).
+- Ignore blue pen strike-throughs or check marks; extract the underlying question and written answer underneath.
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Division
+- **Examples Present:** Q1 to Q3 appear to be solved examples, printed identically to the questions.
+- **Answer Format:** Fill in the blank (writing numbers next to the equals sign).
+- **Structural Quirks:** Two columns of questions, numbered sequentially (Q1 to Q10 in the left column, Q11 to Q20 in the right). A blue pen mark crosses over questions 5, 6, 15, and 16.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

@@ -1,0 +1,66 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question column (Q4, Q5, Q6, Q7, Q8) and its corresponding number sequence from the image provided.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond in the following JSON format, providing a list of all questions and their answers:
+```json
+[
+  {
+    "question_number": 4,
+    "question": "4. Write the skipped numbers",
+    "student_answer": "..."
+  }
+]
+```
+*(Replace `...` with the correct string, see rules below)*
+
+**DO NOT** use dynamic keys.
+**DO NOT** nest the objects.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING AND EXTRACTION RULES:**
+
+1.  **Question Number (`question_number`):**
+    - MUST be strictly an **INTEGER** (e.g., 4, 5, 6, 7, 8). 
+    - Strip away any letters, prefixes, or punctuation (e.g., if the column is labeled "Q5." or "4.", output `5` or `4` respectively).
+    - The first visible column on the left side of the relevant crop is Question 4. Proceed sequentially (4, 5, 6, 7, 8).
+
+2.  **Question Field (`question`):**
+    - Extract the specific column label combined with the overarching written instruction.
+    - **CRITICAL - VERBATIM TRANSCRIPTION:** Transcribe the question label EXACTLY as it appears in the image. Do NOT homogenize prefixes.
+    - Specifically, Question 4 does not have a "Q". You MUST output exactly `"4. Write the skipped numbers"`. 
+    - For the others, retain the "Q" (e.g., `"Q5. Write the skipped numbers"`, `"Q6. Write the skipped numbers"`, `"Q7. Write the skipped numbers"`, `"Q8. Write the skipped numbers"`).
+    - **DO NOT** extract the numerical sequence or fill-in-the-blank pattern into this field. Use ONLY the text instruction.
+
+3.  **Student Answer Field (`student_answer`):**
+    - Output the **COMPLETE sequence** of numbers in the vertical column, reading from top to bottom.
+    - You MUST combine both the pre-printed starting number ("5") and the student's handwritten pencil numbers into one continuous sequence.
+    - Format the output as a single string of numbers separated by a comma and a single space.
+
+**CRITICAL RULE - PREVENT AUTO-CORRECTION (IMPORTANT FOR QUESTION 6):**
+- Transcribe student answers **EXACTLY** as they appear on the page, including any sequence errors. 
+- **Do NOT auto-correct patterns or fix student mistakes.** You are a transcriber, not a grader or a math solver.
+- **QUESTION 6 MISTAKE:** In Question 6, the student made a mistake and wrote the number `25` twice in a row instead of `30`. You MUST capture this error verbatim. The exact required output for Question 6 is `"5, 10, 15, 20, 25, 25, 35, 40, 45, 50"`. 
+- **For all other questions (Q4, Q5, Q7, Q8):** The student wrote the correct sequence, so you must output `"5, 10, 15, 20, 25, 30, 35, 40, 45, 50"`.
+
+**WORKSHEET CONTEXT & HANDWRITING GUIDELINES:**
+- **Scope:** Extract exactly 5 questions (Q4, Q5, Q6, Q7, Q8). Do not hallucinate Q1-Q3.
+- **Red Marks:** Ignore all red pen strokes (teacher grading marks). Only read the pre-printed text and the pencil handwriting.
+- **Digits:** Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- **Sorting:** Sort the final output array by `question_number` ascending (4, 5, 6, 7, 8).
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Sequence (Skip counting by 5s).
+*   **Examples Present:** None clearly marked as examples. The first number '5' is pre-printed in each column.
+*   **Answer Format:** Filling in numbers within vertically stacked boxes.
+*   **Structural Quirks:**
+    *   The page has multiple identical columns of boxes representing separate questions (Q5, Q6, Q7, Q8, and an unnumbered one which is likely Q4 based on the cropped image).
+    *   A red pen stroke crosses across several columns, marking the work.
+    *   The overall instruction "Write the skipped numbers" applies to all columns.
+    *   One column (Q7) has an error where the student wrote '25' twice instead of '30'.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

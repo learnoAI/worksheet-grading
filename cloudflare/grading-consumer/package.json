@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "upload:prompts:r2": "bash ./scripts/upload-prompts-to-r2.sh",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

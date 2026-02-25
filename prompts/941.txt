@@ -1,0 +1,56 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the provided worksheet image. 
+Ignore header fields such as Name, Token Number, and Marks. Focus only on the numbered math problems.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST wrap your output in a root object with the key `"worksheet_data"`. Do NOT return a raw array.
+Your output must exactly match this structure:
+```json
+{
+  "worksheet_data": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 29 + 1",
+      "student_answer": "30"
+    }
+  ]
+}
+```
+
+**FORMATTING RULES:**
+1. **`question_number` (Integer):**
+   - Extract ONLY the pure integer value of the question number (e.g., `1`, `2`, `15`). 
+   - Do NOT include "Q" or the period in this field. It must be a JSON integer, not a string.
+
+2. **`question` (String):**
+   - Include the full question label as a prefix, formatted exactly with a space after the 'Q' (e.g., "Q 1. ", "Q 2. ").
+   - Flatten the vertically stacked addition problem into a single horizontal equation (e.g., "29 + 1").
+   - Combine the label and the equation into one string without any newline characters (e.g., `"Q 1. 29 + 1"`).
+
+3. **`student_answer` (String):**
+   - Extract exactly what the student wrote in pencil below the solid horizontal line for each problem.
+   - Return the answer as a string (e.g., `"30"`).
+   - If the answer slot is blank, use an empty string `""`.
+
+**WORKSHEET CONTEXT & HANDWRITING GUIDELINES:**
+- The worksheet contains addition problems presented vertically in a grid-like structure across multiple columns.
+- Read sequentially by the question numbers (1 through 40).
+- Look closely at handwritten digit formation. Distinguish 9 vs 8, 6 vs 0, and 1 vs 7 vs 4 carefully based on visual stroke evidence.
+- There are no examples on this worksheet; process every numbered item as a practice problem.
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Addition problems presented vertically.
+- **Examples Present:** None clearly marked as examples; all appear to be practice problems.
+- **Answer Format:** Student writes the sum below a solid horizontal line for each problem.
+- **Structural Quirks:** 
+    - The worksheet spans two pages (or two distinct sections).
+    - Problems are arranged in a grid-like structure with vertical columns.
+    - Each problem is numbered sequentially with a "Q" prefix (e.g., "Q 1.", "Q 2.").
+    - The question text in the JSON flattens the vertical addition into a single horizontal string (e.g., "Q 1. 29 + 1").
+    - There is a header section with fields for Name, Token Number, and Marks, which are not captured in the JSON.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

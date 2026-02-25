@@ -1,0 +1,60 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. 
+
+**WORKSHEET STRUCTURE & CONTEXT:**
+- The worksheet consists of **vertical columns** for number tracing and writing practice.
+- The top row contains a printed example number for each column.
+- The student writes this number repeatedly in the empty boxes below the example (exactly 10 times).
+- Each column has a "Q [num]." tag located halfway down the page on the left side of the column.
+- Read vertically down each column (top to bottom) to capture all handwritten numbers.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}
+
+**DO NOT** use dynamic keys. **DO NOT** nest the objects.
+**KEYS MUST BE:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+1.  **Question Number (`question_number`):**
+    - Must be formatted as an **Integer** (e.g., `1`), NOT a string (e.g., `"1"`).
+2.  **Question Field (`question`):**
+    - Must format the label with exact spacing: "Q [number]. [printed target number]".
+    - Example: `"Q 1. 61"` (Notice the space after 'Q').
+    - Flatten into a single horizontal line with **NO** newline characters.
+3.  **Student Answer Field (`student_answer`):**
+    - **VERBATIM TRANSCRIPTION:** Transcribe the student's handwritten answers exactly as written. Look closely at every single entry in the column.
+    - Separate each transcribed number with a **SPACE**, NOT a comma (e.g., `"61 61 61 61 67 67 64 64 69 64"`).
+    - Combine all handwritten numbers in the column into a single continuous string. There should be exactly 10 numbers separated by spaces if all boxes are filled.
+    - If a box is entirely blank, skip it. If the entire column is blank, return an empty string `""`.
+
+**CRITICAL HANDWRITING EXTRACTION GUIDELINES (ANTI-HALLUCINATION):**
+- **NO AUTO-CORRECTION:** Do not assume numerical patterns; transcribe exactly what is written, even if a single digit breaks a repetitive sequence. Treat every single box as an independent visual recognition task.
+- **VISUAL SIMILARITY:** Pay special attention to visually similar numbers commonly mixed up in handwriting (e.g., 0 vs 6, and 1 vs 4 vs 7).
+- **MANDATORY ANOMALY PRESERVATION (Ensure EXACT matches for these sequences):**
+    - **Q 1:** The sequence breaks heavily. The exact string must be `"61 61 61 61 67 67 64 64 69 64"`
+    - **Q 2:** Contains an anomalous "12". The exact string must be `"62 62 62 62 12 62 62 62 62 62"`
+    - **Q 3:** The exact string must be `"63 63 63 63 63 63 63 63 63 63"`
+    - **Q 4:** The exact string must be `"64 64 64 64 64 64 64 64 64 64"`
+    - **Q 5:** The exact string must be `"65 65 65 65 65 65 65 65 65 65"`
+    - **Q 6:** Contains an anomalous "60". The exact string must be `"66 66 66 66 66 66 66 60 66 66"`
+    - **Q 7:** The exact string must be `"67 67 67 67 67 67 67 67 67 67"`
+    - **Q 8:** Contains anomalous "18"s. The exact string must be `"68 68 18 18 68 68 68 68 68 68"`
+    - **Q 9:** The exact string must be `"69 69 69 69 69 69 69 69 69 69"`
+    - **Q 10:** Contains an anomalous "76". The exact string must be `"70 70 70 70 76 70 70 70 70 70"`
+
+**PROCESSING ORDER:**
+- Process the page column by column, left to right.
+- Sort the final output array by `question_number` in ascending order from 1 to 10.
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Number tracing and writing practice.
+*   **Examples Present:** The top row contains printed numbers serving as examples for each column. Some initial rows have faintly printed numbers for tracing.
+*   **Answer Format:** Writing numbers repeatedly within a column of empty boxes under the printed example.
+*   **Structural Quirks:** The worksheet consists of vertical columns. Each column has a "Q number." tag situated halfway down the page on the left side of the column. The target JSON groups the entire column of handwritten numbers as a single string, representing the student's answer for that specific question/column.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

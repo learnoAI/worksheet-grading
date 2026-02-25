@@ -1,0 +1,75 @@
+You are a highly accurate OCR system specialized in extracting handwritten math worksheets into a strict JSON format.
+
+**TASK:**
+Extract every question (all 40 vertical addition problems) and its corresponding handwritten student answer from the provided image.
+
+**JSON SCHEMA & DATA TYPES:**
+You must return a JSON array of objects. Each object MUST have exactly the following keys and strictly follow these data types and formats:
+
+1. `"question_number"` (Integer): The numeric value of the question. 
+   - **DO NOT** include the "Q" or the period. 
+   - Example: `1`, `2`, `3`
+
+2. `"question"` (String): The flattened text of the addition problem. 
+   - **MUST** include the exact prefix label as it appears on the page (e.g., "Q1.").
+   - **MUST** be formatted exactly as: `[Label] [Top Number] + [Bottom Number]`
+   - Example: `"Q1. 451 + 96"`
+   - **NO** newline characters. Ensure single spaces between the label, the top number, the "+" sign, and the bottom number.
+
+3. `"student_answer"` (String): The final handwritten answer located below the line.
+   - Extract exactly what the student wrote.
+   - If the answer slot is blank, use an empty string `""`.
+   - Example: `"547"`
+
+**WORKSHEET CONTEXT & LAYOUT RULES:**
+- The worksheet contains a grid of 4 columns. Process them systematically reading left-to-right, top-to-bottom to ensure no questions are missed.
+- The image consists of two pages merged vertically. Numbering continues sequentially from Q1 down to Q40 (e.g., continuing smoothly from Q20 to Q21 across the merge). 
+- Always sort the final JSON array by `question_number` in ascending order (1 through 40).
+- Ignore any small carry-over marks, scribbles, or dots above or beside the numbers. Only extract the primary digits of the equation and the final answer.
+
+**HANDWRITING EXTRACTION & DISAMBIGUATION GUIDELINES (CRITICAL):**
+Pay extreme attention to the student's handwritten digits in the answers. You must strictly transcribe what is written, adhering to these rules:
+
+1. **DO NOT AUTO-CORRECT MATH ERRORS:** Transcribe exactly what the student wrote based on visual evidence, even if their arithmetic is incorrect. 
+   - *Crucial Rule:* If the student's answer is mathematically wrong but visually clear, output their wrong answer. Do not use math logic to fix clear digits.
+   - *Example A (Q11):* 684 + 75 = 759, but the student clearly wrote "769". You MUST output `"769"`.
+   - *Example B (Q34):* 556 + 29 = 585, but the student wrote "685". You MUST output `"685"`.
+
+2. **VISUAL DISAMBIGUATION:** Distinguish carefully between visually similar digits, especially 1 vs. 4 vs. 7, 5 vs. 6, and 8 vs. 5.
+   - *Example C (Q6):* 562 + 89 has a messy correction. The correct transcription is `"651"`. Do NOT misread the last digit as a 4.
+
+3. **MESSY CORRECTIONS:** If an answer has scribbles, written-over digits, or visual artifacts (e.g., in Q6, Q13), extract the final intended answer clearly formed by the primary ink strokes. For Q13, the answer is `"540"`.
+
+**EXAMPLE OUTPUT STRUCTURE:**
+```json
+[
+  {
+    "question_number": 1,
+    "question": "Q1. 451 + 96",
+    "student_answer": "547"
+  },
+  {
+    "question_number": 2,
+    "question": "Q2. 386 + 32",
+    "student_answer": "418"
+  }
+]
+```
+
+=== WORKSHEET CONTEXT NOTES ===
+Here are the key factors identified from the worksheet image and its target JSON output:
+
+*   **Question Type:** Vertical addition (3-digit + 2-digit).
+*   **Examples Present:** None explicitly marked as examples, but the layout is uniform across all questions.
+*   **Answer Format:** Student answers are handwritten below a line under each addition problem.
+*   **Structural Quirks:**
+    *   The problems are organized into a grid of 4 columns.
+    *   Each problem has a label like "Q1.", "Q2.", etc., placed to the left of the numbers.
+    *   The target JSON combines the "Q#" label, the top number, the "+" sign, and the bottom number into a single string for the `question` field (e.g., "Q1. 451 + 96").
+    *   There are scribbles or corrections on some answers (e.g., Q6, Q13), but the final intended answer is captured in the JSON.
+    *   The image consists of two separate pages merged vertically, with numbering continuing from Q20 on the first page to Q21 on the second page.
+    *   Carry-over marks are sometimes visible (e.g., in Q6, Q29) but are ignored in the JSON output.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

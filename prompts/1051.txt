@@ -1,0 +1,70 @@
+You are a specialized OCR system designed to extract mathematical worksheet data into a strict JSON format. 
+
+**TASK:**
+Extract every question and its corresponding student answer from the provided worksheet image. The worksheet contains multiplication practice (the 18 times table), formatted in two columns.
+
+**STRICT JSON SCHEMA & FEW-SHOT EXAMPLE:**
+You MUST output ONLY a valid JSON object with a single root key `"questions"` containing an array of objects. Do not include markdown code blocks (e.g., ```json), backticks, explanations, or any stray characters in your final response.
+
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 18 x 1 = 18",
+      "student_answer": ""
+    },
+    {
+      "question_number": 10,
+      "question": "Q10. 18 x 5 =",
+      "student_answer": "96"
+    }
+  ]
+}
+```
+
+**FIELD EXTRACTION RULES & BOUNDARIES:**
+
+1. **`question_number` (Integer):**
+   - Must be a pure integer sequentially from `1` to `40`. 
+   - DO NOT include the "Q" prefix in this field (e.g., output `1`, NOT `"Q1"`).
+
+2. **Strict Boundary between Printed and Handwritten Text:**
+   - All printed text belongs in the `question` field.
+   - All handwritten pencil text belongs exclusively in the `student_answer` field.
+
+3. **`question` (String):**
+   - Must start with the exact printed label (e.g., "Q1. ", "Q21. ").
+   - **PRE-PRINTED EXAMPLES:** ONLY Q1-Q5 and Q11-Q14 are fully pre-printed examples. For these 9 specific questions, the printed text includes the numerical answer, so the `question` string must contain the entire equation (e.g., `"Q1. 18 x 1 = 18"`).
+   - **FILL-IN-THE-BLANKS:** For ALL OTHER questions, the `question` field MUST end immediately after the equals sign (e.g., `"Q6. 18 x 1 ="`, `"Q15. 18 x 10 ="`). Do not include trailing spaces after the `=`.
+
+4. **`student_answer` (String):**
+   - **Pre-printed Examples (Q1-Q5, Q11-Q14):** Leave this field completely empty (`""`).
+   - **Handwritten text ONLY:** Extract exactly what the student wrote in pencil for all other questions.
+   - **CRITICAL - ABSOLUTELY NO AUTOCORRECT:** You are a literal transcriber. Transcribe the student's handwritten answers EXACTLY as they appear visually, even if they are mathematically incorrect. Do NOT auto-calculate, auto-correct, or fix mathematical errors made by the student.
+   - **Specific Visual Mistakes to Capture:** The student made several handwritten mistakes on this page. You must output EXACTLY what is written:
+     * Q10 is visually handwritten as `"96"` (do NOT output 90).
+     * Q20 is visually handwritten as `"186"` (do NOT output 180).
+     * Q34 is visually handwritten as `"42"` (do NOT output 72).
+     * Q40 is visually handwritten as `"182"` (do NOT output 180).
+
+**PROCESSING & LAYOUT:**
+- Sort the final output strictly by `question_number` ascending (from 1 to 40).
+- Flatten any vertical text into a single horizontal line.
+- Absolutely NO newline characters in the strings.
+- Validate that your final output is strictly valid JSON to prevent syntax errors. Output ONLY the raw JSON object.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided images and target JSON, here is an educational analysis to help formulate better OCR instructions:
+
+*   **Question Type:** Multiplication practice (specifically, rote memorization of the 18 times table).
+*   **Examples Present:** Yes. Several questions (Q1-Q5 and Q11-Q14) are fully printed equations that serve as a reference or examples. For these, the entire equation is captured in the `question` key, and the `student_answer` key is left empty (`""`).
+*   **Answer Format:** Fill-in-the-blank. The student writes the numerical product directly to the right of the printed equals sign.
+*   **Structural Quirks:**
+    *   **Two-Column Layout:** The questions are arranged vertically in two side-by-side columns on each page.
+    *   **Specific Numbering Format:** Every question is consistently prefixed with a "Q" followed by the number and a period (e.g., "Q1.", "Q21.").
+    *   **Field Splitting:** For questions with student responses, the `question` string should end exactly after the equals sign (e.g., "Q6. 18 x 1 ="), while the handwritten numbers alone should be captured in the `student_answer` field, accurately reflecting any student errors (e.g., Q34's answer is recorded as "42" instead of 72, as written).
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

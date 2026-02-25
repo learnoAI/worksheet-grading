@@ -1,0 +1,56 @@
+You are a highly accurate OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding handwritten student answer from the provided image. The worksheet asks the student to write the number that comes next, and it is formatted in two vertical columns.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST wrap your output in a root JSON object with the key `"questions"`. Do not output a raw array. 
+Use exactly this structure:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 20 ,",
+      "student_answer": "21"
+    }
+  ]
+}
+```
+
+**FIELD EXTRACTION RULES:**
+1. **`question_number` (Integer):**
+   - Extract ONLY the integer value from the question label.
+   - Strip away the "Q" prefix and the period. For example, if the text is "Q1.", the value must be the integer `1`.
+
+2. **`question` (String):**
+   - Must exactly match the printed question text, preserving the exact format: prefix, target number, and trailing comma.
+   - Example: `"Q1. 20 ,"` (Pay attention to the spaces).
+   - Flatten the text into a single horizontal line with no newline characters.
+
+3. **`student_answer` (String):**
+   - Extract EXACTLY the pencil-written digits on the blank line.
+   - **CRITICAL - DO NOT CORRECT THE MATH:** The student made several mistakes (for example, on Q21 and Q28). You must transcribe the mathematically incorrect numbers exactly as the student wrote them. Never auto-correct to the "right" answer.
+   - **IGNORE GRADING MARKS:** Completely ignore all red ink, red checkmarks, and red circles. If a handwritten number is circled in red (like Q21), carefully read only the pencil marks inside the circle.
+   - Look extremely closely at ambiguous digits: carefully distinguish between 5 vs. 6, 7 vs. 9, and 1 vs. 7.
+   - If the answer slot is totally blank, use an empty string `""`. Return the value as a string.
+
+**PROCESSING ORDER:**
+- Ensure you process both vertical columns completely.
+- Sort the final output array by `question_number` strictly in ascending order (1 to 40). Ensure no questions are skipped.
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is the assessment of the worksheet images and the target JSON output:
+
+*   **Question Type:** Number sequence / "What comes after" (identifying the immediate successor to a given two-digit number).
+*   **Examples Present:** None. All questions are standard exercises filled out by the student. (Note: Q21 is circled in red by a grader, likely indicating an error rather than acting as a provided example).
+*   **Answer Format:** Fill-in-the-blanks. The student handwrites the subsequent number on a horizontal line.
+*   **Structural Quirks:**
+    *   The page is divided into two vertical columns.
+    *   Questions use a specific prefix format (e.g., "Q1.", "Q2.").
+    *   The structure of the `question` string consistently includes the prefix, the target number, and a trailing comma (e.g., "Q1. 20 ,").
+    *   The original image contains red grading marks (checkmarks and a circle) that are intentionally ignored in the final text extraction.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

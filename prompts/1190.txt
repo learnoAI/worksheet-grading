@@ -1,0 +1,66 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. There are exactly 40 problems on the page arranged in 4 columns.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST wrap your output in a root JSON object with a single key `"results"`. The value of `"results"` must be an array of objects.
+Respond EXACTLY in this format:
+```json
+{
+  "results": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 12 x 8",
+      "student_answer": "96"
+    }
+  ]
+}
+```
+- **DO NOT** return a raw array. The array MUST be inside the `{"results": [...]}` object.
+- **DO NOT** use dynamic keys.
+- **KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING & EXTRACTION RULES:**
+
+1. **Question Field:**
+   - **Spacing Matters:** You must preserve the exact spacing in the labels. Use a space between "Q" and the number (e.g., `"Q 1."`, `"Q 28."`). DO NOT output `"Q1."` or `"Q28."`.
+   - **Vertical to Horizontal Flattening:** The problems are printed vertically. You must flatten them into a single horizontal string: `"[Label] [Top Number] x [Bottom Number]"`. For example: `"Q 1. 12 x 8"`. 
+   - **IGNORE Carry-Over Marks:** There are small handwritten "carry" digits written above some of the top numbers (e.g., a small '4' above '45'). **IGNORE THESE COMPLETELY.** Only transcribe the main printed 2-digit operand and 1-digit multiplier.
+   - **NO** newline characters in the string.
+
+2. **Student Answer Field:**
+   - Extract exactly what the student wrote in pencil beneath the horizontal divider line.
+   - If the answer slot is blank, use an empty string `""`.
+   - Return the answer as a string.
+
+**STRICT ACCURACY & ANTI-HALLUCINATION GUIDELINES:**
+
+- **NO MATH AUTOCORRECTION:** Transcribe EXACTLY what is visually present in the image. DO NOT attempt to calculate the math yourself to guess or "fix" the answer. If the student wrote an incorrect answer, you MUST transcribe their incorrect answer precisely. 
+- **CRITICAL - SIMILAR DIGITS:** You must perform a highly precise visual inspection of both printed and handwritten digits to avoid common misreads:
+  - **`8` vs `0`:** Look closely for the crossing lines in the middle of the `8`. Do not confuse them.
+  - **`5` vs `3`:** Pay attention to the top strokes. `5` has a flat horizontal top and sharp corner; `3` has rounded curves.
+  - **`3` vs `2`:** Look closely at the bottom loops and straight bases. 
+  - **`9` vs `8`:** Check the bottom section; `9` has a single stem, `8` is a closed loop.
+- **TRANSPOSITIONS:** Pay strict attention to the left-to-right order of digits (e.g., strictly distinguish "38" from "83" and "28"). Do not guess digit combinations based on partial reads. 
+- **MAIN OPERANDS ONLY:** Remember the top number in the multiplication is always exactly 2 digits.
+
+**PROCESSING ORDER:**
+- The worksheet is laid out in columns. Read down the first column, then the second, etc. Pay close attention to the printed question numbers to ensure you capture all 40 problems.
+- Sort the final JSON output strictly by `question_number` in ascending order (from 1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and target JSON, here is an analysis of the key factors to guide OCR instructions:
+
+*   **Question Type:** Vertical multiplication problems (primarily 2-digit numbers multiplied by a single digit).
+*   **Examples Present:** None. Every problem on the page is intended for the student to solve.
+*   **Answer Format:** Handwritten numbers placed underneath the horizontal divider line of each vertical problem.
+*   **Structural Quirks:**
+    *   **Grid Layout:** The problems are arranged in distinct columns (4 columns per page).
+    *   **Vertical to Horizontal Conversion:** The physical layout of the problem is vertical (stacked operands), but the JSON requires transcribing this into a single horizontal string (e.g., the stacked "12", "x 8" becomes "Q 1. 12 x 8").
+    *   **Carry-over Marks:** Students have written small handwritten "carry" digits above some of the top numbers (e.g., the small '4' above the '45' in Q10, or '4' above '55' in Q24). These auxiliary marks must be **ignored** when transcribing the original `question`.
+    *   **Label Formatting:** The question labels use a consistent "Q [Number]." format placed to the left of the math problem. Ensure the space is maintained if present in the text.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

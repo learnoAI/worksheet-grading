@@ -27,13 +27,15 @@ Optional:
 - `answers_by_worksheet.json`
 - `prompts/<worksheetNumber>.txt`
 
-Generate assets from the legacy Python repo:
+Generate assets:
 ```bash
 node scripts/generate-assets.mjs \
   --book-json /path/to/book_worksheets.json \
-  --prompts-dir /path/to/context/prompts \
   --out-dir ./assets-out
 ```
+Notes:
+- By default, prompts are loaded from `../../prompts` (repo-root `prompts/` folder).
+- Use `--prompts-dir /path/to/prompts` to override.
 
 Upload them to R2 (example):
 ```bash
@@ -41,7 +43,9 @@ Upload them to R2 (example):
 wrangler r2 object put worksheet-grading-assets/answers_by_worksheet.json --file ./assets-out/answers_by_worksheet.json
 
 # prompts
-for f in ./assets-out/prompts/*.txt; do
-  wrangler r2 object put "worksheet-grading-assets/prompts/$(basename "$f")" --file "$f"
-done
+bash ./scripts/upload-prompts-to-r2.sh ../../prompts
+# or:
+npm run upload:prompts:r2
 ```
+
+`upload-prompts-to-r2.sh` only uploads files named `<worksheetNumber>.txt`, so each prompt maps directly to that worksheet number in R2 as `prompts/<worksheetNumber>.txt`.

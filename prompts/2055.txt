@@ -1,0 +1,40 @@
+Extract all multiplication questions and student answers from the worksheet images and return them as a valid JSON array.
+
+**Strict Output Schema:**
+You must produce a list of objects. Each object must contain exactly these three keys:
+1. `"question_number"`: (Integer) The number of the question.
+2. `"question"`: (String) The math problem formatted horizontally as "Q<Num>. <TopNumber> x <BottomNumber>".
+3. `"student_answer"`: (String) The final result written by the student.
+
+**Extraction Rules:**
+
+1.  **Question Formatting**:
+    *   The image shows vertical multiplication (one number above another). You must convert this into a single horizontal line string.
+    *   Format: `"Q[Number]. [Top_Number] x [Bottom_Number]"`
+    *   Example: If the image shows `235` on top of `20`, output `"Q1. 235 x 20"`.
+    *   Do not include newlines (`\n`) in the question string.
+
+2.  **Student Answer Extraction (CRITICAL)**:
+    *   The student's work includes intermediate steps (partial products) and a final sum.
+    *   **Extract ONLY the final result**. This is the number written at the very bottom of the calculation area, below the horizontal line.
+    *   **EXCLUDE** the intermediate working out numbers (the rows of numbers above the final answer).
+    *   **EXCLUDE** any carry-over marks or scribbles.
+    *   If a question is unanswered, use an empty string `""`.
+
+3.  **Clean Up**:
+    *   Ignore all page footers, logos, or text like "Saborthi EDUCATION".
+    *   Do not create dynamic keys like `"Q1"`. Use the fixed key `"question_number"`.
+
+**Example:**
+*Image Content:*
+Q1
+  235
+x  20
+-----
+ 000
+4700
+-----
+4700
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

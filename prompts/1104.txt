@@ -1,0 +1,60 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. There are exactly 40 vertical multiplication problems arranged in a grid with four columns.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST wrap your output in a root `"questions"` object containing an array of exactly 40 question objects. Follow this exact structure:
+
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 20 x 4",
+      "student_answer": "80"
+    }
+  ]
+}
+```
+
+**DO NOT** use dynamic keys.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING & EXTRACTION RULES:**
+
+1.  **`question_number` (Integer):**
+    - Must be a pure integer (1 through 40).
+    - Sort the output sequentially by this number. Track the multi-column layout carefully to keep them in exact numerical order from 1 to 40.
+
+2.  **`question` (String):**
+    - Flatten the vertical text into a single horizontal line.
+    - **MUST** include the label prefix at the start exactly as shown on the page (e.g., "Q 1. ", "Q 2. ").
+    - Format strictly as `"Q [number]. [top_number] x [bottom_number]"`. (Example: `"Q 1. 20 x 4"`).
+    - **Verify Printed Digits:** Read the printed numbers very carefully. Do not confuse visually similar printed digits (e.g., 1 vs 7). *Verification Checkpoint: Look very closely at the printed top number in Q38 to confirm it is a 21, not a 27.*
+
+3.  **`student_answer` (String):**
+    - Extract exactly what the student wrote in pencil *underneath the solid drawn line* for each problem.
+    - **IGNORE CARRY-OVER MARKS:** Ignore any small numbers written above the top numbers (multiplicands). Only extract the final answer below the line.
+
+**CRITICAL ANTI-HALLUCINATION & TRANSCRIPTION GUIDELINES:**
+
+*   **BLANK ANSWERS = `""` (NO EXCEPTIONS):** If the answer slot beneath the line is completely blank (no handwriting), you MUST return an empty string `""`. Several questions on this page (e.g., Q27, Q28, Q32, Q33, Q37, Q38) have no written answer. **DO NOT** calculate or auto-fill the math for the student under any circumstance.
+*   **ABSOLUTELY NO AUTOCORRECTION:** Your job is exclusively visual transcription of the student's literal pencil strokes. The student made severe math errors. You MUST extract their exact incorrect answers, no matter how illogical they seem. Do not fix their math. 
+*   **CAREFUL DIGIT RECOGNITION (BEWARE AMBIGUOUS WRITING):**
+    - **Squeezed Digits (14 vs 9):** Watch out for numbers written closely together. *Checkpoint:* In Q31, the student wrote a squeezed "14" next to the 8. It is "814", NOT "89". 
+    - **0 vs 6:** Look for the top stem of a 6. *Checkpoint:* In Q11, the middle digit is a '6' (making it "164"), NOT a '0' ("104").
+    - **1 vs 3:** Look for curves vs straight lines. *Checkpoint:* In Q10, the middle digit is a '3' (making it "138"), NOT a '1' ("118").
+    - **6 vs 8:** A '6' does not have a closed top loop. *Checkpoint:* In Q24, the second digit is a '6' (making it "86"), NOT an '8' ("88").
+    - **4 vs 7:** Look for the intersecting lines of a 4. *Checkpoint:* In Q34, the second digit is a '4' (making it "84"), NOT a '7' ("87").
+    - **Ignore Stray Marks:** Do not transcribe smudges, partial strokes, or artifacts as digits. *Checkpoint:* In Q26, ensure you do not append a trailing '0' due to a stray mark (it is "81", not "810").
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Multiplication problems arranged vertically.
+- **Examples Present:** None clearly marked as examples.
+- **Answer Format:** Handwritten numbers placed underneath the drawn line below each multiplication problem. Some answers are left blank. Carry-over marks are sometimes written above the top numbers (e.g., Q11, Q16).
+- **Structural Quirks:** Problems are organized in a grid with four columns. Each problem is numbered with a "Q [number]." prefix placed to the left of the multiplication expression. The expression itself is formatted vertically with the multiplier below the multiplicand and a multiplication sign ('x') to the left of the multiplier. The JSON captures the question number, question text (flattened into a single line format like "Q 1. 20 x 4"), and the student's handwritten answer. Blank answers are captured as empty strings. Carry-over marks are ignored in the final answer string.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

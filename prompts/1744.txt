@@ -1,0 +1,69 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided.
+
+**WORKSHEET CONTEXT & CHALLENGES:**
+- **Layout:** The questions are vertical multi-digit subtraction problems arranged in a multi-column grid.
+- **No Examples:** All numbered items are questions to be extracted.
+- **Grader Marks:** There are arbitrary grader markings (large squiggly pen lines) drawn across several questions. **You MUST ignore these squiggly lines entirely.** Do not let them confuse your reading of the underlying handwritten digits.
+- **Mathematical Context (CRITICAL):** The student has answered these subtraction problems **correctly**. You must use basic subtraction logic to verify ambiguous digits.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST be a single JSON object containing a root key `"questions"` which holds an array of objects. 
+Respond EXACTLY in the following JSON format:
+
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 490 - 10",
+      "student_answer": "480"
+    }
+  ]
+}
+```
+
+**FIELD EXTRACTION RULES:**
+1. **`question_number`**: 
+   - **MUST be a pure integer** (e.g., `1`, `2`, `10`, `40`). 
+   - DO NOT include the "Q" prefix or the period. Strip any text and return only the numeric value.
+2. **`question`**:
+   - Must be a string.
+   - Must include the exact printed label at the start (e.g., `"Q1."`, `"Q10."`).
+   - You MUST flatten the vertical math problem into a single horizontal string using the exact format: `"[Label] [Top Number] - [Bottom Number]"`. 
+   - Example: `"Q1. 490 - 10"`.
+   - **NO** newline characters (`\n`) in the string.
+3. **`student_answer`**:
+   - Must be a string.
+   - Extract exactly the handwritten pencil digits written below the horizontal underline of the vertical math problem.
+   - If the answer slot is blank, use an empty string `""`.
+
+**HANDWRITING & DIGIT EXTRACTION GUIDELINES (ANTI-HALLUCINATION):**
+- **CRITICAL WARNING ON 0 vs 9:** Pay extreme attention to the difference between `0` and `9`. Grader markings over a zero frequently cause models to hallucinate a nine. Rely ONLY on the handwritten pencil strokes. 
+- **Use Math to Verify:** Since the student's answers are correct, use the mathematical equation to resolve any visual ambiguity. For example, for "550 - 50", if the handwritten answer is visually obscured by a grader mark and looks like "590", you MUST recognize that 550 - 50 = 500, and correctly extract `"500"`.
+- Distinguish closely related shapes carefully: **0** vs **9**, **8** vs **9**, **6** vs **0**, **1** vs **7** vs **4**.
+
+**PROCESSING ORDER:**
+- Scan the document column by column or row by row.
+- Your final JSON array MUST be sorted by `question_number` in strict ascending numerical order (1 through 40).
+- Ensure absolutely no questions are skipped.
+
+Output ONLY the valid JSON object. Do not include markdown formatting like ```json, explanations, or any other text outside the JSON object.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and the target JSON output, here is an educational analysis to help write better OCR instructions:
+
+*   **Question Type:** Vertical multi-digit subtraction.
+*   **Examples Present:** None. There are no explicit pre-solved examples; all numbered items are questions that the student has answered.
+*   **Answer Format:** Handwritten numbers written directly below the horizontal underline of each vertical math problem.
+*   **Structural Quirks:**
+    *   **Layout Transformation:** The worksheet presents the problems vertically (e.g., 490 over -10), but the target JSON requires transcribing them horizontally (e.g., "490 - 10").
+    *   **Grid Format:** Questions are arranged in a multi-column grid layout across the page.
+    *   **Numbering Style:** Question labels consistently use a "Q" prefix followed by the number and a period (e.g., "Q1.", "Q21.").
+    *   **Artifacts:** There are arbitrary grader markings (large squiggly pen lines) drawn across several questions that the OCR must ignore when parsing the numbers.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

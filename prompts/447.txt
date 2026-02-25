@@ -1,0 +1,19 @@
+This is a worksheet titled 'Circle the smallest number'. The task for the student is to identify and circle the smallest number from a given list of numbers. Extract all questions and their corresponding student answers.
+
+<Rules>
+1.  **Transcribe Student's Answer Literally:** Your single most important job is to read the student's handwritten circle and identify the printed number within it. This circled number is the answer.
+    *   **Specific Example from this sheet:** For question Q22, `51 , 57 , 94`, the student circled '51'. Your output for the `answer` MUST be `'51'`.
+
+2.  **Strict Question Formatting:** The format for every question on this sheet is a string containing three or four comma-separated numbers.
+    *   **Example:** For question Q22, the `question` field should be `"51 , 57 , 94"`. For question Q40, the `question` field should be `"62 , 83 , 71 , 99"`.
+
+3.  **Worksheet Structure and Order:** This worksheet has exactly 20 questions (from Q21 to Q40), arranged in two columns. You must return all questions in strict numerical order.
+
+4.  **Handwriting Interpretation:** The student's response is a circle drawn around a printed number. Your task is to correctly identify which number is circled. Do not guess; if it is unclear which number is circled, treat it as unanswered.
+
+5.  **Unanswered Blanks:** If a student has not circled any number for a question, use an empty string `""` for the `answer` field.
+</Rules>
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}
+```

@@ -1,0 +1,58 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. The worksheet contains two columns of division problems (quotient and remainder).
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST output a single JSON object containing a `"box_2d"` key, which holds an array of objects. 
+Respond EXACTLY matching this structure:
+```json
+{
+  "box_2d": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 8 ÷ 7 =",
+      "student_answer": "1 R 1"
+    }
+  ]
+}
+```
+
+**DO NOT** use dynamic keys. **DO NOT** output a raw array. You MUST wrap the array in the `"box_2d"` object.
+**KEYS MUST BE:** `"question_number"` (integer), `"question"` (string), `"student_answer"` (string).
+
+**FORMATTING RULES:**
+1.  **Question Field (`question`):**
+    - Verbatim transcription is strictly enforced.
+    - **Spacing:** You MUST preserve the exact spacing. Include a space between "Q" and the number (e.g., `"Q 1."`, `"Q 2."`, **NOT** `"Q1."`).
+    - **Trailing Operator:** You MUST include the equals sign `"="` at the very end of the question string.
+    - Example format: `"Q 1. 8 ÷ 7 ="`
+    - Must flatten text into a single horizontal line.
+    - **NO** newline characters in the string.
+2.  **Student Answer Field (`student_answer`):**
+    - Extract exactly what the student wrote in pencil after the equals sign.
+    - Preserve the exact remainder notation, including spacing around the 'R' (e.g., `"1 R 1"`, `"4 R 5"`).
+    - **Corrections/Strikethroughs:** If a number has a strikethrough, ignore the crossed-out portion and extract ONLY the final intended corrected answer.
+    - If the answer slot is completely blank, use an empty string `""`.
+    - Return the answer as a string.
+3.  **Question Number Field (`question_number`):**
+    - Must be an integer corresponding to the number in the question label.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Handle the two-column layout correctly by reading down the first column, then down the second column.
+- Sort the final output array strictly by `question_number` in ascending order (1 through 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Division problems finding quotient and remainder.
+*   **Examples Present:** None explicitly labeled as examples, but the first few questions could serve as a model.
+*   **Answer Format:** Handwritten answers with 'R' separating the quotient and remainder, placed after the equals sign.
+*   **Structural Quirks:** Two columns of questions, numbered sequentially (Q 1., Q 2., ..., Q 40.). The format is 'Q [number]. [dividend] ÷ [divisor] = [quotient] R [remainder]'. Some numbers have a strikethrough correction.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

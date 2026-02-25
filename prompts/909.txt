@@ -1,0 +1,56 @@
+You are a specialized OCR system designed to extract handwritten and printed math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question (including pre-printed examples) and its corresponding answer from the image provided.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond EXACTLY in the following JSON structure. You must include the root key `"expanded_form_data"` containing the array of objects:
+```json
+{
+  "expanded_form_data": [
+    {
+      "question_number": <integer>,
+      "question": "<string>",
+      "student_answer": "<string>"
+    }
+  ]
+}
+```
+
+**DO NOT** use dynamic keys.
+**DO NOT** omit the `"expanded_form_data"` root wrapper.
+
+**FORMATTING RULES:**
+1. **"question_number"**:
+   - Must be an **INTEGER** (e.g., `1`, `2`, `15`).
+   - Strip away the "Q" prefix and the period. If the text says "Q1.", output `1`.
+2. **"question"**:
+   - Must be a string representing the full printed question text.
+   - Must include the "Q" label, number, period, standard number, and equals sign (e.g., `"Q1. 786 ="`).
+   - Maintain exactly one space before the equals sign.
+3. **"student_answer"**:
+   - Extract the expanded form expression written after the equals sign (e.g., `"700 + 80 + 6"`).
+   - **MANDATORY SPACING RULE:** You MUST place exactly one space before and after every plus sign (`+`). Do NOT output `"700+80+6"`.
+   - **EXAMPLES:** The first few questions (e.g., Q1 to Q5) are pre-printed/typed solved examples. Extract them exactly the same as the handwritten student answers.
+   - If the answer slot is completely blank, use an empty string `""`.
+
+**HANDWRITING & LAYOUT GUIDELINES:**
+- The worksheet is in a strict two-column format. Ensure you process both columns and sort the final output array by `"question_number"` in ascending order (1 to 40).
+- Look closely at digit formation in pencil marks: distinguish 9 vs 8, 6 vs 0, 1 vs 7 vs 4.
+- Ignore bilingual instructions/headers at the top of the page. Only extract the Q-numbered items.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and target JSON, here is an analysis of the key factors to help refine OCR instructions:
+
+*   **Question Type:** Expanded form of 3-digit numbers. The task requires breaking down a standard number into the sum of its hundreds, tens, and ones.
+*   **Examples Present:** Yes. The first five questions (Q1 to Q5) on the first page have pre-printed, typed answers that serve as solved examples for the student.
+*   **Answer Format:** Handwritten text written on the open blank space immediately following the equals sign. The answers are formatted as mathematical addition sentences (e.g., `700 + 80 + 6`).
+*   **Structural Quirks:** 
+    *   **Layout:** The questions are arranged in a strict two-column vertical format across both pages.
+    *   **Numbering:** Questions use a specific prefix format: "Q" followed by the number and a period (e.g., "Q1.", "Q12.").
+    *   **Mixed Text:** There is a combination of printed text (questions and examples) and handwritten pencil text (student answers) on the same line.
+    *   **Bilingual Headers:** The main instruction is provided in both English and Hindi.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

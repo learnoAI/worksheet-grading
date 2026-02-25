@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function arg(name) {
   const idx = process.argv.indexOf(name);
@@ -9,16 +10,18 @@ function arg(name) {
 }
 
 const bookJsonPath = arg('--book-json');
-const promptsDir = arg('--prompts-dir');
 const outDir = arg('--out-dir') || path.resolve('assets-out');
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const promptsDir = arg('--prompts-dir') || path.resolve(scriptDir, '../../../prompts');
 
 if (!bookJsonPath) {
   console.error('Missing --book-json <path/to/book_worksheets.json>');
   process.exit(1);
 }
 
-if (!promptsDir) {
-  console.error('Missing --prompts-dir <path/to/prompts>');
+if (!fs.existsSync(promptsDir) || !fs.statSync(promptsDir).isDirectory()) {
+  console.error(`Prompt directory not found: ${promptsDir}`);
+  console.error('Pass --prompts-dir <path/to/prompts> if your prompts are elsewhere.');
   process.exit(1);
 }
 
@@ -57,11 +60,14 @@ fs.writeFileSync(
 const outPromptsDir = path.join(outDir, 'prompts');
 ensureDir(outPromptsDir);
 
-for (const name of fs.readdirSync(promptsDir)) {
-  if (!name.endsWith('.txt')) continue;
+const promptFiles = fs
+  .readdirSync(promptsDir)
+  .filter((name) => /^\d+\.txt$/.test(name))
+  .sort((a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10));
+
+for (const name of promptFiles) {
   fs.copyFileSync(path.join(promptsDir, name), path.join(outPromptsDir, name));
 }
 
 console.log(`Wrote ${Object.keys(answersByWorksheet).length} worksheets to ${path.join(outDir, 'answers_by_worksheet.json')}`);
-console.log(`Copied prompts to ${outPromptsDir}`);
-
+console.log(`Copied ${promptFiles.length} prompts from ${promptsDir} to ${outPromptsDir}`);

@@ -1,0 +1,64 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the provided number comparison worksheet. Ignore headers (Name, Token Number, Marks), titles, and instructions. Only extract the question data.
+
+**JSON SCHEMA ENFORCEMENT:**
+You must output a single JSON object with a root key `"results"`. This key must contain an array of objects representing each question.
+DO NOT output a raw array. DO NOT use dynamic keys. 
+You must strictly follow this exact structure and typing:
+
+```json
+{
+  "results": [
+    {
+      "question_number": 1,
+      "question": "Q1. 61 , 75",
+      "student_answer": "75"
+    },
+    {
+      "question_number": 2,
+      "question": "Q2. 62 , 65",
+      "student_answer": "65"
+    }
+  ]
+}
+```
+
+**FIELD EXTRACTION & FORMATTING RULES:**
+
+1. **`question_number` (Integer):**
+   - Extract ONLY the integer value.
+   - You MUST drop the "Q" prefix and the period ".". 
+   - Example: If the text is "Q1.", output `1` (as a number, not a string).
+
+2. **`question` (String):**
+   - **CRITICAL:** You MUST include the full question label (e.g., "Q1.", "Q2.") at the beginning of the string.
+   - **CRITICAL:** You MUST preserve exactly one space before and one space after the comma. 
+   - Correct Example: `"Q1. 61 , 75"`
+   - Incorrect Example: `"61, 75"` (missing prefix and wrong spacing)
+   - Do NOT include newline characters.
+
+3. **`student_answer` (String):**
+   - Extract the exact number the student circled as their answer.
+   - Note: There are red checkmarks drawn over the correct answers. Ignore the checkmarks and extract the circled digits underneath.
+   - Return the answer as a string (e.g., `"75"`).
+   - If no number is circled, return an empty string `""`.
+
+**PROCESSING ORDER & LAYOUT:**
+- The worksheet contains 40 questions arranged in two vertical columns.
+- Ensure you capture all questions from both columns.
+- Sort the final `"results"` array strictly by `question_number` in ascending order (from 1 to 40).
+- Distinguish carefully between visually similar digits (9 vs 8, 6 vs 0, 1 vs 7).
+
+Return ONLY the final JSON object. Do not include any conversational text or explanations.
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Number comparison (identifying the larger number).
+- **Examples Present:** None explicitly labeled as examples, but the consistent format acts as a guide.
+- **Answer Format:** The student answers by circling one of the two numbers provided in each question.
+- **Structural Quirks:** The worksheet has a header section for Name, Token Number, Marks, and title ("Number Order - 468"). The instructions are provided in both English and Hindi ("Circle the bigger number", "बड़े नंबर पर गोला लगाओ"). The questions are numbered with a 'Q' prefix (e.g., Q1., Q2.) and arranged in two vertical columns. Each question consists of the question number, a number, a comma, and a second number. The student's selection (the circled number) is the answer. Red checkmarks are drawn across the circled numbers indicating they are correct.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

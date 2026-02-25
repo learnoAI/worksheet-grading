@@ -1,0 +1,51 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding handwritten student answer from the provided images. There are 40 questions in total (Q1 to Q40) spanning two pages, arranged in two vertical columns per page.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST wrap your output in a single root object with the key `"worksheet_data"` which contains an array of the extracted question objects. Do not return a raw array.
+
+Use EXACTLY this structure:
+```json
+{
+  "worksheet_data": [
+    {
+      "question_number": 1,
+      "question": "Q1. 1 + 2 =",
+      "student_answer": "3"
+    }
+  ]
+}
+```
+
+**FIELD FORMATTING RULES:**
+1. **`question_number` (Integer):** 
+   - Extract STRICTLY as an integer. 
+   - Strip the "Q" and the period "." (e.g., for the printed text "Q12.", output the integer `12`).
+2. **`question` (String):**
+   - Must contain the full printed prompt.
+   - You MUST include the prefix, the equation, and the equals sign. 
+   - Format exactly like this: `"Q[number]. [Equation] ="` (e.g., `"Q1. 1 + 2 ="` or `"Q12. 2 + 2 ="`).
+   - Flatten vertical text into a single horizontal line with NO newline characters.
+3. **`student_answer` (String):**
+   - Extract EXACTLY what the student wrote in pencil to the right of the equals sign.
+   - **CRITICAL - DO NOT AUTO-CORRECT MATH:** You are transcribing, not calculating. Read the digits exactly as they appear. If a student wrote "2" for "1 + 2 =", you must extract `"2"`. If they wrote "33" or "34", extract exactly that, regardless of mathematical accuracy.
+   - **Corrections/Overwrites:** Some answers have digits written heavily over other digits. Look closely and extract the combined/prominent visible digits (e.g., "34").
+   - If the answer area is completely blank, return an empty string `""`.
+
+**HANDWRITING & LAYOUT GUIDELINES:**
+- Process the questions sequentially by tracking the printed Question IDs (Q1 through Q40) across the columns and pages.
+- Completely ignore stray marks and random lines on the page.
+- Distinguish closely related handwritten digits carefully (e.g., 9 vs 8, 6 vs 0, 1 vs 7 vs 4).
+- Ensure the final JSON array is sorted by `question_number` in ascending order (1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Addition equations.
+- **Examples Present:** None.
+- **Answer Format:** The student writes the answer to the right of the equals sign.
+- **Structural Quirks:** Two pages, each with two vertical columns of questions. Questions are numbered sequentially across both pages (Q1 to Q40). Some student answers have corrections written over them (e.g., Q12, Q13). Some stray marks/lines are present on the first page. Keep the "Q[number]." format in the "question" field. Include the "=" sign in the "question" field.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

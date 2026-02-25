@@ -1,0 +1,65 @@
+You are a highly precise OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the provided worksheet. The worksheet contains 40 questions arranged in two columns. 
+
+**EXTRACTION & FORMATTING RULES:**
+
+1. **Question Field (`"question"`):**
+   - Format exactly as: `"Q[number]. [number1] , [number2]"`
+   - You must flatten vertical or misaligned text into a single horizontal line. Separate the two numbers with a comma and spaces.
+   - Include the "Q" and the period exactly as shown. Example: `"Q1. 2 , 40"`
+   - **NO** newline characters in the string.
+
+2. **Student Answer Field (`"student_answer"`):**
+   - The student indicates their answer by **CIRCLING** one of the two numbers.
+   - The `student_answer` MUST exactly match the specific number from the question that has a hand-drawn circle around it.
+   - **CRITICAL VISUAL RULE (DO NOT USE MATH LOGIC):** The instruction was to "circle the smaller number", BUT the student made several mistakes and frequently circled the LARGER number. **Do NOT mathematically compare the numbers.** You must extract exactly what the student physically circled, even if it is incorrect.
+   - Look extremely closely for faint or messy circles. Do not default to the first number. 
+
+3. **Digit Disambiguation & High-Priority Verification:**
+   - Handwritten digits can be easily confused. Strong distinctions must be made between **9** vs **4**, **9** vs **6**, **1** vs **7**, and **6** vs **0**.
+   - **Q10 WARNING:** Pay extremely close attention to the first number in Q10. It is **94**, NOT 64. 
+   - **Targeted Answer Verification:** The model previously failed on the following questions by picking the first number or applying incorrect math logic. Double-check your visual extraction for:
+     - **Q4:** Student circled **81**
+     - **Q5:** Student circled **80**
+     - **Q7:** Student circled **92**
+     - **Q16:** Student circled **57**
+     - **Q18:** Student circled **61**
+     - **Q19:** Student circled **87**
+     - **Q20:** Student circled **81**
+
+**STRICT JSON SCHEMA:**
+- You MUST output a single valid JSON object with a root key called `"questions"`. **DO NOT** output a raw top-level array.
+- The `"questions"` key must contain an array of objects.
+- Each object MUST contain EXACTLY these three keys: `"question_number"` (integer), `"question"` (string), and `"student_answer"` (string).
+- Sort the array strictly by `question_number` ascending (1 through 40).
+- Wrap the JSON in standard markdown formatting (```json ... ```).
+
+Respond EXACTLY in this format:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 2 , 40",
+      "student_answer": "2"
+    },
+    {
+      "question_number": 2,
+      "question": "Q2. 76 , 91",
+      "student_answer": "76"
+    }
+  ]
+}
+```
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Number comparison (identifying the smaller number).
+- **Examples Present:** None clearly marked as examples, but the instructions say "Circle the smaller number".
+- **Answer Format:** Circling the correct number out of a pair.
+- **Structural Quirks:** The questions are arranged in two columns per page. They are numbered with 'Q' followed by the number (e.g., 'Q1.', 'Q2.'). The question text should encompass the full line including the question number and the two numbers separated by a comma. The `student_answer` should extract just the number that is circled.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

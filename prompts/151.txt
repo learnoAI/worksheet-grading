@@ -1,0 +1,53 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract backward counting number sequences and their corresponding student answers from the provided image. The worksheet presents questions as vertical columns of stacked boxes.
+
+**SCOPE & BOUNDARIES (CRITICAL):**
+- Extract **ONLY** questions Q3, Q4, Q5, Q6, Q7, and Q8.
+- Completely **IGNORE** examples like Q1 and Q2, any questions beyond Q8 (like Q9), and all general instructional text (e.g., "Backward Counting").
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond in the following JSON array format:
+{format_instructions}
+
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**DATA TYPE RULES:**
+- `question_number` MUST be an **INTEGER** (e.g., 3), NOT a string (e.g., "3").
+
+**LAYOUT CONTEXT & DIGIT VERIFICATION (ANTI-HALLUCINATION):**
+- Pay close attention to single vs. double digits. Do not misread "15" as "5".
+- **Hint:** Odd-numbered questions (Q3, Q5, Q7) are taller columns that typically start counting down from **15**. Even-numbered questions (Q4, Q6, Q8) are shorter columns that start counting down from **5**.
+- Ensure you map the correct Question Label (e.g., Q3) to its immediate vertical column of boxes. Do not mix adjacent columns or read horizontally across multiple columns.
+
+**CORE EXTRACTION ALGORITHM (COLUMN-BY-COLUMN):**
+For each required question label (Q3 to Q8), locate its vertical stack of boxes. Read the column strictly top-to-bottom. Evaluate EACH box individually:
+1. **Pre-printed (typed) box:** Add this exact number to your `question` sequence.
+2. **Handwritten (penciled) box:** Add exactly ONE underscore (`_`) to your `question` sequence. Add the handwritten number to your `student_answer` sequence.
+3. **Completely empty box:** Add exactly ONE underscore (`_`) to your `question` sequence. Do not add anything to the `student_answer`.
+
+**FORMATTING STRICT RULES:**
+1. **Question Field (`question`):**
+    - Format: `"[Label]. [Comma-separated sequence]"`
+    - Example: `"Q3. 15, 14, 13, 12, _, _, _, _, _, 6"`
+    - **Underscore Counting:** You MUST output the exact number of underscores as there are penciled/empty boxes in the physical column. Do not auto-complete the sequence.
+2. **Student Answer Field (`student_answer`):**
+    - Format: `"[Comma-separated sequence]"`
+    - Example: `"11, 10, 9, 8, 7"`
+    - Contain ONLY the handwritten numbers. DO NOT include the pre-printed numbers here.
+    - If there are no handwritten numbers, return an empty string `""`.
+
+**FINAL WARNINGS:**
+- **NEVER COPY PATTERNS:** Treat every column independently. Q7 is not necessarily identical to Q5. 
+- **VERIFY COUNTS:** If a student wrote 7 numbers in pencil, there must be exactly 7 numbers in `student_answer` and exactly 7 underscores (`_`) in `question`.
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Number Sequence (Backward Counting).
+*   **Examples Present:** Yes, Q1 and Q2 from the second image (and the printed numbers in subsequent questions) act as partial examples or starting points. They are formatted as vertical columns of numbers.
+*   **Answer Format:** Writing numbers inside vertically stacked boxes to complete the backward sequence. Some boxes have pre-printed numbers.
+*   **Structural Quirks:** Questions are presented as vertical columns of boxes. The question number (e.g., 'Q 5.', 'Q 6.') is placed to the left of its respective column. Some answers are handwritten in pencil, and there's a red pen mark across some columns indicating grading or correction. The text at the top says "Backward Counting - 151" and "Write the missing numbers".
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

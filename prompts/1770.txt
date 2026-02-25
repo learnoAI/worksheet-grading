@@ -1,0 +1,63 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. 
+
+**WORKSHEET CONTEXT:**
+The image contains subtraction problems presented in a standard vertical format (one number above another with a solid line beneath). The problems are arranged in a grid layout with four vertical columns. Each problem has a question number prefix (e.g., "Q1."). 
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST output exactly and only the following JSON structure. 
+DO NOT return a raw array. You MUST wrap the array in a `"q_and_a"` root object.
+
+```json
+{
+  "q_and_a": [
+    {
+      "question_number": "Q1.",
+      "question": "130 - 1",
+      "student_answer": "129"
+    }
+  ]
+}
+```
+
+**FORMATTING RULES:**
+
+1.  **`question_number` Field:**
+    - Must be a string containing the question label including the "Q" and the period (e.g., `"Q1."`, `"Q2."`).
+    - **DO NOT** return just an integer.
+
+2.  **`question` Field:**
+    - Extract ONLY the mathematical expression (the numbers to be subtracted).
+    - **CRITICAL:** DO NOT include the question number (e.g., "Q1.") in this field. 
+    - You must flatten the vertical math problem into a single horizontal string format.
+    - Use spaces around the minus sign (e.g., `"130 - 1"`).
+    - **NO** newline characters in the string.
+
+3.  **`student_answer` Field:**
+    - Extract exactly what the student wrote in pencil below the solid equals line.
+    - Return the answer as a string (e.g., `"129"`).
+    - If the answer slot is blank, use an empty string `""`.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Read carefully to prevent digit confusion. Pay specific attention to:
+    - **3** vs **8** (Check if loops are fully closed)
+    - **4** vs **5** (Check for the top horizontal bar vs vertical and right angle)
+    - **1** vs **7**
+    - **6** vs **0**
+- Double-check your transcriptions for accuracy against the source image.
+
+**PROCESSING ORDER:**
+- Sort the final output strictly by `question_number` ascending (from "Q1." to "Q40.").
+- Be mindful of the columnar grid layout to ensure you accurately map the correct question to the correct student answer.
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Subtraction problems presented in a standard vertical format.
+*   **Examples Present:** None.
+*   **Answer Format:** Handwritten numbers placed below a solid horizontal line indicating the equals sign.
+*   **Structural Quirks:** Arranged in a grid layout with four vertical columns and multiple rows. Each problem is preceded by a question number (e.g., 'Q1.'). The target JSON flattens this grid structure into a list, representing the vertical subtraction problem as a single horizontal equation string (e.g., '130 - 1').
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

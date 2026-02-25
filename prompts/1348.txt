@@ -1,0 +1,58 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every long division question and its corresponding student answer from the image provided. There are 40 questions in total.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST respond with a JSON object containing a single root key `"questions"`. The value of `"questions"` must be an array of objects. Do NOT return a raw array.
+Example structure:
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 3 ) 33",
+      "student_answer": ""
+    }
+  ]
+}
+
+**KEYS AND EXTRACTION RULES:**
+
+1. `"question_number"` (Integer):
+   - Extract ONLY the numeric integer value.
+   - **STRIP** the "Q" and any punctuation (e.g., period "."). If the printed text is "Q1.", the output must be the integer `1`.
+
+2. `"question"` (String):
+   - Reconstruct the printed question text strictly in this format: `"[Question Label] [Divisor] ) [Dividend]"`
+   - Example: `"Q2. 3 ) 36"`
+   - Always include the label (e.g., "Q2."), and ensure there are spaces around the parenthesis ` ) `.
+
+3. `"student_answer"` (String):
+   - Extract **ONLY** the final quotient (the number written at the very top, directly above the division bracket).
+   - **CRITICAL:** COMPLETELY IGNORE all intermediate long-division workings, scratchpad math, subtraction steps, and down-arrows below the dividend. (e.g., Do not output "12 3 -3↓1 06 -6 0", output ONLY "12").
+   - **EXAMPLE RULE:** The top row of questions on the pages are printed examples showing the full division process. For these specific questions (Q1, Q6, Q11, Q16, Q21, Q26, Q31, Q36), you **MUST** return an empty string `""` for the `student_answer` because they are not student answers.
+   - If a problem is completely blank at the top (no quotient written), return an empty string `""`.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation to distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- Select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Sort the final output by `question_number` in ascending order (1 through 40).
+- Handle the multi-column layout properly by tracking the printed Question numbers.
+
+Return ONLY the valid JSON. No commentary and no markdown formatting outside of the JSON block.
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Long division.
+*   **Examples Present:** The top row of questions (Q1, Q6, Q11, Q16, Q21, Q26, Q31, Q36) serves as examples, showing the full division process, while the rest are meant for the student to solve. Note: The target JSON treats all items as questions.
+*   **Answer Format:** The student writes the quotient above the dividend. The target JSON only captures this final quotient.
+*   **Structural Quirks:**
+    *   The problems are arranged in a 5-row by 4-column grid spanning two pages.
+    *   The question text combines the question number (e.g., 'Q1.'), divisor, division bracket ')', and dividend.
+    *   The target JSON ignores the step-by-step division work shown below the dividend and only extracts the top quotient.
+    *   Some questions (the example rows) have printed answers, but the JSON expects empty strings for `student_answer` for these specific questions.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

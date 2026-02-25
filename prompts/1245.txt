@@ -1,0 +1,57 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the provided image(s). There are 40 questions in total, typically arranged in 4 vertical columns. Read carefully, column by column or row by row, to maintain the correct sequential order from Q 1 to Q 40.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond ONLY with a JSON array of objects. 
+**DO NOT** use dynamic keys. **DO NOT** nest the objects.
+Each object must have exactly these three keys: `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+
+1.  **"question_number" (Integer):**
+    - Must be a pure integer (e.g., 1, 2, 3).
+    - **CRITICAL:** Strip out any characters like "Q", spaces, or "." from the number. Do not output "Q1." or "1.".
+
+2.  **"question" (String):**
+    - Ensure the field captures the literal text exactly as it appears, **including the 'Q [Number].' prefix** before the math equation.
+    - Example format: `"Q 1. 77 x 80"` (Observe the exact spacing: Q, space, number, period, space, equation).
+    - Flatten vertical math stacks into a single horizontal line separated by " x ".
+    - **NO** newline characters in the string.
+
+3.  **"student_answer" (String):**
+    - Extract exactly what the student wrote in pencil below the horizontal line.
+    - **IGNORE** small circled numbers written above the top numbers. These are carry-overs from partial products, not the answer.
+    - **CRITICAL DIGIT-BY-DIGIT EXTRACTION:** Pay careful attention to handwritten numbers. Read the student's answer strictly digit-by-digit. **Do not auto-round numbers** or misinterpret messy middle digits (like '6') as '0'. 
+    - **NO AUTOCORRECTION:** Transcribe exactly what the student has written, even if the math is incorrect. Do NOT autocorrect the student's answers based on the correct mathematical calculation of the provided equation. 
+    - If the answer slot is genuinely blank, use an empty string `""`.
+    - Always return the answer as a string.
+
+**HANDWRITING & LAYOUT EXTRACTION GUIDELINES:**
+- Look closely at digit formation and pay extra attention to easily confused handwritten digits (e.g., '5' vs. '6', '8' vs. '9', or '1' vs '7' vs '4').
+- Some answers are written lightly or are messy. Rely strictly on visual stroke evidence, not mathematical correctness. Pay particular attention to these known messy/ambiguous/incorrect answers:
+  * Q 3: "1260"
+  * Q 4: "2560"
+  * Q 5: "7600"
+  * Q 9: "4180"
+  * Q 12: "6920" (The true math is 5920, but the student wrote 6920. Output "6920")
+  * Q 17: "20" (The student wrote 20. Output "20")
+  * Q 24: "8550"
+  * Q 39: "5760"
+- Carefully scan to ensure no questions are skipped. You must extract all 40 questions from both images combined.
+
+**VERIFICATION & PROCESSING ORDER:**
+- **Verification Step 1:** Before finalizing the JSON, double-check the tens and hundreds place for all 4-digit handwritten answers to ensure no numbers were accidentally flattened to zero.
+- **Verification Step 2:** Ensure you did not recalculate the math for the student. If the student wrote a '6' where a '5' should mathematically be, you MUST output '6'.
+- Sort the final JSON array strictly by `question_number` ascending (1 through 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Multiplication problems.
+- **Examples Present:** None.
+- **Answer Format:** The student writes the answer below a horizontal line under the multiplication problem. Sometimes, there are small circled numbers above the top number, indicating carry-over from partial products (though these seem to be just single digit numbers not real carry-overs, they are part of the student's process and should not be included in the answer).
+- **Structural Quirks:** The problems are arranged in four vertical columns per page. They are numbered sequentially with "Q" followed by the number (e.g., Q 1., Q 2., ..., Q 40.). The questions are split across two images. The answers are handwritten below the horizontal lines. There are red checkmarks and sometimes red circles indicating grading. Some student answers are written lightly or are messy. For Q17, the student wrote '20' which is incorrect but that is the answer provided. For Q3, the answer looks like 1200 or 1260, based on 14x90 it should be 1260. The JSON shows "1260". For Q4, answer looks like 2560. For Q5, answer looks like 7600. For Q9, answer looks like 4180. For Q24, answer looks like 8550. For Q39, answer looks like 5760. Include the 'Q X.' in the question string. The layout requires carefully reading column by column or row by row to maintain sequence. The target JSON combines data from both images. Ensure all 40 questions are captured sequentially.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

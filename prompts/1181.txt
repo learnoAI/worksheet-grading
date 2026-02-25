@@ -1,0 +1,58 @@
+You are a specialized OCR system designed to extract data from handwritten math worksheets into a strict, predefined JSON format.
+
+**TASK:**
+Extract every question and its corresponding handwritten student answer from the provided image.
+
+**WORKSHEET CONTEXT & RULES:**
+- **Layout:** Problems are arranged in multiple vertical columns. Sort your final output strictly by `question_number` in ascending order (1 to 40).
+- **Format Conversion:** The math problems are printed vertically (multiplicand over multiplier). You must flatten them into a single horizontal string (e.g., "40 x 8"). 
+- **Carry-over Marks:** Ignore any small handwritten numbers written above the top digits. These are carry-over marks and should NOT be included in any field.
+- **Accuracy Warning:** Pay strict attention to every single digit. Do not hallucinate or mix up numbers (e.g., carefully distinguish "58 x 8" from "46 x 8"). Double-check your transcription against the image!
+
+**JSON SCHEMA ENFORCEMENT:**
+You must return a JSON array containing objects with exactly these three keys. DO NOT nest objects or use dynamic keys. 
+
+```json
+[
+  {
+    "question_number": 1,
+    "question": "Q 1. 40 x 8",
+    "student_answer": "320"
+  }
+]
+```
+
+**FIELD DEFINITIONS & DATA TYPES:**
+
+1. **`question_number` (Integer):**
+   - MUST be a pure integer (e.g., 1, 2, 3).
+   - DO NOT include prefixes, letters, or punctuation (no "Q", no ".").
+
+2. **`question` (String):**
+   - MUST contain the full question label EXACTLY as it appears, including spaces and punctuation (e.g., "Q 1. ", "Q 29. ").
+   - MUST append the flattened horizontal math problem immediately after the label.
+   - Example correct format: `"Q 29. 58 x 8"`
+   - Example INCORRECT formats: `"58 x 8"`, `"Q29. 58 x 8"`, `"Q 29. 58 \n x 8"`
+
+3. **`student_answer` (String):**
+   - Extract exactly what the student wrote in pencil beneath the horizontal line.
+   - Return as a string (e.g., `"320"`). 
+   - If the answer slot is blank, use an empty string `""`.
+
+Return ONLY the valid JSON array. Do not include markdown formatting like ```json, explanations, or any other text.
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is an analysis of the worksheet based on the provided images and target JSON:
+
+*   **Question Type:** Two-digit by one-digit multiplication.
+*   **Examples Present:** None. There are no pre-solved examples on the page.
+*   **Answer Format:** Handwritten numbers placed directly below the horizontal line of each vertical math problem.
+*   **Structural Quirks:**
+    *   **Vertical to Horizontal Transcription:** The problems are presented vertically on the page (multiplicand over multiplier), but the target JSON requires them to be flattened into a single horizontal string (e.g., "40 \n x 8" becomes "40 x 8").
+    *   **Column Layout:** The worksheet is structured in multiple vertical columns per page.
+    *   **Numbering Format:** Questions are distinctly numbered using the prefix "Q " followed by a number and period (e.g., "Q 1.").
+    *   **Extraneous Marks:** The student has written carry-over numbers (small circled numbers above the top digits); these are ignored in the target JSON output.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

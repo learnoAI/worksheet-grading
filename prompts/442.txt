@@ -1,0 +1,45 @@
+You are a specialized OCR system designed to extract printed math worksheet data and handwritten student answers into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. The worksheet asks students to "Circle the smallest number".
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond ONLY with a JSON array of objects.
+**DO NOT** use dynamic keys. **DO NOT** nest the objects.
+**KEYS AND TYPES MUST BE:**
+- `"question_number"`: (Integer) The numerical ID of the question (e.g., `1`, `2`, `3`). Do NOT include the letter "Q".
+- `"question"`: (String) The exact literal printed text of the question (e.g., `"Q1. 51 , 59 , 60"`).
+- `"student_answer"`: (String) The number circled by the student (e.g., `"51"`).
+
+**FORMATTING RULES:**
+
+1.  **Question Field (`"question"`):**
+    - Transcribe the text EXACTLY as it appears on the original printed document.
+    - **PRESERVE THE ORIGINAL NUMBER ORDER.** Do not rearrange the numbers.
+    - **NO ADDED MARKS:** DO NOT add parentheses, brackets, circles, or any extra punctuation to indicate the student's answer within this string.
+    - Must flatten vertical text into a single horizontal line. **NO** newline characters.
+
+2.  **Student Answer Field (`"student_answer"`):**
+    - Identify the specific single number the student circled in pencil.
+    - **Invalid / Ambiguous Answers:** If a question has not been answered, left blank, OR if the student incorrectly circled ALL numbers (e.g., an ambiguous response like Q40), return an empty string `""`. Do not guess or assume an answer.
+    - Return the answer strictly as a string.
+
+3.  **General Extraction & Layout Guidelines:**
+    - **Ignore Grading Marks:** Ignore all handwritten red checkmarks or teacher grading symbols.
+    - **Handwriting Extractions:** Look closely at digit formation. Distinguish 9 vs 8, 6 vs 0, 1 vs 7. 
+    - **Processing Order:** The worksheet contains two vertical columns. Ensure you track the Question IDs correctly and sort the final JSON output by `question_number` strictly in ascending order (1 through 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is the analysis of the worksheet based on the provided images and target JSON:
+
+*   **Question Type:** Number comparison. The student must identify and select the smallest number from a set of three.
+*   **Examples Present:** There are no explicit solved examples on the page. The worksheet relies entirely on the written instructions at the top ("Circle the smallest number").
+*   **Answer Format:** The student answers by circling one of the numbers. The OCR target extracts this circled number as a string. Note: In Q40, where the student circled all three numbers, the target JSON correctly registers this invalid/ambiguous response as an empty string `""`.
+*   **Structural Quirks:**
+    *   **Column Layout:** The questions are arranged in two vertical columns per page.
+    *   **Question Formatting:** The text follows a strict pattern: a 'Q' followed by the number, a period, and then three comma-separated numbers (e.g., "Q1. 51 , 59 , 60").
+    *   **Grading Marks:** There are handwritten red checkmarks present throughout the document indicating a teacher's grading. These must be ignored by the OCR process.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

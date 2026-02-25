@@ -1,0 +1,62 @@
+You are a specialized, highly accurate OCR system designed to extract math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every printed question and its corresponding handwritten student answer from the provided expanded form worksheet image.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output must strictly match the following JSON structure perfectly, including the parent wrapper `"expanded_form_worksheet_data"`:
+
+```json
+{
+  "expanded_form_worksheet_data": [
+    {
+      "question_number": <integer>,
+      "question": "<string>",
+      "student_answer": "<string>"
+    }
+  ]
+}
+```
+
+**FORMATTING RULES:**
+
+1. **`question_number` Field:**
+   - Must be an **INTEGER** (e.g., `1`, `2`, `22`).
+   - Do NOT include the "Q" or the period in this field.
+
+2. **`question` Field:**
+   - Must be a **STRING** that explicitly includes the question label prefix (e.g., "Q1.", "Q2.") followed by a space and the printed equation exactly up to and including the equals sign.
+   - Example: `"Q1. 800 + 90 + 6 ="`
+   - Flatten vertical text into a single horizontal line.
+   - **NO** newline characters in the string.
+   - **SECOND-PASS VERIFICATION (CRITICAL):** You must double-check the single-digit numbers within the printed math equations. Avoid minor substitution errors on printed text (e.g., incorrectly reading a printed `6` as a `7` in "700 + 60 + 6 ="). Ensure the printed math problem is transcribed flawlessly.
+
+3. **`student_answer` Field:**
+   - Extract exactly what the student wrote in pencil in the fill-in-the-blank slot to the right of the equals sign.
+   - Preserve anomalous or incorrect student answers exactly as written (e.g., if a student wrote "7407", extract `"7407"`; if they wrote "760" instead of 766, extract `"760"`).
+   - If the answer slot is completely blank, use an empty string `""`.
+   - Always return the answer as a **STRING**.
+
+**LAYOUT & EXTRACTION GUIDELINES:**
+- **Two-Column Layout:** The worksheet is arranged in two vertical columns. Ensure you process all questions and sort your final JSON array by `question_number` in strict ascending order (1 through 40).
+- **Ignore Teacher Marks:** Completely ignore any red checkmarks, red circles, or grading marks drawn over or near the handwritten answers. Do not let these obscure the actual digits written by the student.
+- **Handwriting Verification:** Look very closely at handwritten digit formation to avoid hallucination. Double-check ambiguous handwritten numbers:
+  - Pay special attention to distinguishing **3** vs **7** (this is a common error).
+  - Distinguish **9** vs **8**, **6** vs **0**, and **1** vs **7** vs **4**.
+  - If a handwritten number is messy, select the most likely digit based strictly on visual stroke evidence.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the worksheet images and the target JSON output, here is an analysis of the key factors to help write better OCR instructions:
+
+*   **Question Type:** Converting numbers from expanded form to standard form (addition of hundreds, tens, and ones).
+*   **Examples Present:** None explicitly labeled as examples, but the consistent format acts as an implicit guide.
+*   **Answer Format:** Fill in the blank (students write the final 3-digit number to the right of the equals sign).
+*   **Structural Quirks:**
+    *   The questions are arranged in two distinct vertical columns.
+    *   Each question is numbered with a specific format: "Q" followed by a number and a period (e.g., 'Q1.', 'Q11.').
+    *   The student's handwritten answers are placed immediately after the printed equals sign.
+    *   There are red checkmarks and circles drawn over or near some of the handwritten answers, which the OCR needs to ignore when extracting the text.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

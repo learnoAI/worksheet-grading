@@ -1,0 +1,62 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. There are 40 questions in total, arranged in a grid layout.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST be a JSON object containing a single root key `"results"` mapping to an array of extracted question objects. Do not return a top-level array.
+**DO NOT** use dynamic keys (like "Q1", "A1", "Q_2", etc.).
+**DO NOT** nest the objects inside other keys.
+
+**REQUIRED JSON STRUCTURE:**
+```json
+{
+  "results": [
+    {
+      "question_number": 1,
+      "question": "Q1. 2 ) 12",
+      "student_answer": ""
+    },
+    ...
+  ]
+}
+```
+
+**FORMATTING RULES:**
+
+1.  **Question Field (`"question"`):**
+    - Must start EXACTLY with "Q" immediately followed by the number and a period, with **NO space** in between (e.g., "Q1.", "Q10." — strictly avoid "Q 1.").
+    - Must include the printed division problem formatted exactly as label, space, divisor, space, closing parenthesis, space, dividend (e.g., "Q1. 2 ) 12").
+    - **NO** newline characters in the string. Flatten all vertical text into a single horizontal line.
+    - **CRITICAL - Divisor vs. Quotient Mix-ups:** Pay extremely close attention to the printed divisor (the number to the left of the `)` ) versus the handwritten student answer (the quotient above the bracket). Do not swap these numbers. For example, if the printed question is `6 ) 18` and the handwritten quotient is `3`, ensure the question string records `6 ) 18` and the student_answer records `3`.
+
+2.  **Student Answer Field (`"student_answer"`):**
+    - Extract **ONLY the final handwritten quotient** written spatially ABOVE the division bracket.
+    - **CRITICAL - Ignore Working Out:** You MUST IGNORE all intermediate working out, subtractions, remainders, zeros, or "X" marks written BELOW the bracket. Do NOT extract sequences like "3 / 12 / -12 / X". The answer should just be the top number (e.g., "3").
+    - **Handling Examples (Blank Answers):** Several questions across the top row and elsewhere (e.g., Q1, Q6, Q11, Q16, Q21, Q26, Q31, Q36) are printed examples to show the expected format. Because the student did not write a handwritten answer above the bracket for these, you MUST leave their `"student_answer"` as an empty string `""`.
+    - If the quotient space above the division bracket is entirely blank, use an empty string `""`.
+    - Always return the answer as a string.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation for the quotient.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Sort the output by `question_number` in ascending order (1 to 40).
+- Be mindful of the grid layout: questions are numbered sequentially down columns or across rows. Follow the explicit "Q#" printed next to each problem to determine the correct ID.
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Division
+- **Examples Present:** No clear examples, but Q1, Q6, Q11, Q16, Q21, Q26, Q31, Q36 are printed with the answers as part of the question text to show the expected format, though the target JSON extracts these printed answers as part of the question string and leaves the `student_answer` blank.
+- **Answer Format:** Written above the division bracket (quotient). The full calculation is shown below.
+- **Structural Quirks:**
+    - Questions are arranged in a grid of 4 columns and 5 rows per image.
+    - Numbering is sequential across columns (e.g., Q1, Q6, Q11, Q16 across the top row).
+    - Printed question format includes the division bracket and numbers (e.g., `2 ) 12`).
+    - Hand-written answers are the quotients.
+    - Target JSON formatting extracts the printed question string and only records the handwritten quotient as `student_answer`. For printed "examples" like Q1, `student_answer` is empty.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

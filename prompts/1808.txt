@@ -1,0 +1,64 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every vertical subtraction question and its corresponding handwritten student answer from the provided image(s).
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST return the output as a JSON object with a single root key `"questions"` that contains the array of extracted items. 
+**DO NOT** return a raw array. Use exactly this structure:
+
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 149 - 40",
+      "student_answer": "109"
+    }
+  ]
+}
+```
+
+**DO NOT** use dynamic keys (like "Q1", "A1", "Q_2", etc.) for the object properties.
+**DO NOT** deeply nest the objects beyond the `"questions"` array.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+1.  **Question Field (`"question"`):**
+    - The problems are written vertically. You must flatten them into a single horizontal string.
+    - Format strictly as: `[Q-label] [Top Number] - [Bottom Number]` (e.g., "Q1. 149 - 40").
+    - Must include the label exactly as written (e.g., "Q1.", "Q2.") at the start.
+    - Include a single space before and after the minus sign.
+    - **NO** newline characters (`\n`) in the string.
+2.  **Student Answer Field (`"student_answer"`):**
+    - Extract exactly the handwritten numbers placed underneath the horizontal subtraction line.
+    - Look closely at pencil strokes to identify the digits.
+    - If the answer slot is blank, return an empty string `""`.
+    - Always return the answer as a string, not an integer.
+3.  **Question Number Field (`"question_number"`):**
+    - Extract the integer value of the question number (e.g., 1 for Q1, 2 for Q2).
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation.
+- Carefully distinguish **9** vs **8**, **6** vs **0**, and **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER & LAYOUT:**
+- The worksheet is arranged in 4 columns. 
+- You must track and follow the explicit Question labels (Q1, Q2, Q3, etc.) sequentially to ensure you extract them in the correct `question_number` ascending order (1 up to 40).
+- Sort the final array strictly by `question_number` ascending.
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is the analysis of the worksheet based on your criteria:
+
+*   **Question Type:** Subtraction (vertical format).
+*   **Examples Present:** None explicitly labeled as examples.
+*   **Answer Format:** Handwritten numbers placed underneath the subtraction line.
+*   **Structural Quirks:** 
+    *   The problems are arranged in multiple columns (4 columns).
+    *   The questions are numbered sequentially (Q1 to Q40) but are split across two images. The provided target JSON combines data from both images.
+    *   Each problem is formatted with a 'Q-number', the top number, a minus sign followed by the bottom number, and a horizontal line. The student writes the answer below the line.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

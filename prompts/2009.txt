@@ -1,0 +1,57 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding handwritten student answer from the provided worksheet image. There are 40 questions arranged in a 4-column grid (read left-to-right, top-to-bottom).
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST wrap the array of questions inside a root object with the exact key `"worksheet_data"`. Do not return a raw array. Respond exactly in the following JSON format:
+
+```json
+{
+  "worksheet_data": [
+    {
+      "question_number": 1,
+      "question": "Q1. 145 x 7",
+      "student_answer": "1015"
+    }
+  ]
+}
+```
+
+**FORMATTING RULES:**
+
+1.  **Question Field (`"question"`):**
+    - **Prefixing:** Must start with the question label. You MUST remove any spaces between the 'Q' and the number. Output exactly `"Q1."`, `"Q2."`, etc. **DO NOT** output `"Q 1."`.
+    - **Flattening:** Convert the vertical multiplication problem into a single horizontal string using an "x" for multiplication (e.g., `"Q1. 145 x 7"`).
+    - **NO** newline characters in the string.
+
+2.  **Student Answer Field (`"student_answer"`):**
+    - Extract ONLY the final handwritten numeric answer written beneath the horizontal line.
+    - Return the answer as a string (e.g., `"1015"`).
+    - If the answer slot is blank, use an empty string `""`.
+    - **CRITICAL - IGNORE CARRY-OVERS:** The student has written small handwritten "carry-over" numbers above the top digits of the problems. You **MUST COMPLETELY IGNORE** these small carry-over numbers. Do not include them in the question or the answer.
+
+3.  **Handwriting Recognition Guidelines:**
+    - Double-check ambiguous handwritten digits carefully.
+    - Pay extra attention to differentiating visually similar numbers: **5 vs. 6**, **5 vs. 8**, and **8 vs. 9**. (For example, ensure a messy '5' is not misread as an '8' or '6').
+    - Look closely at stroke closures to distinguish '8's, '5's, '6's, and '9's.
+
+**PROCESSING ORDER:**
+- Traverse the 4-column matrix properly.
+- Sort the final output strictly by `"question_number"` ascending (1 through 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided images and target JSON, here is an assessment of the key factors to help write better OCR instructions:
+
+*   **Question Type:** Vertical multiplication problems (3-digit numbers multiplied by 1-digit numbers).
+*   **Examples Present:** None. There are no pre-solved examples; all items (Q1-Q40) are exercises completed by the student.
+*   **Answer Format:** Handwritten numeric answers placed beneath the horizontal line of each vertical problem.
+*   **Structural Quirks:**
+    *   **Format Conversion:** Problems are printed vertically on the page (multiplicand above multiplier) but must be transcribed into a single horizontal string in the JSON (e.g., `Q1. 145 x 7`).
+    *   **Extraneous Marks:** The student has written small "carry-over" numbers above the top digits in almost every problem. **Crucially, these handwritten carry-over numbers must be ignored** and excluded from the JSON output.
+    *   **Grid Layout:** The problems are arranged in a 4-column matrix, reading left to right, top to bottom.
+    *   **Prefixing:** The target JSON incorporates the question label directly into the question string, normalizing slight spacing variations (e.g., reading "Q 1." and formatting it as "Q1.").
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

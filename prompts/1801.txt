@@ -1,0 +1,61 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract all 20 vertical subtraction questions and their corresponding handwritten student answers from the image provided.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your response MUST be a JSON object containing a single root key named `"questions"`. **DO NOT** output a raw list or array at the root. 
+
+Output strictly in the following JSON format:
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 111 - 10",
+      "student_answer": "101"
+    }
+  ]
+}
+
+**DO NOT** use dynamic keys (like "Q1", "A1", "Q_2", etc.).
+**DO NOT** nest the objects further than the example above.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+1.  **Question Field:**
+    - Must include the question label (e.g., "Q1.", "Q2.") at the start.
+    - Must flatten the 2-dimensional vertical math problem (top number, minus sign, bottom number) into a single horizontal string format.
+    - Format pattern: `"[Label] [Top_Number] - [Bottom_Number]"`.
+    - Example: `"Q1. 111 - 10"`.
+    - **NO** newline characters in the string.
+2.  **Student Answer Field:**
+    - Extract exactly the numerical answer the student wrote in pencil beneath the horizontal line.
+    - Return the answer as a string (e.g., `"101"`).
+    - If the answer slot is blank, use an empty string `""`.
+3.  **Question Number Field:**
+    - Must be an integer representing the question number (e.g., `1`, `2`).
+
+**LAYOUT AND PROCESSING ORDER:**
+- **Column-Major Layout:** Pay close attention to the numbering. The questions are arranged in a grid and are numbered sequentially *down* the columns (e.g., Column 1 contains Q1-Q5, Column 2 contains Q6-Q10).
+- Sort the final output exactly by `question_number` ascending (1 through 20).
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+- There are no pre-solved examples; all 20 items are student exercises. Extract all of them.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet image and target JSON, here is an analysis of the key factors to guide OCR instructions:
+
+*   **Question Type:** Vertical subtraction problems (subtracting 10 from sequential numbers).
+*   **Examples Present:** No pre-solved examples are explicitly labeled; all 20 questions appear to be exercises intended for the student.
+*   **Answer Format:** Handwritten numerical answers written underneath the horizontal line of each vertical math problem.
+*   **Structural Quirks:**
+    *   **Column-Major Layout:** The questions are arranged in a 4-column grid and are numbered sequentially *down* the columns (e.g., Column 1 is Q1-Q5, Column 2 is Q6-Q10).
+    *   **Identifier Format:** Question numbers are explicitly prefixed with "Q" followed by a period (e.g., "Q1.", "Q2.").
+    *   **Flattening Requirement:** The target JSON requires transforming the 2-dimensional vertical math layout (top number, minus sign, bottom number) into a 1-dimensional horizontal string format for the `question` field (e.g., the vertical block for Q1 must become `"Q1. 111 - 10"`).
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

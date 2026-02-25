@@ -1,0 +1,55 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided, reading down the left column first, then continuing down the right column.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST be a valid JSON object containing a single root key `"box_2d"`. The value of `"box_2d"` must be an array of objects. Do not use dynamic keys. 
+
+Use this exact structure:
+```json
+{
+  "box_2d": [
+    {
+      "question_number": 1,
+      "question": "Q1. 4 x 9 =",
+      "student_answer": "36"
+    }
+  ]
+}
+```
+
+**EXTRACTION & FORMATTING RULES:**
+
+1. **`question_number` (Integer):**
+   - Extract ONLY the numerical digits of the question number.
+   - Example: If the text says "Q1.", output the integer `1`. Do not output "Q1" or "Q1.".
+
+2. **`question` (String):**
+   - Must include the label (e.g., "Q1.", "Q2.") at the start, followed by the equation up to the equal sign.
+   - **CRITICAL:** Strip ALL trailing whitespace at the end of the string. Output `"Q1. 4 x 9 ="` (correct) instead of `"Q1. 4 x 9 = "` (incorrect).
+   - Flatten vertical text into a single horizontal line. No newline characters.
+
+3. **`student_answer` (String):**
+   - Extract exactly what the student wrote in pencil to the right of the equal sign.
+   - **CRITICAL: DO NOT SOLVE THE MATH OR AUTOCORRECT INCORRECT ANSWERS.** If the student wrote an incorrect answer (e.g., "4 x 6 = 20"), you MUST extract `"20"`. Hallucinating the correct math answer will cause a failure.
+   - If the answer slot is genuinely blank, use an empty string `""`.
+   - Return the answer as a string.
+
+**HANDWRITING & NOISE GUIDELINES:**
+- **Red Checkmarks:** Ignore any red checkmark lines drawn across the equations. Do not let them interfere with digit recognition.
+- **Digit Formation:** Look closely at messy digits. Distinguish 9 vs 8, 6 vs 0, 1 vs 7 vs 4. Rely only on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Extract the left column first (top to bottom), then the right column (top to bottom).
+- Sort the final array by `question_number` in ascending order (1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Multiplication equations.
+- **Examples Present:** None.
+- **Answer Format:** The student writes the answer to the right of the equal sign.
+- **Structural Quirks:** Two columns of questions, numbered sequentially (Q1, Q2, etc.) down the left column then continuing down the right column across two pages. There is a red checkmark line drawn across several of the equations.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

@@ -1,0 +1,62 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every long division question and its corresponding student answer from the image provided. 
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond in the following JSON format, providing a list of all 40 questions and their answers:
+{format_instructions}
+
+**DO NOT** use dynamic keys (like "Q1", "A1", "Q_2", etc.).
+**DO NOT** nest the objects.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+
+1.  **Question Field (`question`):**
+    - **Transcribe strictly verbatim.** Do NOT normalize the text. 
+    - **DO NOT SOLVE OR CORRECT THE MATH:** Transcribe the numbers exactly as they appear in the image. Do not attempt to mathematically "correct" the student's work or the printed problem. 
+    - Preserve exact spacing around the division symbol (e.g., it must be `"Q1. 2 ) 7"`, not `"Q1. 2)7"`).
+    - **Question Number Spacing:** Pay precise attention to the spacing between "Q" and the number. For example, questions 1-20 generally do NOT have a space (e.g., `"Q6. 4 ) 50"`), while questions 21-40 often DO have a space (e.g., `"Q 21. 5 ) 27"`). Replicate this exactly.
+    - **Do NOT add "Q" if it is missing.** If the worksheet says `"22. 2 ) 17"`, output exactly that.
+    - Ignore any extraneous trailing "Q" characters at the end of the printed problem (e.g., if printed as `Q 21. 5 ) 27 Q`, extract as `"Q 21. 5 ) 27"`).
+    - Flatten the division problem into a single horizontal line.
+    - **DOUBLE-CHECK DIVIDENDS:** Pay extreme attention to the digits inside the division bracket to prevent hallucinations. *Warning: Do not misread the dividend in Q5 as 17 (it is 11), or the dividend in Q11 as 8 (it is 10).* 
+
+2.  **Student Answer Field (`student_answer`):**
+    - You must synthesize the spatial layout into a specific standardized string.
+    - **Locate the Quotient:** Look for the handwritten number written *above* the division bracket. Extract exactly what is written, even if mathematically wrong.
+    - **Locate the Remainder:** Look for the handwritten number at the *very bottom* of the division steps below the dividend.
+    - **Format strictly as:** `"Quotient: [X], Remainder: [Y]"` (where [X] and [Y] are the respective numbers).
+    - **If there is no remainder** (or it is 0), format strictly as: `"Quotient: [X]"`.
+    - **NEVER** output just the digits. You must include the "Quotient: " and "Remainder: " labels.
+    - Double check that you have not missed a remainder written at the very bottom (e.g., Q11 has a remainder of 2).
+    - If the entire answer is completely blank, use an empty string `""`.
+
+3.  **Question Number Field (`question_number`):**
+    - Extract the purely numeric integer of the question (1 through 40).
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation in the student's pencil markings.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence, without trying to logically "fix" the math equation.
+
+**PROCESSING ORDER:**
+- Scan the grid layout column by column.
+- Sort the final JSON output by `question_number` in ascending order (1 to 40). Ensure all 40 items are correctly captured.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and target JSON, here are the key factors for OCR instructions:
+
+*   **Question Type:** Long division math problems.
+*   **Examples Present:** None. All questions are worked out by the student.
+*   **Answer Format:** Handwritten long division workings. The student writes the quotient above the dividend and the steps/remainder below it. The target JSON synthesizes this spatial information into a standardized string: `"Quotient: [value], Remainder: [value]"` (omitting the remainder portion if it is 0).
+*   **Structural Quirks:**
+    *   **Grid Layout:** The problems are arranged in multiple vertical columns across the page.
+    *   **Inconsistent Numbering:** Question labels mostly use the format "Q [number]." (e.g., "Q1.", "Q 21."), but some omit the "Q" entirely (e.g., "22.", "27.", "32.").
+    *   **Extraneous Text:** Some printed problems feature an extra trailing "Q" (e.g., `Q 21. 5 ) 27 Q`). The target JSON ignores this trailing character.
+    *   **Spatial Interpretation:** The OCR cannot just transcribe text top-to-bottom; it must recognize the long division structure to correctly identify which handwritten number is the quotient and which is the remainder to format the `student_answer` field correctly.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

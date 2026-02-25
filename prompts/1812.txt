@@ -1,0 +1,58 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding handwritten student answer from the provided multi-column arithmetic worksheet.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST output a single JSON object with a root key called `"worksheet_data"` containing an array of question objects. Do NOT output a raw array. 
+Respond EXACTLY in the following structure:
+
+```json
+{
+  "worksheet_data": [
+    {
+      "question_number": 1,
+      "question": "Q1. 269 - 60",
+      "student_answer": "209"
+    }
+  ]
+}
+```
+
+**FORMATTING RULES:**
+
+1. **`question_number` (Integer):**
+   - Must be strictly an **integer** (e.g., `1`, `2`, `3`). 
+   - DO NOT include the "Q" prefix or the period "." in this field (e.g., output `1`, not `"Q1."`).
+
+2. **`question` (String):**
+   - The math problem is presented vertically in the image (top number, minus sign, bottom number). You must flatten this into a single horizontal string.
+   - You **MUST** include the question label prefix in this string (e.g., `"Q1. "`, `"Q2. "`).
+   - Format strictly as: `"Q<number>. <top_number> - <bottom_number>"` (e.g., `"Q1. 269 - 60"`).
+   - Ensure there is exactly one space before and after the minus sign.
+   - **NO** newline characters `\n` in the string.
+
+3. **`student_answer` (String):**
+   - Extract the handwritten numeric answer written underneath the horizontal separator line for each problem.
+   - Always return the extracted answer as a string (e.g., `"209"`).
+   - If the answer slot is blank, use an empty string `""`.
+
+**HANDWRITING & LAYOUT EXTRACTION GUIDELINES:**
+- **Layout:** The questions are arranged in a 4-column grid. The numbering proceeds vertically down each column (e.g., Q1-Q10 in the first column, Q11-Q20 in the second, etc.) before moving to the next column.
+- **Accuracy:** Pay close attention to handwritten digit formation. Accurately distinguish **9** vs **8**, **6** vs **0**, and **1** vs **7** vs **4**. If a number is messy, select the most likely digit based on visual stroke evidence.
+- **Sorting:** The final output array must be sorted by `question_number` in ascending order (from 1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and the target JSON output, here is an analysis of the key factors to help write better OCR instructions:
+
+*   **Question Type:** Arithmetic (Subtraction). The problems are presented vertically in the image but need to be transcribed horizontally into an equation format for the JSON.
+*   **Examples Present:** None. There are no pre-solved examples provided on the worksheet; all problems contain handwritten student answers.
+*   **Answer Format:** Handwritten numeric answers written underneath a horizontal separator line for each respective problem.
+*   **Structural Quirks:**
+    *   **Multi-Column Layout:** The questions are arranged in a 4-column grid.
+    *   **Numbering Direction:** The question numbering (Q1, Q2, etc.) proceeds vertically down each column before moving to the top of the next column to the right.
+    *   **Flattening Requirement:** The vertical stack of the subtraction problem (number on top, minus sign and number on bottom) must be concatenated into a single horizontal string (e.g., `"Q1. 269 - 60"`) for the `question` field.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

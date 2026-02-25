@@ -1,0 +1,63 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding handwritten student answer from the provided image. 
+Ignore the bilingual header instructions at the top ("Divide the following." / "भाग करो.").
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST output a single JSON object containing a root key `"worksheet_data"`. The value of `"worksheet_data"` must be an array of objects.
+Do NOT output a raw JSON array.
+
+Target Structure:
+{
+  "worksheet_data": [
+    {
+      "question_number": 1,
+      "question": "Q1. 84 \u00f7 9 =",
+      "student_answer": "9 R 3"
+    }
+  ]
+}
+
+**DO NOT** use dynamic keys (like "Q1", "A1").
+**DO NOT** nest the objects inside the array.
+**KEYS MUST BE:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+
+1. **Question Field (`"question"`):**
+    - Transcribe the string EXACTLY as it appears in the image, preserving all spaces, punctuation, and trailing mathematical symbols.
+    - **Spacing Requirement:** You MUST include a space after the period of the question identifier (e.g., output `"Q1. 84 \u00f7 9 ="`, absolutely NOT `"Q1.84 \u00f7 9"`).
+    - **Trailing Equals Sign:** You MUST include the equals sign (`=`) at the end of every equation.
+    - Accurately transcribe the division symbol (`÷` or `\u00f7`).
+    - Flatten vertical text into a single horizontal line with **NO** newline characters.
+
+2. **Student Answer Field (`"student_answer"`):**
+    - Extract exactly what the student wrote inline after the `=` sign (usually in blue/graphite pencil).
+    - **IGNORE RED MARKS:** The page contains red grading checkmarks that frequently overlap or strike through the answers. Ignore the red ink completely and extract only the handwritten characters beneath or around it.
+    - The expected format consists of the quotient, the letter "R", and the remainder (e.g., `"9 R 3"`, `"11 R 0"`).
+    - If the answer slot is blank, use an empty string `""`.
+    - Always return the answer as a string.
+
+3. **Question Number (`"question_number"`):**
+    - Extract the integer value of the question sequence (e.g., for "Q12.", the `question_number` is `12`).
+
+**PROCESSING ORDER & LAYOUT:**
+- The worksheet is structured in two distinct vertical columns. Track the question IDs carefully.
+- Extract all items across both columns and sort the final JSON array ascending strictly by `question_number` (from 1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and the target JSON, here is an analysis of the key factors to help write better OCR instructions:
+
+*   **Question Type:** Math calculation (specifically, division problems with remainders).
+*   **Examples Present:** None. There are no pre-printed solved examples; all answers shown are handwritten student responses.
+*   **Answer Format:** Handwritten text placed directly inline after the equals sign (`=`). The expected format consists of a number (quotient), the letter "R", and another number (remainder) — e.g., "9 R 3".
+*   **Structural Quirks:**
+    *   **Column Layout:** The questions are arranged in two distinct vertical columns across the page.
+    *   **Numbering Style:** Questions use a specific prefix format, combining "Q", the number, and a period (e.g., "Q1.", "Q22.").
+    *   **Overlapping Ink:** Red grading marks (checkmarks) frequently overlap or strike through the blue handwritten answers, which may interfere with text recognition. OCR instructions should explicitly account for ignoring these red marks while capturing the blue text beneath.
+    *   **Bilingual Header:** The main instruction includes both English ("Divide the following.") and Hindi ("भाग करो.").
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

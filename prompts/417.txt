@@ -1,0 +1,23 @@
+"This is a worksheet titled 'What comes before' ('पिछला नंबर लिखो'). The task for the student is to write the integer that immediately precedes the given number. Extract all questions and their corresponding student answers.
+
+<Rules>
+1.  **Transcribe Student's Answer Literally:** Your single most important job is to read the student's handwritten number and transcribe it exactly. DO NOT calculate the correct answer. If the student makes a mathematical error, you must record that error.
+    *   **Specific Example:** For question Q5, `___ , 63`, if the student wrote `64` in the blank, your output for the `answer` MUST be `'64'`. Do not "correct" it to the proper answer, `62`.
+
+2.  **Strict Question Formatting:** The format for every question on this sheet is a blank space, a comma, and a number. Represent the question field using `___` (three underscores) for the blank.
+    *   **Example for Q1:** The `question` field should be `\"___ , 32\"`.
+    *   **Example for Q11:** The `question` field should be `\"___ , 74\"`.
+
+3.  **Worksheet Structure and Order:** This worksheet has exactly 20 questions in two columns.
+    *   Column 1 contains questions Q1 through Q10.
+    *   Column 2 contains questions Q11 through Q20.
+    *   You must return all 20 questions in strict numerical order (Q1, Q2, Q3, ..., Q20).
+
+4.  **Handwriting Interpretation:** The answers are handwritten by a child. Interpret the digits based on what is physically written. Do not guess the student's intent. If a number looks like a '4', report '4', even if the correct answer should have been a '2'.
+
+5.  **Unanswered Blanks:** If a student left a blank empty, use an empty string `\"\"` for the `answer` field.
+</Rules>
+
+Respond in the following JSON format:
+{format_instructions}
+"

@@ -1,0 +1,55 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the provided worksheet images. The images contain division problems (division by 10) laid out in two vertical columns across multiple pages. Combine all extracted data sequentially.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST be a single JSON object containing a single key `"questions"`. The value of `"questions"` must be a JSON array containing the extracted items.
+**DO NOT** return a top-level array. 
+{format_instructions}
+
+Each object in the `"questions"` array MUST strictly contain these exact keys:
+- `"question_number"` (integer)
+- `"question"` (string)
+- `"student_answer"` (string)
+
+**DO NOT** use dynamic keys (like "Q1", "A1"). **DO NOT** nest the objects further.
+
+**FORMATTING RULES:**
+
+1. **Question Field (`"question"`):**
+   - Must include the question label exactly as written, including spaces (e.g., "Q 1.", "Q 2.").
+   - Must include the full equation up to the equals sign (e.g., "Q 1. 10 ÷ 10 =").
+   - Must flatten vertical text into a single horizontal line.
+   - **NO** newline characters in the string.
+
+2. **Student Answer Field (`"student_answer"`):**
+   - Extract the student's handwritten quotient and remainder.
+   - **MANDATORY SPACING RULE:** You MUST format the answer as `"[Quotient] R [Remainder]"`. There MUST be exactly one space before and one space after the capital 'R' (e.g., output `"7 R 1"`, NEVER `"7R1"` or `"7r1"`).
+   - Normalize the remainder letter: Always output a capital `"R"`, even if the student wrote a cursive or lowercase 'r'.
+   - If the answer slot is completely blank, use an empty string `""`.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Pay special attention to remainder digits. Double-check identical consecutive digits (e.g., if the problem is `77 ÷ 10 =`, strictly verify the strokes to ensure you extract `"7 R 7"` and do not accidentally hallucinate a `"2"`).
+- Distinguish closely between **9** vs **8**, **6** vs **0**, and **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Process all vertical columns and pages (e.g., questions 1-20 on page 1, 21-40 on page 2).
+- Sort the final output array strictly by `"question_number"` in ascending order (1, 2, 3... up to the final question).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and the target JSON output, here are the key factors to guide the OCR process:
+
+*   **Question Type:** Division problems (specifically, division by 10 resulting in a quotient and remainder).
+*   **Examples Present:** None.
+*   **Answer Format:** Handwritten text following the equals sign. The expected format is "[Quotient] R [Remainder]".
+*   **Structural Quirks:**
+    *   The problems are laid out in two distinct vertical columns separated by a line.
+    *   Each question starts with a specific numbering format: "Q [number].".
+    *   The student's handwriting varies in legibility (e.g., 'R' sometimes looks like a lowercase 'r' or is cursive).
+    *   The second image appears to be the first page (questions 1-20), and the first image is the second page (questions 21-40). The JSON output needs to consolidate these sequentially.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

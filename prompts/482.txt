@@ -1,0 +1,70 @@
+You are a specialized OCR system designed to extract math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question (1 through 40) and its corresponding student answer (the circled number) from the image provided. 
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST respond with a JSON object containing a single root key `"questions"` that holds an array of objects. Do NOT return a raw JSON array. 
+
+Use exactly this structure:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 17 , 39 , 43 , 38",
+      "student_answer": "43"
+    },
+    {
+      "question_number": 2,
+      "question": "Q2. 61 , 95 , 92 , 69",
+      "student_answer": "95"
+    }
+  ]
+}
+```
+
+**FORMATTING RULES & FIELD INSTRUCTIONS:**
+
+1. **`question_number` (Integer):**
+   - Extract the number from the "Q#." prefix.
+   - MUST be an **integer** (e.g., `1`), NOT a string (e.g., `"Q1."`).
+
+2. **`question` (String):**
+   - Must capture the complete text of the question exactly as printed.
+   - Must include the "Q#." prefix at the start (e.g., "Q1. ").
+   - **CRITICAL - PRESERVE EXACT SPACING:** Do NOT standardize punctuation spacing. If the image has spaces before and after commas (e.g., `17 , 39`), you MUST output exactly the verbatim text (e.g., `17 , 39`). 
+   - Flatten vertical text into a single horizontal line with no newline characters.
+
+3. **`student_answer` (String):**
+   - Identify the number the student has hand-circled.
+   - Extract strictly the marked choice as a string (e.g., `"43"`), regardless of whether it is the correct mathematical answer. 
+   - **MANDATORY CHECK:** Double-check that every question has a corresponding `student_answer` filled in. Do NOT leave any field blank unless the answer slot is completely uncircled. Look carefully for faint or overlapping circles (e.g., in Q11, be sure to extract the circled `"71"`).
+
+**HANDWRITING & OCR EXTRACTION GUIDELINES:**
+- The worksheet has two columns. Process them carefully and sort the final output by `question_number` ascending (1 to 40).
+- Look closely at digit formation, especially in blurry areas. 
+- Pay special attention to handwritten numbers and printed text that may look similar. Specifically check for easily confused digits like **6 vs 5**, **1 vs 7**, **9 vs 8**, and **0 vs 6**. 
+- Watch out for specific known difficult transcriptions: For example, in Q15, verify that the last number is read correctly as `"65"`, NOT `"51"`.
+- Ensure commas are treated strictly as text separators and not mistakenly read as digits (like '1').
+
+**VERIFICATION STEP:**
+Before outputting, perform a final count: you must have exactly 40 items in the array, numbered 1 to 40 sequentially. Verify that Q11 has its `student_answer` captured and that Q15 correctly includes `65`.
+
+Output strictly valid JSON and nothing else.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and the target JSON, here are the key factors to guide your OCR instructions:
+
+*   **Question Type:** Identifying the largest number from a set of four options (number comparison).
+*   **Examples Present:** None. There are no pre-solved examples provided on the worksheet; all items are answered by the student.
+*   **Answer Format:** Circling. The student selects their answer by hand-drawing a circle around one of the numbers.
+*   **Structural Quirks:**
+    *   **Two-Column Layout:** Questions are arranged vertically in two distinct columns per page.
+    *   **Specific Numbering Prefix:** Every question starts with the prefix "Q" followed by the number and a period (e.g., "Q1. ", "Q20. ").
+    *   **Full String Capture:** The `question` field in the JSON requires capturing the entire line of text verbatim, including the "Q#." prefix, the numbers, and the comma separators.
+    *   **Literal Extraction:** The `student_answer` field strictly extracts the circled number, regardless of whether it is mathematically correct (e.g., in Q28, the student circled "47" instead of "70", and the JSON accurately records "47"). OCR must capture the marked choice, not the correct answer key.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}
