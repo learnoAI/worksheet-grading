@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
-import config from '../config/env';
 
 /**
  * POST /internal/question-bank/store
@@ -53,7 +52,7 @@ export async function triggerGeneration(req: Request, res: Response): Promise<Re
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Grading-Worker-Token': config.gradingWorkerToken
+                'X-Worksheet-Creation-Token': process.env.WORKSHEET_CREATION_WORKER_TOKEN ?? ''
             },
             body: JSON.stringify({
                 mathSkillId: skill.id,

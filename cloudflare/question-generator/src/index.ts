@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 interface Env {
-    BACKEND_BASE_URL: string;
-    BACKEND_WORKER_TOKEN: string;
+    WORKSHEET_CREATION_BACKEND_BASE_URL: string;
+    WORKSHEET_CREATION_WORKER_TOKEN: string;
     GEMINI_API_KEY: string;
     GEMINI_MODEL?: string;
 }
@@ -82,8 +82,8 @@ export default {
         }
 
         // Auth check
-        const token = request.headers.get('X-Grading-Worker-Token');
-        if (!token || token !== env.BACKEND_WORKER_TOKEN) {
+        const token = request.headers.get('X-Worksheet-Creation-Token');
+        if (!token || token !== env.WORKSHEET_CREATION_WORKER_TOKEN) {
             return new Response('Unauthorized', { status: 401 });
         }
 
@@ -95,12 +95,12 @@ export default {
 
             // POST results back to backend
             const backendResponse = await fetch(
-                `${env.BACKEND_BASE_URL}/internal/question-bank/store`,
+                `${env.WORKSHEET_CREATION_BACKEND_BASE_URL}/internal/question-bank/store`,
                 {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Grading-Worker-Token': env.BACKEND_WORKER_TOKEN
+                        'X-Worksheet-Creation-Token': env.WORKSHEET_CREATION_WORKER_TOKEN
                     },
                     body: JSON.stringify({
                         mathSkillId: input.mathSkillId,

@@ -2,6 +2,7 @@ name = "question-generator"
 main = "src/index.ts"
 compatibility_date = "2026-02-14"
 
-[vars]
-BACKEND_BASE_URL = "https://your-backend.example.com"
-# BACKEND_WORKER_TOKEN, GEMINI_API_KEY set as secrets
+# Secrets (set via `wrangler secret put`):
+# - WORKSHEET_CREATION_BACKEND_BASE_URL
+# - WORKSHEET_CREATION_WORKER_TOKEN
+# - GEMINI_API_KEY
