@@ -14,6 +14,7 @@ import gradingJobRoutes from './routes/gradingJobRoutes';
 import internalGradingWorkerRoutes from './routes/internalGradingWorkerRoutes';
 import internalQuestionBankRoutes from './routes/internalQuestionBankRoutes';
 import masteryRoutes from './routes/masteryRoutes';
+import worksheetGenerationRoutes from './routes/worksheetGenerationRoutes';
 import config from './config/env';
 import { startGradingDispatchLoop } from './workers/gradingDispatchLoop';
 
@@ -48,6 +49,7 @@ app.use('/api/grading-jobs', gradingJobRoutes); // Add grading job routes
 app.use('/internal/grading-worker', internalGradingWorkerRoutes);
 app.use('/internal/question-bank', internalQuestionBankRoutes);
 app.use('/api/mastery', masteryRoutes);
+app.use('/api/worksheet-generation', worksheetGenerationRoutes);
 
 // Health check route
 app.get('/health', (req: Request, res: Response) => {
