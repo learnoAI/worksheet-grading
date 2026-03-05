@@ -1422,18 +1422,9 @@ export const getWorksheetImages = async (req: Request, res: Response) => {
 };
 
 /**
- * Get total AI graded worksheets count from Python API
+ * Get total AI graded worksheets count from database
  */
 export const getTotalAiGraded = async (req: Request, res: Response) => {
-    const pythonApiUrl = process.env.PYTHON_API_URL;
-
-    if (!pythonApiUrl) {
-        console.error('PYTHON_API_URL environment variable not set');
-        return res.status(500).json({
-            message: 'Server configuration error: PYTHON_API_URL not set'
-        });
-    }
-
     try {
         const { startDate, endDate } = req.body;
         const startBoundary = startDate ? parseDateInputToUtcStart(String(startDate)) : null;
@@ -1446,39 +1437,37 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'startDate must be before or equal to endDate' });
         }
 
-        // Build the request body for Python API
-        const requestBody: { full: boolean; start_time?: string; end_time?: string } = {
-            full: !startDate && !endDate, // full is true if no dates provided
+        const where: Prisma.GradingJobWhereInput = {
+            status: GradingJobStatus.COMPLETED
         };
 
-        if (startBoundary) {
-            requestBody.start_time = startBoundary.toISOString();
-        }
-        if (endBoundaryExclusive) {
-            const endBoundaryInclusive = new Date(endBoundaryExclusive.getTime() - 1);
-            requestBody.end_time = endBoundaryInclusive.toISOString();
+        if (startBoundary || endBoundaryExclusive) {
+            const dateRange: { gte?: Date; lt?: Date } = {};
+            if (startBoundary) {
+                dateRange.gte = startBoundary;
+            }
+            if (endBoundaryExclusive) {
+                dateRange.lt = endBoundaryExclusive;
+            }
+
+            where.AND = [
+                {
+                    OR: [
+                        { submittedOn: dateRange },
+                        { createdAt: dateRange }
+                    ]
+                }
+            ];
         }
 
-        const response = await fetch(`${pythonApiUrl}/total-ai-graded`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody),
+        const totalAiGraded = await prisma.gradingJob.count({
+            where
         });
 
-        if (!response.ok) {
-            const error = await response.json();
-            return res.status(response.status).json({
-                message: error.message || 'Failed to fetch total AI graded count from Python API'
-            });
-        }
-
-        const data = await response.json();
-        return res.status(200).json(data);
+        return res.status(200).json({ total_ai_graded: totalAiGraded });
     } catch (error) {
         console.error('Get total AI graded error:', error);
-        return res.status(500).json({ message: 'Server error while fetching total AI graded count' });
+        return res.status(500).json({ message: 'Server error while fetching total AI graded count from database' });
     }
 };
 
