@@ -111,6 +111,20 @@ async function ensureQuestionsForSkills(skillIds: string[], errors: string[]): P
             });
             if (!response.ok) {
                 errors.push(`Question generation failed for ${skill.name}: ${response.status}`);
+                continue;
+            }
+            const result = await response.json() as any;
+            if (result.success && Array.isArray(result.questions) && result.questions.length > 0) {
+                await prisma.questionBank.createMany({
+                    data: result.questions.map((q: any) => ({
+                        mathSkillId: skillId,
+                        question: q.question,
+                        answer: q.answer,
+                        instruction: q.instruction
+                    }))
+                });
+            } else {
+                errors.push(`No questions returned for ${skill.name}: ${result.error ?? 'empty response'}`);
             }
         } catch (err) {
             errors.push(`Question generation error for ${skill.name}: ${err}`);

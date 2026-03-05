@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 interface Env {
-    WORKSHEET_CREATION_BACKEND_BASE_URL: string;
     WORKSHEET_CREATION_WORKER_TOKEN: string;
     GEMINI_API_KEY: string;
     GEMINI_MODEL?: string;
@@ -93,31 +92,11 @@ export default {
 
             const questions = await generateQuestions(env, input.skillName, input.topicName, input.count);
 
-            // POST results back to backend
-            const backendResponse = await fetch(
-                `${env.WORKSHEET_CREATION_BACKEND_BASE_URL}/internal/question-bank/store`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Worksheet-Creation-Token': env.WORKSHEET_CREATION_WORKER_TOKEN
-                    },
-                    body: JSON.stringify({
-                        mathSkillId: input.mathSkillId,
-                        questions
-                    })
-                }
-            );
-
-            if (!backendResponse.ok) {
-                const errText = await backendResponse.text();
-                throw new Error(`Backend store failed: ${backendResponse.status} ${errText}`);
-            }
-
+            // Return questions directly — backend stores them
             return Response.json({
                 success: true,
-                stored: questions.length,
-                mathSkillId: input.mathSkillId
+                mathSkillId: input.mathSkillId,
+                questions
             });
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';

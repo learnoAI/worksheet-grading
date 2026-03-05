@@ -67,8 +67,19 @@ export async function triggerGeneration(req: Request, res: Response): Promise<Re
             return res.status(502).json({ success: false, error: `Worker error: ${response.status} ${text}` });
         }
 
-        const result = await response.json();
-        return res.json({ success: true, data: result });
+        const result = await response.json() as any;
+        if (result.success && Array.isArray(result.questions)) {
+            const created = await prisma.questionBank.createMany({
+                data: result.questions.map((q: any) => ({
+                    mathSkillId,
+                    question: q.question,
+                    answer: q.answer,
+                    instruction: q.instruction
+                }))
+            });
+            return res.json({ success: true, stored: created.count });
+        }
+        return res.status(502).json({ success: false, error: result.error ?? 'No questions returned' });
     } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
         return res.status(500).json({ success: false, error: message });
