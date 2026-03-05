@@ -1,13 +1,14 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
+import { onSkillQuestionsReady } from '../services/worksheetBatchService';
 
 /**
  * POST /internal/question-bank/store
  * Called by CF worker to store generated questions.
- * Body: { mathSkillId, questions: [{question, answer, instruction}] }
+ * Body: { mathSkillId, questions: [{question, answer, instruction}], batchId? }
  */
 export async function storeQuestions(req: Request, res: Response): Promise<Response> {
-    const { mathSkillId, questions } = req.body;
+    const { mathSkillId, questions, batchId } = req.body;
 
     if (!mathSkillId || !Array.isArray(questions) || questions.length === 0) {
         return res.status(400).json({ success: false, error: 'mathSkillId and questions[] required' });
@@ -21,6 +22,15 @@ export async function storeQuestions(req: Request, res: Response): Promise<Respo
             instruction: q.instruction
         }))
     });
+
+    // If part of a batch, notify batch service
+    if (batchId) {
+        try {
+            await onSkillQuestionsReady(batchId);
+        } catch (err) {
+            console.error(`[question-bank] onSkillQuestionsReady error for batch ${batchId}:`, err);
+        }
+    }
 
     return res.json({ success: true, stored: created.count });
 }

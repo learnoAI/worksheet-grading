@@ -136,7 +136,7 @@ async function ensureQuestionsForSkills(skillIds: string[], errors: string[]): P
  * Draw questions from QuestionBank for each section.
  * Returns 4 sections: [sectionA, sectionB, sectionC, sectionD]
  */
-async function buildSections(
+export async function buildSections(
     newSkillId: string,
     review1Id: string,
     review2Id: string
