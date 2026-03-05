@@ -1,5 +1,5 @@
 import fetch from 'node-fetch';
-import { GradingQueueClient, GradingQueueMessageV1, PulledQueueMessage } from './gradingQueue';
+import { GradingQueueClient, PulledQueueMessage } from './gradingQueue';
 
 interface CloudflareQueueClientOptions {
     accountId: string;
@@ -47,7 +47,7 @@ export class CloudflareQueueClient implements GradingQueueClient {
         this.apiToken = options.apiToken;
     }
 
-    async publish(message: GradingQueueMessageV1): Promise<void> {
+    async publish(message: object): Promise<void> {
         await this.request<unknown>(`${this.basePath}/messages`, {
             method: 'POST',
             body: JSON.stringify({

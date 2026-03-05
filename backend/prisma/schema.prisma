@@ -65,6 +65,7 @@ model Class {
   teacherClasses TeacherClass[]
   worksheets     Worksheet[]
   gradingJobs    GradingJob[]
+  worksheetBatches WorksheetBatch[]
 }
 
 model TeacherClass {
@@ -392,6 +393,14 @@ model SkillPracticeLog {
   @@index([worksheetId])
 }
 
+enum WorksheetBatchStatus {
+  PENDING
+  GENERATING_QUESTIONS
+  RENDERING_PDFS
+  COMPLETED
+  FAILED
+}
+
 enum GeneratedWorksheetStatus {
   PENDING
   QUESTIONS_READY
@@ -413,6 +422,27 @@ model QuestionBank {
   @@index([mathSkillId, usedCount])
 }
 
+model WorksheetBatch {
+  id                  String               @id @default(uuid())
+  classId             String
+  class               Class                @relation(fields: [classId], references: [id])
+  days                Int
+  startDate           DateTime
+  status              WorksheetBatchStatus @default(PENDING)
+  totalWorksheets     Int                  @default(0)
+  completedWorksheets Int                  @default(0)
+  failedWorksheets    Int                  @default(0)
+  pendingSkills       Int                  @default(0)
+  completedSkills     Int                  @default(0)
+  errors              Json?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  worksheets          GeneratedWorksheet[]
+
+  @@index([classId])
+  @@index([status])
+}
+
 model GeneratedWorksheet {
   id             String                   @id @default(uuid())
   studentId      String
@@ -424,9 +454,12 @@ model GeneratedWorksheet {
   reviewSkill1Id String
   reviewSkill2Id String
   sectionsJson   Json?
+  batchId        String?
+  batch          WorksheetBatch?          @relation(fields: [batchId], references: [id])
   createdAt      DateTime                 @default(now())
   updatedAt      DateTime                 @updatedAt
 
   @@index([studentId, scheduledDate])
   @@index([status])
+  @@index([batchId, status])
 }
