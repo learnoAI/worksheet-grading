@@ -27,7 +27,8 @@ model User {
   teacherSchools    TeacherSchool[]
   studentGradingJobs GradingJob[]   @relation("StudentGradingJobs")
   teacherGradingJobs GradingJob[]   @relation("TeacherGradingJobs")
-  skillMastery       StudentSkillMastery[]
+  skillMastery        StudentSkillMastery[]
+  generatedWorksheets GeneratedWorksheet[]
 }
 
 model School {
@@ -135,6 +136,7 @@ model MathSkill {
   worksheets         WorksheetTemplateQuestion[]
   worksheetSkillMaps WorksheetSkillMap[]
   studentMastery     StudentSkillMastery[]
+  questionBank       QuestionBank[]
 
   @@index([mainTopicId])
   @@unique([name, mainTopicId], name: "math_skill_name_main_topic_unique")
@@ -388,4 +390,43 @@ model SkillPracticeLog {
 
   @@index([studentId, mathSkillId, practicedAt])
   @@index([worksheetId])
+}
+
+enum GeneratedWorksheetStatus {
+  PENDING
+  QUESTIONS_READY
+  RENDERING
+  COMPLETED
+  FAILED
+}
+
+model QuestionBank {
+  id          String    @id @default(uuid())
+  mathSkillId String
+  mathSkill   MathSkill @relation(fields: [mathSkillId], references: [id])
+  question    String
+  answer      String
+  instruction String
+  usedCount   Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  @@index([mathSkillId, usedCount])
+}
+
+model GeneratedWorksheet {
+  id             String                   @id @default(uuid())
+  studentId      String
+  student        User                     @relation(fields: [studentId], references: [id])
+  scheduledDate  DateTime
+  pdfUrl         String?
+  status         GeneratedWorksheetStatus @default(PENDING)
+  newSkillId     String
+  reviewSkill1Id String
+  reviewSkill2Id String
+  sectionsJson   Json?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@index([studentId, scheduledDate])
+  @@index([status])
 }
