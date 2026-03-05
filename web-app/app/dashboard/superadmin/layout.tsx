@@ -109,6 +109,10 @@ export default function SuperAdminLayout({
                                 Student Analytics
                             </Link>
 
+                            <Link href="/dashboard/superadmin/mastery" className="block p-2 rounded hover:bg-gray-100">
+                                Student Mastery
+                            </Link>
+
                             <div className="pt-2 pb-1">
                                 <p className="px-2 text-sm font-medium text-gray-500">Management</p>
                             </div>

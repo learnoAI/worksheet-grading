@@ -12,6 +12,7 @@ import classRoutes from './routes/classRoutes';
 import schoolRoutes from './routes/schoolRoutes';
 import gradingJobRoutes from './routes/gradingJobRoutes';
 import internalGradingWorkerRoutes from './routes/internalGradingWorkerRoutes';
+import masteryRoutes from './routes/masteryRoutes';
 import config from './config/env';
 import { startGradingDispatchLoop } from './workers/gradingDispatchLoop';
 
@@ -44,6 +45,7 @@ app.use('/api/classes', classRoutes); // Add class management routes
 app.use('/api/schools', schoolRoutes); // Add school management routes
 app.use('/api/grading-jobs', gradingJobRoutes); // Add grading job routes
 app.use('/internal/grading-worker', internalGradingWorkerRoutes);
+app.use('/api/mastery', masteryRoutes);
 
 // Health check route
 app.get('/health', (req: Request, res: Response) => {

@@ -26,6 +26,11 @@ A full-stack application for grading offline worksheets. Teachers can upload ima
 - ShadCN UI components
 - Tailwind CSS
 
+## Docs
+
+- Curriculum mapping system:
+  - `backend/docs/curriculum-mapping-system.md`
+
 ## Getting Started
 
 ### Prerequisites
