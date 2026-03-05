@@ -13,6 +13,7 @@ import schoolRoutes from './routes/schoolRoutes';
 import gradingJobRoutes from './routes/gradingJobRoutes';
 import internalGradingWorkerRoutes from './routes/internalGradingWorkerRoutes';
 import internalQuestionBankRoutes from './routes/internalQuestionBankRoutes';
+import internalWorksheetGenerationRoutes from './routes/internalWorksheetGenerationRoutes';
 import masteryRoutes from './routes/masteryRoutes';
 import worksheetGenerationRoutes from './routes/worksheetGenerationRoutes';
 import config from './config/env';
@@ -48,6 +49,7 @@ app.use('/api/schools', schoolRoutes); // Add school management routes
 app.use('/api/grading-jobs', gradingJobRoutes); // Add grading job routes
 app.use('/internal/grading-worker', internalGradingWorkerRoutes);
 app.use('/internal/question-bank', internalQuestionBankRoutes);
+app.use('/internal/worksheet-generation', internalWorksheetGenerationRoutes);
 app.use('/api/mastery', masteryRoutes);
 app.use('/api/worksheet-generation', worksheetGenerationRoutes);
 

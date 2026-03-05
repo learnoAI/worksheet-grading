@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { generateWorksheets } from '../services/worksheetGenerationService';
 import { renderBatchPdfs } from '../services/worksheetPdfService';
+import { createClassBatch } from '../services/worksheetBatchService';
 
 /**
  * POST /api/worksheet-generation/generate
@@ -39,6 +40,60 @@ export async function generate(req: Request, res: Response): Promise<Response> {
             status: result.status,
             errors: result.errors
         }
+    });
+}
+
+/**
+ * POST /api/worksheet-generation/generate-class
+ * Body: { classId, days, startDate }
+ */
+export async function generateClass(req: Request, res: Response): Promise<Response> {
+    const { classId, days, startDate } = req.body;
+
+    if (!classId || !days || !startDate) {
+        return res.status(400).json({ success: false, error: 'classId, days, and startDate required' });
+    }
+
+    if (days < 1 || days > 30) {
+        return res.status(400).json({ success: false, error: 'days must be 1-30' });
+    }
+
+    const cls = await prisma.class.findUnique({ where: { id: classId } });
+    if (!cls) {
+        return res.status(404).json({ success: false, error: 'Class not found' });
+    }
+
+    const result = await createClassBatch(classId, days, new Date(startDate));
+
+    return res.json({
+        success: true,
+        data: {
+            batchId: result.batchId,
+            totalWorksheets: result.totalWorksheets,
+            skillsToGenerate: result.skillsToGenerate,
+            errors: result.errors
+        }
+    });
+}
+
+/**
+ * GET /api/worksheet-generation/batch/:batchId
+ * Returns batch status and progress.
+ */
+export async function getBatchStatus(req: Request, res: Response): Promise<Response> {
+    const { batchId } = req.params;
+
+    const batch = await prisma.worksheetBatch.findUnique({
+        where: { id: batchId }
+    });
+
+    if (!batch) {
+        return res.status(404).json({ success: false, error: 'Batch not found' });
+    }
+
+    return res.json({
+        success: true,
+        data: batch
     });
 }
 

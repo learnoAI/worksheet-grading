@@ -1,0 +1,21 @@
+name = "pdf-renderer"
+main = "src/index.ts"
+compatibility_date = "2026-02-14"
+
+# Secrets (set via `wrangler secret put`):
+# - WORKSHEET_CREATION_WORKER_TOKEN
+# - WORKSHEET_CREATION_BACKEND_BASE_URL
+
+browser = { binding = "BROWSER" }
+
+[[r2_buckets]]
+binding = "PDF_BUCKET"
+bucket_name = "worksheet-grading-files"
+
+[[queues.consumers]]
+queue = "pdf-rendering"
+max_batch_size = 2
+max_batch_timeout = 10
+max_concurrency = 100
+max_retries = 3
+dead_letter_queue = "pdf-rendering-dlq"
