@@ -87,4 +87,34 @@ describe('buildWorksheetRecommendationFromHistory', () => {
     expect(recommendation.recommendedWorksheetNumber).toBe(862);
     expect(recommendation.isRecommendedRepeated).toBe(false);
   });
+
+  it('ignores an older inflated worksheet number and uses the latest date bucket', () => {
+    const history = [
+      {
+        grade: 38,
+        submittedOn: new Date('2026-01-10T00:00:00.000Z'),
+        createdAt: new Date('2026-01-10T08:00:00.000Z'),
+        effectiveWorksheetNumber: 1889,
+      },
+      {
+        grade: 37,
+        submittedOn: new Date('2026-03-12T00:00:00.000Z'),
+        createdAt: new Date('2026-03-12T08:00:00.000Z'),
+        effectiveWorksheetNumber: 1276,
+      },
+      {
+        grade: 36,
+        submittedOn: new Date('2026-03-12T00:00:00.000Z'),
+        createdAt: new Date('2026-03-12T08:10:00.000Z'),
+        effectiveWorksheetNumber: 1277,
+      },
+    ];
+
+    const recommendation = buildWorksheetRecommendationFromHistory(history, 32);
+
+    expect(recommendation.lastWorksheetNumber).toBe(1277);
+    expect(recommendation.lastGrade).toBe(36);
+    expect(recommendation.recommendedWorksheetNumber).toBe(1278);
+    expect(recommendation.isRecommendedRepeated).toBe(false);
+  });
 });

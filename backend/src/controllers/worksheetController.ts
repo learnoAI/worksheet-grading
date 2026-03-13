@@ -483,22 +483,18 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
     // Make sure worksheetNumber is a valid number
     const worksheetNum = Number(worksheetNumber);
     if (isNaN(worksheetNum) || worksheetNum <= 0) {
-      return res
-        .status(400)
-        .json({
-          message: "Valid worksheet number is required for non-absent students",
-        });
+      return res.status(400).json({
+        message: "Valid worksheet number is required for non-absent students",
+      });
     }
 
     // Make sure grade is a valid number
     const gradeValue = Number(grade);
     if (isNaN(gradeValue) || gradeValue < 0 || gradeValue > 40) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "Valid grade between 0 and 40 is required for non-absent students",
-        });
+      return res.status(400).json({
+        message:
+          "Valid grade between 0 and 40 is required for non-absent students",
+      });
     }
 
     // Find the template by worksheet number for non-absent students
@@ -729,22 +725,18 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
     // Make sure worksheetNumber is a valid number
     const worksheetNum = Number(worksheetNumber);
     if (isNaN(worksheetNum) || worksheetNum <= 0) {
-      return res
-        .status(400)
-        .json({
-          message: "Valid worksheet number is required for non-absent students",
-        });
+      return res.status(400).json({
+        message: "Valid worksheet number is required for non-absent students",
+      });
     }
 
     // Make sure grade is a valid number
     const gradeValue = Number(grade);
     if (isNaN(gradeValue) || gradeValue < 0 || gradeValue > 40) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "Valid grade between 0 and 40 is required for non-absent students",
-        });
+      return res.status(400).json({
+        message:
+          "Valid grade between 0 and 40 is required for non-absent students",
+      });
     }
 
     // Find the template by worksheet number
@@ -880,11 +872,9 @@ export const getClassWorksheetsForDate = async (
   const { classId, submittedOn } = req.query;
 
   if (!classId || !submittedOn) {
-    return res
-      .status(400)
-      .json({
-        message: "Missing required query parameters: classId and submittedOn",
-      });
+    return res.status(400).json({
+      message: "Missing required query parameters: classId and submittedOn",
+    });
   }
 
   try {
@@ -1468,11 +1458,9 @@ export const getIncorrectGradingWorksheets = async (
       .json({ data, total, page: pageNum, pageSize: sizeNum });
   } catch (error) {
     console.error("Get incorrect grading worksheets error:", error);
-    return res
-      .status(500)
-      .json({
-        message: "Server error while retrieving incorrect grading worksheets",
-      });
+    return res.status(500).json({
+      message: "Server error while retrieving incorrect grading worksheets",
+    });
   }
 };
 
@@ -1543,11 +1531,9 @@ export const markWorksheetAsCorrectlyGraded = async (
     });
   } catch (error) {
     console.error("Mark worksheet as correctly graded error:", error);
-    return res
-      .status(500)
-      .json({
-        message: "Server error while updating worksheet grading status",
-      });
+    return res.status(500).json({
+      message: "Server error while updating worksheet grading status",
+    });
   }
 };
 
@@ -1657,12 +1643,10 @@ export const getTotalAiGraded = async (req: Request, res: Response) => {
     return res.status(200).json({ total_ai_graded: totalAiGraded });
   } catch (error) {
     console.error("Get total AI graded error:", error);
-    return res
-      .status(500)
-      .json({
-        message:
-          "Server error while fetching total AI graded count from database",
-      });
+    return res.status(500).json({
+      message:
+        "Server error while fetching total AI graded count from database",
+    });
   }
 };
 
@@ -1739,11 +1723,9 @@ export const checkIsRepeated = async (req: Request, res: Response) => {
   const { classId, studentId, worksheetNumber, beforeDate } = req.body;
 
   if (!classId || !studentId || !worksheetNumber) {
-    return res
-      .status(400)
-      .json({
-        message: "Missing required fields: classId, studentId, worksheetNumber",
-      });
+    return res.status(400).json({
+      message: "Missing required fields: classId, studentId, worksheetNumber",
+    });
   }
 
   try {
@@ -1917,12 +1899,10 @@ export const batchSaveWorksheets = async (req: Request, res: Response) => {
   const submittedById = req.user?.userId;
 
   if (!classId || !submittedOn || !worksheets || !Array.isArray(worksheets)) {
-    return res
-      .status(400)
-      .json({
-        message:
-          "Missing required fields: classId, submittedOn, worksheets array",
-      });
+    return res.status(400).json({
+      message:
+        "Missing required fields: classId, submittedOn, worksheets array",
+    });
   }
 
   if (!submittedById) {

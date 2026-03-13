@@ -17,6 +17,15 @@ function toTimestamp(value?: Date | null): number {
   return value instanceof Date ? value.getTime() : Number.NEGATIVE_INFINITY;
 }
 
+function toDayKey(entry: WorksheetHistoryEntry): string {
+  const primaryDate = entry.submittedOn ?? entry.createdAt;
+  if (!(primaryDate instanceof Date)) {
+    return '';
+  }
+
+  return primaryDate.toISOString().slice(0, 10);
+}
+
 export function buildWorksheetRecommendationFromHistory(
   history: WorksheetHistoryEntry[],
   progressionThreshold: number
@@ -42,7 +51,23 @@ export function buildWorksheetRecommendationFromHistory(
     };
   }
 
-  const baseWorksheet = [...validHistory].sort((a, b) => {
+  const latestDayKey = [...validHistory]
+    .sort((a, b) => {
+      const submittedOnDelta = toTimestamp(b.submittedOn) - toTimestamp(a.submittedOn);
+      if (submittedOnDelta !== 0) {
+        return submittedOnDelta;
+      }
+
+      return toTimestamp(b.createdAt) - toTimestamp(a.createdAt);
+    })
+    .map((entry) => toDayKey(entry))
+    .find((dayKey) => dayKey !== '');
+
+  const latestDayHistory = latestDayKey
+    ? validHistory.filter((entry) => toDayKey(entry) === latestDayKey)
+    : validHistory;
+
+  const baseWorksheet = [...latestDayHistory].sort((a, b) => {
     if (b.effectiveWorksheetNumber !== a.effectiveWorksheetNumber) {
       return b.effectiveWorksheetNumber - a.effectiveWorksheetNumber;
     }
