@@ -709,6 +709,80 @@ export const removeStudentFromClass = async (req: Request, res: Response) => {
 };
 
 /**
+ * Bulk archive all active classes for a given academic year
+ * @route POST /api/classes/archive-by-year
+ */
+export const archiveClassesByYear = async (req: Request, res: Response) => {
+    try {
+        const { academicYear } = req.body;
+
+        if (!academicYear) {
+            return res.status(400).json({ message: 'Academic year is required' });
+        }
+
+        // Find all active classes for this academic year
+        const activeClasses = await prisma.class.findMany({
+            where: {
+                academicYear: academicYear.trim(),
+                isArchived: false
+            },
+            select: { id: true, name: true, schoolId: true }
+        });
+
+        if (activeClasses.length === 0) {
+            return res.status(404).json({ message: `No active classes found for academic year ${academicYear}` });
+        }
+
+        const classIds = activeClasses.map(c => c.id);
+
+        const result = await prisma.$transaction(async (tx) => {
+            // Archive all classes
+            const archivedCount = await tx.class.updateMany({
+                where: { id: { in: classIds } },
+                data: { isArchived: true }
+            });
+
+            // Get all students in these classes
+            const studentClasses = await tx.studentClass.findMany({
+                where: { classId: { in: classIds } },
+                select: { studentId: true }
+            });
+
+            const uniqueStudentIds = [...new Set(studentClasses.map(sc => sc.studentId))];
+            let archivedStudentCount = 0;
+
+            // Archive students who have no other active classes
+            for (const studentId of uniqueStudentIds) {
+                const activeClassCount = await tx.studentClass.count({
+                    where: {
+                        studentId,
+                        class: { isArchived: false }
+                    }
+                });
+
+                if (activeClassCount === 0) {
+                    await tx.user.update({
+                        where: { id: studentId },
+                        data: { isArchived: true }
+                    });
+                    archivedStudentCount++;
+                }
+            }
+
+            return { archivedClassCount: archivedCount.count, archivedStudentCount };
+        });
+
+        return res.status(200).json({
+            message: `Archived ${result.archivedClassCount} classes and ${result.archivedStudentCount} students for academic year ${academicYear}`,
+            ...result
+        });
+    } catch (error) {
+        console.error('Error bulk archiving classes:', error);
+        return res.status(500).json({ message: 'Server error while bulk archiving classes' });
+    }
+};
+
+/**
  * Create a new class
  * @route POST /api/classes
  */
