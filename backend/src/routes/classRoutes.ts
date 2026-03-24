@@ -14,7 +14,9 @@ import {
     addStudentToClass,
     removeStudentFromClass,
     getAvailableStudents,
-    archiveClassesByYear
+    archiveClassesByYear,
+    uploadClassTeachersCsv,
+    uploadStudentClassesCsv
 } from '../controllers/classController';
 import { UserRole } from '@prisma/client';
 import { auth, authorizeRoles, asHandler } from '../middleware/utils';
@@ -36,6 +38,12 @@ router.get('/archived', asHandler(getArchivedClasses));
 
 // Bulk archive all classes for an academic year
 router.post('/archive-by-year', asHandler(archiveClassesByYear));
+
+// Upload class-teacher mapping CSV
+router.post('/upload-class-teachers', asHandler(uploadClassTeachersCsv));
+
+// Upload student-class mapping CSV
+router.post('/upload-student-classes', asHandler(uploadStudentClassesCsv));
 
 // Get available teachers for a class
 router.get('/teachers/available/:classId', asHandler(getAvailableTeachers));

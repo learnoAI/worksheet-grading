@@ -783,6 +783,259 @@ export const archiveClassesByYear = async (req: Request, res: Response) => {
 };
 
 /**
+ * Upload class-teacher mapping CSV for a school
+ * @route POST /api/classes/upload-class-teachers
+ */
+export const uploadClassTeachersCsv = async (req: Request, res: Response) => {
+    const { schoolId, rows } = req.body;
+
+    if (!schoolId) {
+        return res.status(400).json({ message: 'School ID is required' });
+    }
+
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+
+    const results = {
+        classesCreated: 0,
+        teachersAssigned: 0,
+        errors: [] as string[]
+    };
+
+    try {
+        const school = await prisma.school.findUnique({ where: { id: schoolId } });
+        if (!school) {
+            return res.status(404).json({ message: 'School not found' });
+        }
+
+        for (const row of rows) {
+            const { className, academicYear, teacherUsername } = row;
+
+            if (!className || !academicYear || !teacherUsername) {
+                results.errors.push(`Missing required fields in row: ${JSON.stringify(row)}`);
+                continue;
+            }
+
+            try {
+                // Find or create class
+                let classEntity = await prisma.class.findFirst({
+                    where: {
+                        name: className.trim(),
+                        schoolId,
+                        academicYear: academicYear.trim()
+                    }
+                });
+
+                if (!classEntity) {
+                    classEntity = await prisma.class.create({
+                        data: {
+                            name: className.trim(),
+                            schoolId,
+                            academicYear: academicYear.trim()
+                        }
+                    });
+                    results.classesCreated++;
+                }
+
+                // Find teacher by username
+                const teacher = await prisma.user.findFirst({
+                    where: {
+                        username: teacherUsername.trim(),
+                        role: 'TEACHER'
+                    }
+                });
+
+                if (!teacher) {
+                    results.errors.push(`Teacher not found: ${teacherUsername}`);
+                    continue;
+                }
+
+                // Assign teacher to class if not already assigned
+                const existingTeacherClass = await prisma.teacherClass.findUnique({
+                    where: {
+                        teacherId_classId: {
+                            teacherId: teacher.id,
+                            classId: classEntity.id
+                        }
+                    }
+                });
+
+                if (!existingTeacherClass) {
+                    await prisma.teacherClass.create({
+                        data: {
+                            teacherId: teacher.id,
+                            classId: classEntity.id
+                        }
+                    });
+
+                    // Ensure teacher is linked to school
+                    const existingTeacherSchool = await prisma.teacherSchool.findUnique({
+                        where: {
+                            teacherId_schoolId: {
+                                teacherId: teacher.id,
+                                schoolId
+                            }
+                        }
+                    });
+
+                    if (!existingTeacherSchool) {
+                        await prisma.teacherSchool.create({
+                            data: { teacherId: teacher.id, schoolId }
+                        });
+                    }
+
+                    results.teachersAssigned++;
+                }
+            } catch (error) {
+                console.error('Error processing row:', row, error);
+                results.errors.push(`Failed to process: ${className} / ${teacherUsername}`);
+            }
+        }
+
+        return res.status(200).json({
+            message: `Created ${results.classesCreated} classes, assigned ${results.teachersAssigned} teachers`,
+            results
+        });
+    } catch (error) {
+        console.error('Error uploading class-teacher CSV:', error);
+        return res.status(500).json({ message: 'Server error during class-teacher CSV upload' });
+    }
+};
+
+/**
+ * Upload student-class mapping CSV for a school
+ * @route POST /api/classes/upload-student-classes
+ */
+export const uploadStudentClassesCsv = async (req: Request, res: Response) => {
+    const { schoolId, rows } = req.body;
+
+    if (!schoolId) {
+        return res.status(400).json({ message: 'School ID is required' });
+    }
+
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+        return res.status(400).json({ message: 'No data provided' });
+    }
+
+    const results = {
+        studentsAssigned: 0,
+        studentsCreated: 0,
+        errors: [] as string[]
+    };
+
+    try {
+        const school = await prisma.school.findUnique({ where: { id: schoolId } });
+        if (!school) {
+            return res.status(404).json({ message: 'School not found' });
+        }
+
+        for (const row of rows) {
+            const { tokenNumber, studentName, className, academicYear } = row;
+
+            if (!tokenNumber || !studentName || !className || !academicYear) {
+                results.errors.push(`Missing required fields in row: ${JSON.stringify(row)}`);
+                continue;
+            }
+
+            try {
+                // Find class
+                const classEntity = await prisma.class.findFirst({
+                    where: {
+                        name: className.trim(),
+                        schoolId,
+                        academicYear: academicYear.trim()
+                    }
+                });
+
+                if (!classEntity) {
+                    results.errors.push(`Class not found: ${className} (${academicYear}) — upload class-teacher CSV first`);
+                    continue;
+                }
+
+                // Find or create student
+                let student = await prisma.user.findFirst({
+                    where: { tokenNumber: tokenNumber.trim() }
+                });
+
+                if (!student) {
+                    const bcrypt = await import('bcrypt');
+                    const username = studentName.trim().toLowerCase().replace(/\s+/g, '_') + '_' + tokenNumber.trim();
+                    const salt = await bcrypt.genSalt(10);
+                    const hashedPassword = await bcrypt.hash('saarthi@123', salt);
+
+                    student = await prisma.user.create({
+                        data: {
+                            name: studentName.trim(),
+                            username,
+                            password: hashedPassword,
+                            role: 'STUDENT',
+                            tokenNumber: tokenNumber.trim()
+                        }
+                    });
+                    results.studentsCreated++;
+                } else {
+                    // Unarchive student if they were previously archived
+                    if (student.isArchived) {
+                        await prisma.user.update({
+                            where: { id: student.id },
+                            data: { isArchived: false }
+                        });
+                    }
+                }
+
+                // Assign student to class if not already assigned
+                const existingStudentClass = await prisma.studentClass.findUnique({
+                    where: {
+                        studentId_classId: {
+                            studentId: student.id,
+                            classId: classEntity.id
+                        }
+                    }
+                });
+
+                if (!existingStudentClass) {
+                    await prisma.studentClass.create({
+                        data: {
+                            studentId: student.id,
+                            classId: classEntity.id
+                        }
+                    });
+                    results.studentsAssigned++;
+                }
+
+                // Ensure student is linked to school
+                const existingStudentSchool = await prisma.studentSchool.findUnique({
+                    where: {
+                        studentId_schoolId: {
+                            studentId: student.id,
+                            schoolId
+                        }
+                    }
+                });
+
+                if (!existingStudentSchool) {
+                    await prisma.studentSchool.create({
+                        data: { studentId: student.id, schoolId }
+                    });
+                }
+            } catch (error) {
+                console.error('Error processing row:', row, error);
+                results.errors.push(`Failed to process student: ${studentName} (${tokenNumber})`);
+            }
+        }
+
+        return res.status(200).json({
+            message: `Assigned ${results.studentsAssigned} students (${results.studentsCreated} newly created)`,
+            results
+        });
+    } catch (error) {
+        console.error('Error uploading student-class CSV:', error);
+        return res.status(500).json({ message: 'Server error during student-class CSV upload' });
+    }
+};
+
+/**
  * Create a new class
  * @route POST /api/classes
  */
