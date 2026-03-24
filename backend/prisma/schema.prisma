@@ -55,6 +55,7 @@ model Class {
   id             String         @id @default(uuid())
   name           String
   schoolId       String
+  academicYear   String         @default("25-26")
   isArchived     Boolean        @default(false)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
@@ -63,6 +64,8 @@ model Class {
   teacherClasses TeacherClass[]
   worksheets     Worksheet[]
   gradingJobs    GradingJob[]
+
+  @@unique([name, schoolId, academicYear])
 }
 
 model TeacherClass {

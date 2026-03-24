@@ -12,6 +12,7 @@ export interface School extends BaseEntity {
 export interface Class extends BaseEntity {
   name: string;
   schoolId: string;
+  academicYear: string;
   school?: School;
   studentCount?: number;
   teacherCount?: number;

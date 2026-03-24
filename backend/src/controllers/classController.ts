@@ -713,12 +713,12 @@ export const removeStudentFromClass = async (req: Request, res: Response) => {
  * @route POST /api/classes
  */
 export const createClass = async (req: Request, res: Response) => {
-    const { name, schoolId } = req.body;
+    const { name, schoolId, academicYear } = req.body;
 
     try {
         // Validate input
-        if (!name || !schoolId) {
-            return res.status(400).json({ message: 'Name and school ID are required' });
+        if (!name || !schoolId || !academicYear) {
+            return res.status(400).json({ message: 'Name, school ID, and academic year are required' });
         }
 
         // Check if school exists
@@ -734,19 +734,21 @@ export const createClass = async (req: Request, res: Response) => {
         const existingClass = await prisma.class.findFirst({
             where: {
                 name: name.trim(),
-                schoolId
+                schoolId,
+                academicYear: academicYear.trim()
             }
         });
 
         if (existingClass) {
-            return res.status(400).json({ message: 'A class with this name already exists in this school' });
+            return res.status(400).json({ message: 'A class with this name already exists in this school for this academic year' });
         }
 
         // Create the class
         const newClass = await prisma.class.create({
             data: {
                 name: name.trim(),
-                schoolId
+                schoolId,
+                academicYear: academicYear.trim()
             },
             include: {
                 school: {
