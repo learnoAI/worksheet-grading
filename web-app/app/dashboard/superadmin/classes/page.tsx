@@ -298,6 +298,16 @@ export default function ClassesPage() {
     const [bulkArchiveYear, setBulkArchiveYear] = useState('25-26');
     const [bulkArchiving, setBulkArchiving] = useState(false);
 
+    // Academic year onboarding state
+    const [showAcademicOnboarding, setShowAcademicOnboarding] = useState(false);
+    const [onboardingSchoolId, setOnboardingSchoolId] = useState('');
+    const [classTeacherFile, setClassTeacherFile] = useState<File | null>(null);
+    const [classTeacherData, setClassTeacherData] = useState('');
+    const [studentClassFile, setStudentClassFile] = useState<File | null>(null);
+    const [studentClassData, setStudentClassData] = useState('');
+    const [uploadingClassTeachers, setUploadingClassTeachers] = useState(false);
+    const [uploadingStudentClasses, setUploadingStudentClasses] = useState(false);
+
     // Management modals state
     const [selectedClassForStudents, setSelectedClassForStudents] = useState<ClassWithSchool | null>(null);
     const [selectedClassForTeachers, setSelectedClassForTeachers] = useState<ClassWithSchool | null>(null);
@@ -529,6 +539,125 @@ export default function ClassesPage() {
             setBulkArchiving(false);
         }
     }, [bulkArchiveYear]);
+
+    const parseCsvString = useCallback((content: string): Record<string, string>[] => {
+        const lines = content.split('\n').filter(line => line.trim());
+        if (lines.length < 2) return [];
+        const headers = lines[0].split(',').map(h => h.trim());
+        const rows: Record<string, string>[] = [];
+        for (let i = 1; i < lines.length; i++) {
+            const values = lines[i].split(',').map(v => v.trim());
+            if (values.some(v => v)) {
+                const row: Record<string, string> = {};
+                headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
+                rows.push(row);
+            }
+        }
+        return rows;
+    }, []);
+
+    const readFileAsText = useCallback((file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target?.result as string);
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsText(file);
+        });
+    }, []);
+
+    const handleUploadClassTeachers = useCallback(async () => {
+        if (!onboardingSchoolId) {
+            toast.error('Please select a school');
+            return;
+        }
+        if (!classTeacherFile) {
+            toast.error('Please select a class-teacher CSV file');
+            return;
+        }
+
+        try {
+            setUploadingClassTeachers(true);
+            const content = classTeacherData || await readFileAsText(classTeacherFile);
+            const rows = parseCsvString(content);
+
+            if (rows.length === 0) {
+                toast.error('No valid rows found in CSV');
+                return;
+            }
+
+            const requiredCols = ['className', 'academicYear', 'teacherUsername'];
+            const missingCols = requiredCols.filter(c => !(c in rows[0]));
+            if (missingCols.length > 0) {
+                toast.error(`Missing columns: ${missingCols.join(', ')}`);
+                return;
+            }
+
+            const result = await classAPI.uploadClassTeachersCsv(onboardingSchoolId, rows as any);
+            toast.success(result.message);
+
+            if (result.results.errors.length > 0) {
+                console.warn('Class-teacher upload errors:', result.results.errors);
+                toast.warning(`${result.results.errors.length} rows had errors — check console`);
+            }
+
+            setClassTeacherFile(null);
+            setClassTeacherData('');
+            apiCache.clear();
+            loadInitialData();
+        } catch (error: any) {
+            console.error('Error uploading class-teacher CSV:', error);
+            toast.error(error.message || 'Failed to upload class-teacher CSV');
+        } finally {
+            setUploadingClassTeachers(false);
+        }
+    }, [onboardingSchoolId, classTeacherFile, classTeacherData, parseCsvString, readFileAsText, loadInitialData]);
+
+    const handleUploadStudentClasses = useCallback(async () => {
+        if (!onboardingSchoolId) {
+            toast.error('Please select a school');
+            return;
+        }
+        if (!studentClassFile) {
+            toast.error('Please select a student-class CSV file');
+            return;
+        }
+
+        try {
+            setUploadingStudentClasses(true);
+            const content = studentClassData || await readFileAsText(studentClassFile);
+            const rows = parseCsvString(content);
+
+            if (rows.length === 0) {
+                toast.error('No valid rows found in CSV');
+                return;
+            }
+
+            const requiredCols = ['tokenNumber', 'studentName', 'className', 'academicYear'];
+            const missingCols = requiredCols.filter(c => !(c in rows[0]));
+            if (missingCols.length > 0) {
+                toast.error(`Missing columns: ${missingCols.join(', ')}`);
+                return;
+            }
+
+            const result = await classAPI.uploadStudentClassesCsv(onboardingSchoolId, rows as any);
+            toast.success(result.message);
+
+            if (result.results.errors.length > 0) {
+                console.warn('Student-class upload errors:', result.results.errors);
+                toast.warning(`${result.results.errors.length} rows had errors — check console`);
+            }
+
+            setStudentClassFile(null);
+            setStudentClassData('');
+            apiCache.clear();
+            loadInitialData();
+        } catch (error: any) {
+            console.error('Error uploading student-class CSV:', error);
+            toast.error(error.message || 'Failed to upload student-class CSV');
+        } finally {
+            setUploadingStudentClasses(false);
+        }
+    }, [onboardingSchoolId, studentClassFile, studentClassData, parseCsvString, readFileAsText, loadInitialData]);
 
     const handleRefresh = useCallback(() => {
         // Clear cache on refresh to get fresh data
@@ -794,6 +923,15 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                                 <Archive className="h-4 w-4" />
                                 Bulk Archive by Year
                             </Button>
+                            <Button
+                                onClick={() => setShowAcademicOnboarding(!showAcademicOnboarding)}
+                                variant="outline"
+                                size="sm"
+                                className="flex items-center justify-center gap-2 w-full sm:w-auto"
+                            >
+                                <GraduationCap className="h-4 w-4" />
+                                {showAcademicOnboarding ? 'Hide Year Onboarding' : 'New Year Onboarding'}
+                            </Button>
                         </div>
                     </div>
 
@@ -875,6 +1013,148 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                                     Cancel
                                 </Button>
                             </div>
+                        </div>
+                    )}
+
+                    {/* Academic Year Onboarding Section */}
+                    {showAcademicOnboarding && (
+                        <div className="border-t pt-4 space-y-6">
+                            <div>
+                                <Label className="text-base font-semibold">New Academic Year Onboarding</Label>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    Upload class-teacher and student-class CSVs to set up a new academic year.
+                                </p>
+                            </div>
+
+                            {/* School Selection */}
+                            <div className="max-w-sm">
+                                <Label className="block text-sm font-medium mb-2">School</Label>
+                                <Select value={onboardingSchoolId} onValueChange={setOnboardingSchoolId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select a school" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {schools.map(school => (
+                                            <SelectItem key={school.id} value={school.id}>
+                                                {school.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {/* Step 1: Class-Teacher CSV */}
+                            <div className="border rounded-lg p-4 space-y-3">
+                                <div>
+                                    <Label className="text-sm font-semibold">Step 1: Class-Teacher Mapping</Label>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Columns: className, academicYear, teacherName, teacherUsername
+                                    </p>
+                                </div>
+                                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
+                                    <Label htmlFor="classTeacherFile" className="cursor-pointer">
+                                        <div className="text-sm font-medium text-gray-900 mb-1">
+                                            {classTeacherFile ? classTeacherFile.name : 'Click to upload class-teacher CSV'}
+                                        </div>
+                                    </Label>
+                                    <input
+                                        id="classTeacherFile"
+                                        type="file"
+                                        accept=".csv,text/csv"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                                setClassTeacherFile(file);
+                                                const reader = new FileReader();
+                                                reader.onload = (ev) => setClassTeacherData(ev.target?.result as string);
+                                                reader.readAsText(file);
+                                            }
+                                        }}
+                                        className="hidden"
+                                    />
+                                </div>
+                                <Button
+                                    onClick={handleUploadClassTeachers}
+                                    disabled={uploadingClassTeachers || !classTeacherFile || !onboardingSchoolId}
+                                    size="sm"
+                                >
+                                    {uploadingClassTeachers ? (
+                                        <>
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            Processing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Upload className="h-4 w-4 mr-2" />
+                                            Upload Class-Teacher CSV
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+
+                            {/* Step 2: Student-Class CSV */}
+                            <div className="border rounded-lg p-4 space-y-3">
+                                <div>
+                                    <Label className="text-sm font-semibold">Step 2: Student-Class Mapping</Label>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Columns: tokenNumber, studentName, className, academicYear
+                                    </p>
+                                </div>
+                                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
+                                    <Label htmlFor="studentClassFile" className="cursor-pointer">
+                                        <div className="text-sm font-medium text-gray-900 mb-1">
+                                            {studentClassFile ? studentClassFile.name : 'Click to upload student-class CSV'}
+                                        </div>
+                                    </Label>
+                                    <input
+                                        id="studentClassFile"
+                                        type="file"
+                                        accept=".csv,text/csv"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                                setStudentClassFile(file);
+                                                const reader = new FileReader();
+                                                reader.onload = (ev) => setStudentClassData(ev.target?.result as string);
+                                                reader.readAsText(file);
+                                            }
+                                        }}
+                                        className="hidden"
+                                    />
+                                </div>
+                                <Button
+                                    onClick={handleUploadStudentClasses}
+                                    disabled={uploadingStudentClasses || !studentClassFile || !onboardingSchoolId}
+                                    size="sm"
+                                >
+                                    {uploadingStudentClasses ? (
+                                        <>
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            Processing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Upload className="h-4 w-4 mr-2" />
+                                            Upload Student-Class CSV
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    setShowAcademicOnboarding(false);
+                                    setClassTeacherFile(null);
+                                    setClassTeacherData('');
+                                    setStudentClassFile(null);
+                                    setStudentClassData('');
+                                    setOnboardingSchoolId('');
+                                }}
+                            >
+                                Close
+                            </Button>
                         </div>
                     )}
                 </CardContent>
