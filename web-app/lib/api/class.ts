@@ -6,7 +6,7 @@ export const classAPI = {
         return fetchAPI<Class[]>('/classes');
     },
 
-    createClass: async (data: { name: string; schoolId: string }): Promise<Class> => {
+    createClass: async (data: { name: string; schoolId: string; academicYear: string }): Promise<Class> => {
         return fetchAPI<Class>('/classes', {
             method: 'POST',
             body: JSON.stringify(data)

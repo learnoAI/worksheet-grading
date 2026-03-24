@@ -60,6 +60,7 @@ export interface Class {
     id: string;
     name: string;
     schoolId: string;
+    academicYear: string;
     createdAt: string;
     updatedAt: string;
     isArchived?: boolean;

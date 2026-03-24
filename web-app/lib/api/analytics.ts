@@ -43,6 +43,7 @@ export interface Class {
     id: string;
     name: string;
     schoolId: string;
+    academicYear: string;
 }
 
 export const analyticsAPI = {
