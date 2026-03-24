@@ -540,6 +540,26 @@ export default function ClassesPage() {
         }
     }, [bulkArchiveYear]);
 
+    const downloadCsvTemplate = useCallback((filename: string, content: string) => {
+        const blob = new Blob([content], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    }, []);
+
+    const handleDownloadClassTeacherTemplate = useCallback(() => {
+        const csv = `className,academicYear,teacherName,teacherUsername\nClass 5A,26-27,Ramesh Kumar,ramesh.kumar\nClass 5B,26-27,Priya Sharma,priya.sharma\nClass 6A,26-27,Ramesh Kumar,ramesh.kumar`;
+        downloadCsvTemplate('class-teacher-template.csv', csv);
+    }, [downloadCsvTemplate]);
+
+    const handleDownloadStudentClassTemplate = useCallback(() => {
+        const csv = `tokenNumber,studentName,className,academicYear\nTN001,Aarav Sharma,Class 5A,26-27\nTN002,Neha Patel,Class 5A,26-27\nTN003,Rohan Gupta,Class 5B,26-27`;
+        downloadCsvTemplate('student-class-template.csv', csv);
+    }, [downloadCsvTemplate]);
+
     const parseCsvString = useCallback((content: string): Record<string, string>[] => {
         const lines = content.split('\n').filter(line => line.trim());
         if (lines.length < 2) return [];
@@ -1045,11 +1065,22 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
 
                             {/* Step 1: Class-Teacher CSV */}
                             <div className="border rounded-lg p-4 space-y-3">
-                                <div>
-                                    <Label className="text-sm font-semibold">Step 1: Class-Teacher Mapping</Label>
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        Columns: className, academicYear, teacherName, teacherUsername
-                                    </p>
+                                <div className="flex items-start justify-between">
+                                    <div>
+                                        <Label className="text-sm font-semibold">Step 1: Class-Teacher Mapping</Label>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Columns: className, academicYear, teacherName, teacherUsername
+                                        </p>
+                                    </div>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={handleDownloadClassTeacherTemplate}
+                                        className="text-xs"
+                                    >
+                                        <Download className="h-3 w-3 mr-1" />
+                                        Download Template
+                                    </Button>
                                 </div>
                                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
                                     <Label htmlFor="classTeacherFile" className="cursor-pointer">
@@ -1094,11 +1125,22 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
 
                             {/* Step 2: Student-Class CSV */}
                             <div className="border rounded-lg p-4 space-y-3">
-                                <div>
-                                    <Label className="text-sm font-semibold">Step 2: Student-Class Mapping</Label>
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        Columns: tokenNumber, studentName, className, academicYear
-                                    </p>
+                                <div className="flex items-start justify-between">
+                                    <div>
+                                        <Label className="text-sm font-semibold">Step 2: Student-Class Mapping</Label>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Columns: tokenNumber, studentName, className, academicYear
+                                        </p>
+                                    </div>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={handleDownloadStudentClassTemplate}
+                                        className="text-xs"
+                                    >
+                                        <Download className="h-3 w-3 mr-1" />
+                                        Download Template
+                                    </Button>
                                 </div>
                                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
                                     <Label htmlFor="studentClassFile" className="cursor-pointer">
