@@ -14,9 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { 
-    Dialog, 
-    DialogContent
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { 
@@ -289,6 +293,11 @@ export default function ClassesPage() {
     // Create class state
     const [showCreateClass, setShowCreateClass] = useState(false);
     
+    // Bulk archive state
+    const [showBulkArchive, setShowBulkArchive] = useState(false);
+    const [bulkArchiveYear, setBulkArchiveYear] = useState('25-26');
+    const [bulkArchiving, setBulkArchiving] = useState(false);
+
     // Management modals state
     const [selectedClassForStudents, setSelectedClassForStudents] = useState<ClassWithSchool | null>(null);
     const [selectedClassForTeachers, setSelectedClassForTeachers] = useState<ClassWithSchool | null>(null);
@@ -492,6 +501,34 @@ export default function ClassesPage() {
             setActionLoading(null);
         }
     }, []);
+
+    const handleBulkArchive = useCallback(async () => {
+        if (!bulkArchiveYear.trim()) {
+            toast.error('Please enter an academic year');
+            return;
+        }
+
+        try {
+            setBulkArchiving(true);
+            const result = await classAPI.archiveClassesByYear(bulkArchiveYear.trim());
+
+            // Update local state
+            setClasses(prev => prev.map(cls =>
+                cls.academicYear === bulkArchiveYear.trim() && !cls.isArchived
+                    ? { ...cls, isArchived: true }
+                    : cls
+            ));
+
+            toast.success(result.message);
+            setShowBulkArchive(false);
+            apiCache.clear();
+        } catch (error: any) {
+            console.error('Error bulk archiving:', error);
+            toast.error(error.message || 'Failed to bulk archive classes');
+        } finally {
+            setBulkArchiving(false);
+        }
+    }, [bulkArchiveYear]);
 
     const handleRefresh = useCallback(() => {
         // Clear cache on refresh to get fresh data
@@ -747,6 +784,15 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                             >
                                 <Download className="h-4 w-4" />
                                 Download Template
+                            </Button>
+                            <Button
+                                onClick={() => setShowBulkArchive(true)}
+                                variant="outline"
+                                size="sm"
+                                className="flex items-center justify-center gap-2 w-full sm:w-auto text-red-600 border-red-200 hover:bg-red-50"
+                            >
+                                <Archive className="h-4 w-4" />
+                                Bulk Archive by Year
                             </Button>
                         </div>
                     </div>
@@ -1021,6 +1067,53 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                     />
                 </Suspense>
             )}
+
+            {/* Bulk Archive Confirmation Dialog */}
+            <Dialog open={showBulkArchive} onOpenChange={(open) => { if (!bulkArchiving) setShowBulkArchive(open); }}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Bulk Archive Classes</DialogTitle>
+                        <DialogDescription>
+                            Archive all active classes for a specific academic year. Students with no other active classes will also be archived.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="bulkArchiveYear" className="text-right">
+                                Academic Year
+                            </Label>
+                            <Input
+                                id="bulkArchiveYear"
+                                value={bulkArchiveYear}
+                                onChange={(e) => setBulkArchiveYear(e.target.value)}
+                                placeholder="25-26"
+                                className="col-span-3"
+                                disabled={bulkArchiving}
+                            />
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                            This will archive <strong>{classes.filter(c => !c.isArchived && c.academicYear === bulkArchiveYear.trim()).length}</strong> active class(es) for year <strong>{bulkArchiveYear}</strong>.
+                        </p>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setShowBulkArchive(false)}
+                            disabled={bulkArchiving}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleBulkArchive}
+                            disabled={bulkArchiving || !bulkArchiveYear.trim() || classes.filter(c => !c.isArchived && c.academicYear === bulkArchiveYear.trim()).length === 0}
+                        >
+                            {bulkArchiving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {bulkArchiving ? 'Archiving...' : 'Archive All'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

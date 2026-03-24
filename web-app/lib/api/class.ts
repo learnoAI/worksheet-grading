@@ -47,6 +47,13 @@ export const classAPI = {
         });
     },
 
+    archiveClassesByYear: async (academicYear: string): Promise<{ message: string; archivedClassCount: number; archivedStudentCount: number }> => {
+        return fetchAPI<{ message: string; archivedClassCount: number; archivedStudentCount: number }>('/classes/archive-by-year', {
+            method: 'POST',
+            body: JSON.stringify({ academicYear })
+        });
+    },
+
     // Teacher management functions
     getClassTeachers: async (classId: string): Promise<User[]> => {
         return fetchAPI<User[]>(`/classes/${classId}/teachers`);
