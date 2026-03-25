@@ -11,5 +11,9 @@ backend-python
 **/.env.*
 !.env.example
 
+# Test data (may contain PII)
+test-data/
+
 # Misc
 .DS_Store
+prod_backup.dump
