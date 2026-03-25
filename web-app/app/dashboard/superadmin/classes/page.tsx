@@ -306,8 +306,8 @@ export default function ClassesPage() {
     const [classTeacherData, setClassTeacherData] = useState('');
     const [studentClassFile, setStudentClassFile] = useState<File | null>(null);
     const [studentClassData, setStudentClassData] = useState('');
-    const [uploadingClassTeachers, setUploadingClassTeachers] = useState(false);
-    const [uploadingStudentClasses, setUploadingStudentClasses] = useState(false);
+    const [onboardingInProgress, setOnboardingInProgress] = useState(false);
+    const [onboardingStep, setOnboardingStep] = useState<string>('');
 
     // Management modals state
     const [selectedClassForStudents, setSelectedClassForStudents] = useState<ClassWithSchool | null>(null);
@@ -588,7 +588,7 @@ export default function ClassesPage() {
         });
     }, []);
 
-    const handleUploadClassTeachers = useCallback(async () => {
+    const handleStartOnboarding = useCallback(async () => {
         if (!onboardingSchoolId) {
             toast.error('Please select a school');
             return;
@@ -597,90 +597,81 @@ export default function ClassesPage() {
             toast.error('Please select a class-teacher CSV file');
             return;
         }
-
-        try {
-            setUploadingClassTeachers(true);
-            const content = classTeacherData || await readFileAsText(classTeacherFile);
-            const rows = parseCsvString(content);
-
-            if (rows.length === 0) {
-                toast.error('No valid rows found in CSV');
-                return;
-            }
-
-            const requiredCols = ['className', 'academicYear', 'teacherUsername'];
-            const missingCols = requiredCols.filter(c => !(c in rows[0]));
-            if (missingCols.length > 0) {
-                toast.error(`Missing columns: ${missingCols.join(', ')}`);
-                return;
-            }
-
-            const result = await classAPI.uploadClassTeachersCsv(onboardingSchoolId, rows as any);
-            toast.success(result.message);
-
-            if (result.results.errors.length > 0) {
-                console.warn('Class-teacher upload errors:', result.results.errors);
-                toast.warning(`${result.results.errors.length} rows had errors — check console`);
-            }
-
-            setClassTeacherFile(null);
-            setClassTeacherData('');
-            apiCache.clear();
-            loadInitialData();
-        } catch (error: any) {
-            console.error('Error uploading class-teacher CSV:', error);
-            toast.error(error.message || 'Failed to upload class-teacher CSV');
-        } finally {
-            setUploadingClassTeachers(false);
-        }
-    }, [onboardingSchoolId, classTeacherFile, classTeacherData, parseCsvString, readFileAsText, loadInitialData]);
-
-    const handleUploadStudentClasses = useCallback(async () => {
-        if (!onboardingSchoolId) {
-            toast.error('Please select a school');
-            return;
-        }
         if (!studentClassFile) {
             toast.error('Please select a student-class CSV file');
             return;
         }
 
         try {
-            setUploadingStudentClasses(true);
-            const content = studentClassData || await readFileAsText(studentClassFile);
-            const rows = parseCsvString(content);
+            setOnboardingInProgress(true);
 
-            if (rows.length === 0) {
-                toast.error('No valid rows found in CSV');
+            // Step 1: Process class-teacher CSV
+            setOnboardingStep('Processing class-teacher mapping...');
+            const ctContent = classTeacherData || await readFileAsText(classTeacherFile);
+            const ctRows = parseCsvString(ctContent);
+
+            if (ctRows.length === 0) {
+                toast.error('No valid rows found in class-teacher CSV');
                 return;
             }
 
-            const requiredCols = ['tokenNumber', 'studentName', 'className', 'academicYear'];
-            const missingCols = requiredCols.filter(c => !(c in rows[0]));
-            if (missingCols.length > 0) {
-                toast.error(`Missing columns: ${missingCols.join(', ')}`);
+            const ctRequiredCols = ['className', 'academicYear', 'teacherUsername'];
+            const ctMissingCols = ctRequiredCols.filter(c => !(c in ctRows[0]));
+            if (ctMissingCols.length > 0) {
+                toast.error(`Class-teacher CSV missing columns: ${ctMissingCols.join(', ')}`);
                 return;
             }
 
-            const result = await classAPI.uploadStudentClassesCsv(onboardingSchoolId, rows as any);
-            toast.success(result.message);
+            const ctResult = await classAPI.uploadClassTeachersCsv(onboardingSchoolId, ctRows as any);
+            toast.success(`Step 1: ${ctResult.message}`);
 
-            if (result.results.errors.length > 0) {
-                console.warn('Student-class upload errors:', result.results.errors);
-                toast.warning(`${result.results.errors.length} rows had errors — check console`);
+            if (ctResult.results.errors.length > 0) {
+                console.warn('Class-teacher upload errors:', ctResult.results.errors);
+                toast.warning(`Step 1: ${ctResult.results.errors.length} rows had errors — check console`);
             }
 
+            // Step 2: Process student-class CSV
+            setOnboardingStep('Processing student-class mapping...');
+            const scContent = studentClassData || await readFileAsText(studentClassFile);
+            const scRows = parseCsvString(scContent);
+
+            if (scRows.length === 0) {
+                toast.error('No valid rows found in student-class CSV');
+                return;
+            }
+
+            const scRequiredCols = ['tokenNumber', 'studentName', 'className', 'academicYear'];
+            const scMissingCols = scRequiredCols.filter(c => !(c in scRows[0]));
+            if (scMissingCols.length > 0) {
+                toast.error(`Student-class CSV missing columns: ${scMissingCols.join(', ')}`);
+                return;
+            }
+
+            const scResult = await classAPI.uploadStudentClassesCsv(onboardingSchoolId, scRows as any);
+            toast.success(`Step 2: ${scResult.message}`);
+
+            if (scResult.results.errors.length > 0) {
+                console.warn('Student-class upload errors:', scResult.results.errors);
+                toast.warning(`Step 2: ${scResult.results.errors.length} rows had errors — check console`);
+            }
+
+            // Done — reset state
+            setOnboardingStep('');
+            setClassTeacherFile(null);
+            setClassTeacherData('');
             setStudentClassFile(null);
             setStudentClassData('');
             apiCache.clear();
             loadInitialData();
+            toast.success('Onboarding complete!');
         } catch (error: any) {
-            console.error('Error uploading student-class CSV:', error);
-            toast.error(error.message || 'Failed to upload student-class CSV');
+            console.error('Error during onboarding:', error);
+            toast.error(error.message || 'Onboarding failed');
         } finally {
-            setUploadingStudentClasses(false);
+            setOnboardingInProgress(false);
+            setOnboardingStep('');
         }
-    }, [onboardingSchoolId, studentClassFile, studentClassData, parseCsvString, readFileAsText, loadInitialData]);
+    }, [onboardingSchoolId, classTeacherFile, classTeacherData, studentClassFile, studentClassData, parseCsvString, readFileAsText, loadInitialData]);
 
     const handleRefresh = useCallback(() => {
         // Clear cache on refresh to get fresh data
@@ -1039,155 +1030,25 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                         </div>
                     )}
 
-                    {/* Academic Year Onboarding Section */}
-                    {showAcademicOnboarding && (
-                        <div className="border-t pt-4 space-y-6">
+                </CardContent>
+            </Card>
+
+            {/* Academic Year Onboarding Section */}
+            {showAcademicOnboarding && (
+                <Card className="border-2 border-blue-300 bg-blue-50/30">
+                    <CardHeader>
+                        <div className="flex items-center justify-between">
                             <div>
-                                <Label className="text-base font-semibold">New Academic Year Onboarding</Label>
-                                <p className="text-sm text-gray-500 mt-1">
+                                <CardTitle className="flex items-center gap-2">
+                                    <GraduationCap className="h-5 w-5 text-blue-600" />
+                                    New Academic Year Onboarding
+                                </CardTitle>
+                                <CardDescription>
                                     Upload class-teacher and student-class CSVs to set up a new academic year.
-                                </p>
+                                </CardDescription>
                             </div>
-
-                            {/* School Selection */}
-                            <div className="max-w-sm">
-                                <Label className="block text-sm font-medium mb-2">School</Label>
-                                <Select value={onboardingSchoolId} onValueChange={setOnboardingSchoolId}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select a school" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {schools.map(school => (
-                                            <SelectItem key={school.id} value={school.id}>
-                                                {school.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            {/* Step 1: Class-Teacher CSV */}
-                            <div className="border rounded-lg p-4 space-y-3">
-                                <div className="flex items-start justify-between">
-                                    <div>
-                                        <Label className="text-sm font-semibold">Step 1: Class-Teacher Mapping</Label>
-                                        <p className="text-xs text-gray-500 mt-1">
-                                            Columns: className, academicYear, teacherName, teacherUsername
-                                        </p>
-                                    </div>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={handleDownloadClassTeacherTemplate}
-                                        className="text-xs"
-                                    >
-                                        <Download className="h-3 w-3 mr-1" />
-                                        Download Template
-                                    </Button>
-                                </div>
-                                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
-                                    <Label htmlFor="classTeacherFile" className="cursor-pointer">
-                                        <div className="text-sm font-medium text-gray-900 mb-1">
-                                            {classTeacherFile ? classTeacherFile.name : 'Click to upload class-teacher CSV'}
-                                        </div>
-                                    </Label>
-                                    <input
-                                        id="classTeacherFile"
-                                        type="file"
-                                        accept=".csv,text/csv"
-                                        onChange={(e) => {
-                                            const file = e.target.files?.[0];
-                                            if (file) {
-                                                setClassTeacherFile(file);
-                                                const reader = new FileReader();
-                                                reader.onload = (ev) => setClassTeacherData(ev.target?.result as string);
-                                                reader.readAsText(file);
-                                            }
-                                        }}
-                                        className="hidden"
-                                    />
-                                </div>
-                                <Button
-                                    onClick={handleUploadClassTeachers}
-                                    disabled={uploadingClassTeachers || !classTeacherFile || !onboardingSchoolId}
-                                    size="sm"
-                                >
-                                    {uploadingClassTeachers ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                            Processing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Upload className="h-4 w-4 mr-2" />
-                                            Upload Class-Teacher CSV
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
-
-                            {/* Step 2: Student-Class CSV */}
-                            <div className="border rounded-lg p-4 space-y-3">
-                                <div className="flex items-start justify-between">
-                                    <div>
-                                        <Label className="text-sm font-semibold">Step 2: Student-Class Mapping</Label>
-                                        <p className="text-xs text-gray-500 mt-1">
-                                            Columns: tokenNumber, studentName, className, academicYear
-                                        </p>
-                                    </div>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={handleDownloadStudentClassTemplate}
-                                        className="text-xs"
-                                    >
-                                        <Download className="h-3 w-3 mr-1" />
-                                        Download Template
-                                    </Button>
-                                </div>
-                                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
-                                    <Label htmlFor="studentClassFile" className="cursor-pointer">
-                                        <div className="text-sm font-medium text-gray-900 mb-1">
-                                            {studentClassFile ? studentClassFile.name : 'Click to upload student-class CSV'}
-                                        </div>
-                                    </Label>
-                                    <input
-                                        id="studentClassFile"
-                                        type="file"
-                                        accept=".csv,text/csv"
-                                        onChange={(e) => {
-                                            const file = e.target.files?.[0];
-                                            if (file) {
-                                                setStudentClassFile(file);
-                                                const reader = new FileReader();
-                                                reader.onload = (ev) => setStudentClassData(ev.target?.result as string);
-                                                reader.readAsText(file);
-                                            }
-                                        }}
-                                        className="hidden"
-                                    />
-                                </div>
-                                <Button
-                                    onClick={handleUploadStudentClasses}
-                                    disabled={uploadingStudentClasses || !studentClassFile || !onboardingSchoolId}
-                                    size="sm"
-                                >
-                                    {uploadingStudentClasses ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                            Processing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Upload className="h-4 w-4 mr-2" />
-                                            Upload Student-Class CSV
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
-
                             <Button
-                                variant="outline"
+                                variant="ghost"
                                 size="sm"
                                 onClick={() => {
                                     setShowAcademicOnboarding(false);
@@ -1201,9 +1062,142 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                                 Close
                             </Button>
                         </div>
-                    )}
-                </CardContent>
-            </Card>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        {/* School Selection */}
+                        <div className="max-w-sm">
+                            <Label className="block text-sm font-medium mb-2">School</Label>
+                            <Select value={onboardingSchoolId} onValueChange={setOnboardingSchoolId}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a school" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {schools.map(school => (
+                                        <SelectItem key={school.id} value={school.id}>
+                                            {school.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* Step 1: Class-Teacher CSV */}
+                        <div className={`border rounded-lg p-4 space-y-3 bg-white ${classTeacherFile ? 'border-green-300' : ''}`}>
+                            <div className="flex items-start justify-between">
+                                <div>
+                                    <Label className="text-sm font-semibold">Step 1: Class-Teacher Mapping</Label>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Columns: className, academicYear, teacherName, teacherUsername
+                                    </p>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleDownloadClassTeacherTemplate}
+                                    className="text-xs"
+                                >
+                                    <Download className="h-3 w-3 mr-1" />
+                                    Download Template
+                                </Button>
+                            </div>
+                            <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${classTeacherFile ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-gray-400'}`}>
+                                <Label htmlFor="classTeacherFile" className="cursor-pointer">
+                                    <div className="text-sm font-medium text-gray-900 mb-1">
+                                        {classTeacherFile ? `Selected: ${classTeacherFile.name}` : 'Click to select class-teacher CSV'}
+                                    </div>
+                                </Label>
+                                <input
+                                    id="classTeacherFile"
+                                    type="file"
+                                    accept=".csv,text/csv"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                            setClassTeacherFile(file);
+                                            const reader = new FileReader();
+                                            reader.onload = (ev) => setClassTeacherData(ev.target?.result as string);
+                                            reader.readAsText(file);
+                                        }
+                                    }}
+                                    className="hidden"
+                                    disabled={onboardingInProgress}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Step 2: Student-Class CSV */}
+                        <div className={`border rounded-lg p-4 space-y-3 bg-white ${studentClassFile ? 'border-green-300' : ''}`}>
+                            <div className="flex items-start justify-between">
+                                <div>
+                                    <Label className="text-sm font-semibold">Step 2: Student-Class Mapping</Label>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Columns: tokenNumber, studentName, className, academicYear
+                                    </p>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleDownloadStudentClassTemplate}
+                                    className="text-xs"
+                                >
+                                    <Download className="h-3 w-3 mr-1" />
+                                    Download Template
+                                </Button>
+                            </div>
+                            <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${studentClassFile ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-gray-400'}`}>
+                                <Label htmlFor="studentClassFile" className="cursor-pointer">
+                                    <div className="text-sm font-medium text-gray-900 mb-1">
+                                        {studentClassFile ? `Selected: ${studentClassFile.name}` : 'Click to select student-class CSV'}
+                                    </div>
+                                </Label>
+                                <input
+                                    id="studentClassFile"
+                                    type="file"
+                                    accept=".csv,text/csv"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                            setStudentClassFile(file);
+                                            const reader = new FileReader();
+                                            reader.onload = (ev) => setStudentClassData(ev.target?.result as string);
+                                            reader.readAsText(file);
+                                        }
+                                    }}
+                                    className="hidden"
+                                    disabled={onboardingInProgress}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Start Onboarding Button */}
+                        <div className="pt-2">
+                            {onboardingStep && (
+                                <p className="text-sm text-blue-600 mb-3 flex items-center gap-2">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    {onboardingStep}
+                                </p>
+                            )}
+                            <Button
+                                onClick={handleStartOnboarding}
+                                disabled={onboardingInProgress || !onboardingSchoolId || !classTeacherFile || !studentClassFile}
+                                className="w-full sm:w-auto"
+                            >
+                                {onboardingInProgress ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        Processing...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Upload className="h-4 w-4 mr-2" />
+                                        Start Onboarding
+                                    </>
+                                )}
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Summary */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1404,17 +1398,23 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="bulkArchiveYear" className="text-right">
+                            <Label className="text-right">
                                 Academic Year
                             </Label>
-                            <Input
-                                id="bulkArchiveYear"
-                                value={bulkArchiveYear}
-                                onChange={(e) => setBulkArchiveYear(e.target.value)}
-                                placeholder="25-26"
-                                className="col-span-3"
-                                disabled={bulkArchiving}
-                            />
+                            <div className="col-span-3">
+                                <Select value={bulkArchiveYear} onValueChange={setBulkArchiveYear} disabled={bulkArchiving}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select academic year" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {[...new Set(classes.map(c => c.academicYear))].sort().map(year => (
+                                            <SelectItem key={year} value={year}>
+                                                {year}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label className="text-right">
@@ -1450,6 +1450,7 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                         </Button>
                         <Button
                             variant="destructive"
+                            className="bg-red-600 text-white hover:bg-red-700"
                             onClick={handleBulkArchive}
                             disabled={bulkArchiving || !bulkArchiveYear.trim() || classes.filter(c => !c.isArchived && c.academicYear === bulkArchiveYear.trim() && (bulkArchiveSchoolId === 'all' || c.schoolId === bulkArchiveSchoolId)).length === 0}
                         >
