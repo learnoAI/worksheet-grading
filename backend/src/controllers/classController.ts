@@ -756,24 +756,28 @@ export const archiveClassesByYear = async (req: Request, res: Response) => {
             });
 
             const uniqueStudentIds = [...new Set(studentClasses.map(sc => sc.studentId))];
+
+            // Find students who still have at least one active class
+            const studentsWithActiveClasses = await tx.studentClass.findMany({
+                where: {
+                    studentId: { in: uniqueStudentIds },
+                    class: { isArchived: false }
+                },
+                select: { studentId: true },
+                distinct: ['studentId']
+            });
+
+            const activeStudentIds = new Set(studentsWithActiveClasses.map(sc => sc.studentId));
+            const studentIdsToArchive = uniqueStudentIds.filter(id => !activeStudentIds.has(id));
+
+            // Bulk archive students with no remaining active classes
             let archivedStudentCount = 0;
-
-            // Archive students who have no other active classes
-            for (const studentId of uniqueStudentIds) {
-                const activeClassCount = await tx.studentClass.count({
-                    where: {
-                        studentId,
-                        class: { isArchived: false }
-                    }
+            if (studentIdsToArchive.length > 0) {
+                const result = await tx.user.updateMany({
+                    where: { id: { in: studentIdsToArchive } },
+                    data: { isArchived: true }
                 });
-
-                if (activeClassCount === 0) {
-                    await tx.user.update({
-                        where: { id: studentId },
-                        data: { isArchived: true }
-                    });
-                    archivedStudentCount++;
-                }
+                archivedStudentCount = result.count;
             }
 
             return { archivedClassCount: archivedCount.count, archivedStudentCount };
