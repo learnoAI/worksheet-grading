@@ -1065,10 +1065,12 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                     </CardHeader>
                     <CardContent className="space-y-6">
                         {/* School Selection */}
-                        <div className="max-w-sm">
-                            <Label className="block text-sm font-medium mb-2">School</Label>
+                        <div className={`rounded-lg p-4 ${onboardingSchoolId ? 'bg-green-50 border border-green-300' : 'bg-yellow-50 border-2 border-yellow-400'}`}>
+                            <Label className={`block text-sm font-semibold mb-2 ${onboardingSchoolId ? 'text-green-800' : 'text-yellow-800'}`}>
+                                {onboardingSchoolId ? 'School Selected' : 'Select a School to Continue'}
+                            </Label>
                             <Select value={onboardingSchoolId} onValueChange={setOnboardingSchoolId}>
-                                <SelectTrigger>
+                                <SelectTrigger className="bg-white">
                                     <SelectValue placeholder="Select a school" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -1170,11 +1172,21 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                         </div>
 
                         {/* Start Onboarding Button */}
-                        <div className="pt-2">
+                        <div className="pt-2 space-y-3">
                             {onboardingStep && (
-                                <p className="text-sm text-blue-600 mb-3 flex items-center gap-2">
+                                <p className="text-sm text-blue-600 flex items-center gap-2">
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     {onboardingStep}
+                                </p>
+                            )}
+                            {!onboardingInProgress && (!onboardingSchoolId || !classTeacherFile || !studentClassFile) && (
+                                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                                    Before starting:{' '}
+                                    {[
+                                        !onboardingSchoolId && 'select a school',
+                                        !classTeacherFile && 'upload class-teacher CSV',
+                                        !studentClassFile && 'upload student-class CSV'
+                                    ].filter(Boolean).join(', ')}
                                 </p>
                             )}
                             <Button
