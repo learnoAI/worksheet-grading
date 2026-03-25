@@ -296,6 +296,7 @@ export default function ClassesPage() {
     // Bulk archive state
     const [showBulkArchive, setShowBulkArchive] = useState(false);
     const [bulkArchiveYear, setBulkArchiveYear] = useState('25-26');
+    const [bulkArchiveSchoolId, setBulkArchiveSchoolId] = useState('all');
     const [bulkArchiving, setBulkArchiving] = useState(false);
 
     // Academic year onboarding state
@@ -520,11 +521,13 @@ export default function ClassesPage() {
 
         try {
             setBulkArchiving(true);
-            const result = await classAPI.archiveClassesByYear(bulkArchiveYear.trim());
+            const schoolId = bulkArchiveSchoolId !== 'all' ? bulkArchiveSchoolId : undefined;
+            const result = await classAPI.archiveClassesByYear(bulkArchiveYear.trim(), schoolId);
 
             // Update local state
             setClasses(prev => prev.map(cls =>
                 cls.academicYear === bulkArchiveYear.trim() && !cls.isArchived
+                    && (bulkArchiveSchoolId === 'all' || cls.schoolId === bulkArchiveSchoolId)
                     ? { ...cls, isArchived: true }
                     : cls
             ));
@@ -538,7 +541,7 @@ export default function ClassesPage() {
         } finally {
             setBulkArchiving(false);
         }
-    }, [bulkArchiveYear]);
+    }, [bulkArchiveYear, bulkArchiveSchoolId]);
 
     const downloadCsvTemplate = useCallback((filename: string, content: string) => {
         const blob = new Blob([content], { type: 'text/csv' });
@@ -1413,8 +1416,28 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                                 disabled={bulkArchiving}
                             />
                         </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">
+                                School
+                            </Label>
+                            <div className="col-span-3">
+                                <Select value={bulkArchiveSchoolId} onValueChange={setBulkArchiveSchoolId} disabled={bulkArchiving}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select school" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">All Schools</SelectItem>
+                                        {schools.map(school => (
+                                            <SelectItem key={school.id} value={school.id}>
+                                                {school.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
                         <p className="text-sm text-muted-foreground">
-                            This will archive <strong>{classes.filter(c => !c.isArchived && c.academicYear === bulkArchiveYear.trim()).length}</strong> active class(es) for year <strong>{bulkArchiveYear}</strong>.
+                            This will archive <strong>{classes.filter(c => !c.isArchived && c.academicYear === bulkArchiveYear.trim() && (bulkArchiveSchoolId === 'all' || c.schoolId === bulkArchiveSchoolId)).length}</strong> active class(es) for year <strong>{bulkArchiveYear}</strong>{bulkArchiveSchoolId !== 'all' ? ` in ${schools.find(s => s.id === bulkArchiveSchoolId)?.name}` : ' across all schools'}.
                         </p>
                     </div>
                     <DialogFooter>
@@ -1428,7 +1451,7 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                         <Button
                             variant="destructive"
                             onClick={handleBulkArchive}
-                            disabled={bulkArchiving || !bulkArchiveYear.trim() || classes.filter(c => !c.isArchived && c.academicYear === bulkArchiveYear.trim()).length === 0}
+                            disabled={bulkArchiving || !bulkArchiveYear.trim() || classes.filter(c => !c.isArchived && c.academicYear === bulkArchiveYear.trim() && (bulkArchiveSchoolId === 'all' || c.schoolId === bulkArchiveSchoolId)).length === 0}
                         >
                             {bulkArchiving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             {bulkArchiving ? 'Archiving...' : 'Archive All'}

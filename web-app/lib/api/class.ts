@@ -47,10 +47,10 @@ export const classAPI = {
         });
     },
 
-    archiveClassesByYear: async (academicYear: string): Promise<{ message: string; archivedClassCount: number; archivedStudentCount: number }> => {
+    archiveClassesByYear: async (academicYear: string, schoolId?: string): Promise<{ message: string; archivedClassCount: number; archivedStudentCount: number }> => {
         return fetchAPI<{ message: string; archivedClassCount: number; archivedStudentCount: number }>('/classes/archive-by-year', {
             method: 'POST',
-            body: JSON.stringify({ academicYear })
+            body: JSON.stringify({ academicYear, ...(schoolId && { schoolId }) })
         });
     },
 

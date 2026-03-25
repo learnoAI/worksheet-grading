@@ -714,23 +714,30 @@ export const removeStudentFromClass = async (req: Request, res: Response) => {
  */
 export const archiveClassesByYear = async (req: Request, res: Response) => {
     try {
-        const { academicYear } = req.body;
+        const { academicYear, schoolId } = req.body;
 
         if (!academicYear) {
             return res.status(400).json({ message: 'Academic year is required' });
         }
 
-        // Find all active classes for this academic year
+        // Build filter — optionally scope to a single school
+        const whereConditions: any = {
+            academicYear: academicYear.trim(),
+            isArchived: false
+        };
+
+        if (schoolId) {
+            whereConditions.schoolId = schoolId;
+        }
+
+        // Find all active classes for this academic year (and school if provided)
         const activeClasses = await prisma.class.findMany({
-            where: {
-                academicYear: academicYear.trim(),
-                isArchived: false
-            },
+            where: whereConditions,
             select: { id: true, name: true, schoolId: true }
         });
 
         if (activeClasses.length === 0) {
-            return res.status(404).json({ message: `No active classes found for academic year ${academicYear}` });
+            return res.status(404).json({ message: `No active classes found for academic year ${academicYear}${schoolId ? ' in selected school' : ''}` });
         }
 
         const classIds = activeClasses.map(c => c.id);
