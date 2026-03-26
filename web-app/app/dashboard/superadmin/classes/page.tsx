@@ -308,6 +308,7 @@ export default function ClassesPage() {
     const [studentClassData, setStudentClassData] = useState('');
     const [onboardingInProgress, setOnboardingInProgress] = useState(false);
     const [onboardingStep, setOnboardingStep] = useState<string>('');
+    const [showOnboardingConfirm, setShowOnboardingConfirm] = useState(false);
 
     // Management modals state
     const [selectedClassForStudents, setSelectedClassForStudents] = useState<ClassWithSchool | null>(null);
@@ -563,13 +564,37 @@ export default function ClassesPage() {
         downloadCsvTemplate('student-class-template.csv', csv);
     }, [downloadCsvTemplate]);
 
+    const parseCsvLine = useCallback((line: string): string[] => {
+        const values: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                values.push(current.trim());
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        values.push(current.trim());
+        return values;
+    }, []);
+
     const parseCsvString = useCallback((content: string): Record<string, string>[] => {
         const lines = content.split('\n').filter(line => line.trim());
         if (lines.length < 2) return [];
-        const headers = lines[0].split(',').map(h => h.trim());
+        const headers = parseCsvLine(lines[0]);
         const rows: Record<string, string>[] = [];
         for (let i = 1; i < lines.length; i++) {
-            const values = lines[i].split(',').map(v => v.trim());
+            const values = parseCsvLine(lines[i]);
             if (values.some(v => v)) {
                 const row: Record<string, string> = {};
                 headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
@@ -1190,7 +1215,7 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                                 </p>
                             )}
                             <Button
-                                onClick={handleStartOnboarding}
+                                onClick={() => setShowOnboardingConfirm(true)}
                                 disabled={onboardingInProgress || !onboardingSchoolId || !classTeacherFile || !studentClassFile}
                                 className="w-full sm:w-auto"
                             >
@@ -1210,6 +1235,31 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                     </CardContent>
                 </Card>
             )}
+
+            {/* Onboarding Confirmation Dialog */}
+            <Dialog open={showOnboardingConfirm} onOpenChange={setShowOnboardingConfirm}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Confirm Onboarding</DialogTitle>
+                        <DialogDescription>
+                            This will create new classes, assign teachers, and map students for the selected school. Please verify the details below.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 py-4 text-sm">
+                        <p><strong>School:</strong> {schools.find(s => s.id === onboardingSchoolId)?.name}</p>
+                        <p><strong>Class-Teacher CSV:</strong> {classTeacherFile?.name}</p>
+                        <p><strong>Student-Class CSV:</strong> {studentClassFile?.name}</p>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowOnboardingConfirm(false)}>
+                            Cancel
+                        </Button>
+                        <Button onClick={() => { setShowOnboardingConfirm(false); handleStartOnboarding(); }}>
+                            Confirm & Start
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Summary */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
