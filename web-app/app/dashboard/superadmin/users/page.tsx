@@ -504,7 +504,7 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {availableClasses.length === 0 ? (
-                                                    <SelectItem value="" disabled>No more classes available</SelectItem>
+                                                    <SelectItem value="__none" disabled>No more classes available</SelectItem>
                                                 ) : (
                                                     availableClasses.map(c => (
                                                         <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
