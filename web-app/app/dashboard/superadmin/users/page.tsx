@@ -424,18 +424,29 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                         />
                     </div>
                     
-                    {/* School info for teachers and admins (read-only) */}
+                    {/* School and class info for teachers (read-only) */}
                     {role === UserRole.TEACHER && user?.teacherClasses && user.teacherClasses.length > 0 && (
-                        <div>
-                            <Label>School</Label>
-                            <Input
-                                value={[...new Set(user.teacherClasses.map(tc => tc.class.school.name))].join(', ')}
-                                disabled
-                                className="bg-gray-100"
-                            />
-                        </div>
+                        <>
+                            <div>
+                                <Label>School</Label>
+                                <Input
+                                    value={[...new Set(user.teacherClasses.map(tc => tc.class.school.name))].join(', ')}
+                                    disabled
+                                    className="bg-gray-100"
+                                />
+                            </div>
+                            <div>
+                                <Label>Classes</Label>
+                                <Input
+                                    value={user.teacherClasses.map(tc => tc.class.name).join(', ')}
+                                    disabled
+                                    className="bg-gray-100"
+                                />
+                            </div>
+                        </>
                     )}
 
+                    {/* School info for admins (read-only) */}
                     {role === UserRole.ADMIN && user?.adminSchools && user.adminSchools.length > 0 && (
                         <div>
                             <Label>School</Label>
