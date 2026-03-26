@@ -211,14 +211,47 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
     const [role, setRole] = useState('');
     const [tokenNumber, setTokenNumber] = useState('');
     const [submitting, setSubmitting] = useState(false);
-    
-    // New state for school and class management
+
+    // School and class management
     const [schools, setSchools] = useState<AnalyticsSchool[]>([]);
     const [classes, setClasses] = useState<AnalyticsClass[]>([]);
     const [selectedSchool, setSelectedSchool] = useState('');
-    const [selectedClass, setSelectedClass] = useState('');
+    const [classToAdd, setClassToAdd] = useState('');
     const [loadingSchools, setLoadingSchools] = useState(false);
     const [loadingClasses, setLoadingClasses] = useState(false);
+
+    // Track current class assignments (mutable during editing)
+    const [assignedClassIds, setAssignedClassIds] = useState<Set<string>>(new Set());
+    const [classesToAdd, setClassesToAdd] = useState<Set<string>>(new Set());
+    const [classesToRemove, setClassesToRemove] = useState<Set<string>>(new Set());
+
+    // Get the user's current classes for display
+    const currentUserClasses = useMemo(() => {
+        if (!user) return [];
+        if (role === UserRole.STUDENT && user.studentClasses) {
+            return user.studentClasses.map(sc => ({ id: sc.class.id, name: sc.class.name, schoolName: sc.class.school.name, schoolId: sc.class.school.id }));
+        }
+        if (role === UserRole.TEACHER && user.teacherClasses) {
+            return user.teacherClasses.map(tc => ({ id: tc.class.id, name: tc.class.name, schoolName: tc.class.school.name, schoolId: tc.class.school.id }));
+        }
+        return [];
+    }, [user, role]);
+
+    // Effective list: current minus removals plus additions
+    const effectiveClasses = useMemo(() => {
+        const kept = currentUserClasses.filter(c => !classesToRemove.has(c.id));
+        const added = classes.filter(c => classesToAdd.has(c.id)).map(c => {
+            const school = schools.find(s => s.id === selectedSchool);
+            return { id: c.id, name: c.name, schoolName: school?.name || '', schoolId: selectedSchool };
+        });
+        return [...kept, ...added];
+    }, [currentUserClasses, classesToRemove, classesToAdd, classes, schools, selectedSchool]);
+
+    // Available classes to add (from selected school, not already assigned)
+    const availableClasses = useMemo(() => {
+        const effectiveIds = new Set(effectiveClasses.map(c => c.id));
+        return classes.filter(c => !effectiveIds.has(c.id));
+    }, [classes, effectiveClasses]);
 
     useEffect(() => {
         if (user) {
@@ -226,46 +259,41 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
             setUsername(user.username || '');
             setRole(user.role || '');
             setTokenNumber(user.tokenNumber || '');
-            
-            // Set current school and class for students
+            setClassesToAdd(new Set());
+            setClassesToRemove(new Set());
+
+            // Set school from first class assignment
             if (user.role === UserRole.STUDENT && user.studentClasses && user.studentClasses.length > 0) {
-                const currentClass = user.studentClasses[0].class;
-                setSelectedSchool(currentClass.school.id);
-                setSelectedClass(currentClass.id);
+                setSelectedSchool(user.studentClasses[0].class.school.id);
+                setAssignedClassIds(new Set(user.studentClasses.map(sc => sc.class.id)));
+            } else if (user.role === UserRole.TEACHER && user.teacherClasses && user.teacherClasses.length > 0) {
+                setSelectedSchool(user.teacherClasses[0].class.school.id);
+                setAssignedClassIds(new Set(user.teacherClasses.map(tc => tc.class.id)));
             } else {
                 setSelectedSchool('');
-                setSelectedClass('');
+                setAssignedClassIds(new Set());
             }
         }
     }, [user]);
 
-    // Load schools when modal opens
     useEffect(() => {
-        if (isOpen) {
-            loadSchools();
-        }
+        if (isOpen) loadSchools();
     }, [isOpen]);
 
-    // Load classes when school is selected
     useEffect(() => {
         if (selectedSchool) {
             loadClasses(selectedSchool);
         } else {
             setClasses([]);
-            setSelectedClass('');
         }
     }, [selectedSchool]);
 
     const loadSchools = async () => {
         try {
             setLoadingSchools(true);
-            console.log('Loading schools...');
-            const schoolsData = await analyticsAPI.getAllSchools();
-            console.log('Schools loaded:', schoolsData);
-            setSchools(schoolsData);
+            setSchools(await analyticsAPI.getAllSchools());
         } catch (error) {
-            console.error('Error loading schools:', error);
-            toast.error('Failed to load schools: ' + (error instanceof Error ? error.message : 'Unknown error'));
+            toast.error('Failed to load schools');
         } finally {
             setLoadingSchools(false);
         }
@@ -274,24 +302,39 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
     const loadClasses = async (schoolId: string) => {
         try {
             setLoadingClasses(true);
-            console.log('Loading classes for school:', schoolId);
-            const classesData = await analyticsAPI.getClassesBySchool(schoolId);
-            console.log('Classes loaded:', classesData);
-            setClasses(classesData);
+            setClasses(await analyticsAPI.getClassesBySchool(schoolId));
         } catch (error) {
-            console.error('Error loading classes:', error);
-            toast.error('Failed to load classes: ' + (error instanceof Error ? error.message : 'Unknown error'));
+            toast.error('Failed to load classes');
         } finally {
             setLoadingClasses(false);
         }
     };
 
-    const handleRoleChange = (newRole: string) => {
-        setRole(newRole);
-        // Reset school/class selection when role changes
-        if (newRole !== UserRole.STUDENT) {
-            setSelectedSchool('');
-            setSelectedClass('');
+    const handleSchoolChange = (newSchoolId: string) => {
+        if (newSchoolId === selectedSchool) return;
+        // Switching school: mark all current classes for removal
+        setClassesToRemove(new Set(currentUserClasses.map(c => c.id)));
+        setClassesToAdd(new Set());
+        setClassToAdd('');
+        setSelectedSchool(newSchoolId);
+    };
+
+    const handleAddClass = () => {
+        if (!classToAdd) return;
+        // If it was originally assigned and marked for removal, just un-remove it
+        if (assignedClassIds.has(classToAdd)) {
+            setClassesToRemove(prev => { const next = new Set(prev); next.delete(classToAdd); return next; });
+        } else {
+            setClassesToAdd(prev => new Set(prev).add(classToAdd));
+        }
+        setClassToAdd('');
+    };
+
+    const handleRemoveClass = (classId: string) => {
+        if (classesToAdd.has(classId)) {
+            setClassesToAdd(prev => { const next = new Set(prev); next.delete(classId); return next; });
+        } else {
+            setClassesToRemove(prev => new Set(prev).add(classId));
         }
     };
 
@@ -304,60 +347,47 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
             return;
         }
 
-        // Validate student-specific requirements
-        if (role === UserRole.STUDENT && !selectedClass) {
-            toast.error('Class selection is required for students');
+        if ((role === UserRole.STUDENT || role === UserRole.TEACHER) && effectiveClasses.length === 0) {
+            toast.error('At least one class assignment is required');
             return;
         }
 
         try {
             setSubmitting(true);
-            
-            const updateData: any = {
-                name,
-                username,
-                role
-            };
 
-            if (role === UserRole.STUDENT) {
-                if (tokenNumber) {
-                    updateData.tokenNumber = tokenNumber;
-                }
-                updateData.classId = selectedClass;
+            const updateData: any = { name, username };
+            if (role === UserRole.STUDENT && tokenNumber) {
+                updateData.tokenNumber = tokenNumber;
             }
-
             await userAPI.updateUser(user.id, updateData);
-            
-            // If user is a student and class changed, handle class assignment
-            if (role === UserRole.STUDENT && selectedClass) {
-                // Remove from old class if it exists and is different
-                if (user.studentClasses && user.studentClasses.length > 0) {
-                    const oldClassId = user.studentClasses[0].class.id;
-                    if (oldClassId !== selectedClass) {
-                        try {
-                            await analyticsAPI.removeStudentFromClass(user.id, oldClassId);
-                        } catch (error) {
-                            console.warn('Could not remove from old class:', error);
-                        }
+
+            // Process class removals
+            for (const classId of classesToRemove) {
+                try {
+                    if (role === UserRole.STUDENT) {
+                        await analyticsAPI.removeStudentFromClass(user.id, classId);
                     }
-                }
-                
-                // Add to new class (if not already in it)
-                if (!user.studentClasses || user.studentClasses.length === 0 || 
-                    user.studentClasses[0].class.id !== selectedClass) {
-                    try {
-                        await analyticsAPI.addStudentToClass(user.id, selectedClass);
-                    } catch (error) {
-                        console.warn('Could not add to new class:', error);
-                    }
+                    // For teachers, use classAPI if available or analytics
+                } catch (error) {
+                    console.warn(`Could not remove from class ${classId}:`, error);
                 }
             }
-            
+
+            // Process class additions
+            for (const classId of classesToAdd) {
+                try {
+                    if (role === UserRole.STUDENT) {
+                        await analyticsAPI.addStudentToClass(user.id, classId);
+                    }
+                } catch (error) {
+                    console.warn(`Could not add to class ${classId}:`, error);
+                }
+            }
+
             toast.success('User updated successfully');
             onSuccess();
             onClose();
         } catch (error: any) {
-            console.error('Error updating user:', error);
             toast.error(error.message || 'Failed to update user');
         } finally {
             setSubmitting(false);
@@ -365,179 +395,149 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
     };
 
     const handleClose = () => {
-        // Reset form state when closing
-        setName('');
-        setUsername('');
-        setRole('');
-        setTokenNumber('');
-        setSelectedSchool('');
-        setSelectedClass('');
-        setSchools([]);
-        setClasses([]);
+        setName(''); setUsername(''); setRole(''); setTokenNumber('');
+        setSelectedSchool(''); setClassToAdd('');
+        setSchools([]); setClasses([]);
+        setClassesToAdd(new Set()); setClassesToRemove(new Set());
+        setAssignedClassIds(new Set());
         onClose();
     };
 
+    const hasChanges = classesToAdd.size > 0 || classesToRemove.size > 0;
+
     return (
         <Dialog open={isOpen} onOpenChange={handleClose}>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Edit User</DialogTitle>
                     <DialogDescription>
-                        Update user information and settings
-                        {user?.role === UserRole.STUDENT && user.studentClasses && user.studentClasses.length > 0 && (
-                            <span className="block mt-1 text-sm text-blue-600">
-                                Current: {user.studentClasses[0].class.name} ({user.studentClasses[0].class.school.name})
-                            </span>
-                        )}
+                        Update user information and class assignments
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                         <Label htmlFor="name">Full Name</Label>
-                        <Input
-                            id="name"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder="Enter full name"
-                            required
-                        />
+                        <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter full name" required />
                     </div>
-                    
+
                     <div>
                         <Label htmlFor="username">Username</Label>
-                        <Input
-                            id="username"
-                            value={username}
-                            onChange={(e) => setUsername(e.target.value)}
-                            placeholder="Enter username"
-                            required
-                        />
+                        <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter username" required />
                     </div>
-                    
+
                     <div>
-                        <Label htmlFor="role">Role</Label>
+                        <Label>Role</Label>
                         <Input
-                            id="role"
                             value={role === UserRole.STUDENT ? 'Student' : role === UserRole.TEACHER ? 'Teacher' : role === UserRole.ADMIN ? 'Admin' : 'Superadmin'}
-                            disabled
-                            className="bg-gray-100"
+                            disabled className="bg-gray-100"
                         />
                     </div>
-                    
-                    {/* School and class info for teachers (read-only) */}
-                    {role === UserRole.TEACHER && user?.teacherClasses && user.teacherClasses.length > 0 && (
-                        <>
-                            <div>
-                                <Label>School</Label>
-                                <Input
-                                    value={[...new Set(user.teacherClasses.map(tc => tc.class.school.name))].join(', ')}
-                                    disabled
-                                    className="bg-gray-100"
-                                />
-                            </div>
-                            <div>
-                                <Label>Classes</Label>
-                                <Input
-                                    value={user.teacherClasses.map(tc => tc.class.name).join(', ')}
-                                    disabled
-                                    className="bg-gray-100"
-                                />
-                            </div>
-                        </>
+
+                    {role === UserRole.STUDENT && (
+                        <div>
+                            <Label htmlFor="tokenNumber">Token Number</Label>
+                            <Input id="tokenNumber" value={tokenNumber} onChange={(e) => setTokenNumber(e.target.value)} placeholder="Enter token number" />
+                        </div>
                     )}
 
                     {/* School info for admins (read-only) */}
                     {role === UserRole.ADMIN && user?.adminSchools && user.adminSchools.length > 0 && (
                         <div>
                             <Label>School</Label>
-                            <Input
-                                value={user.adminSchools.map(as => as.school.name).join(', ')}
-                                disabled
-                                className="bg-gray-100"
-                            />
+                            <Input value={user.adminSchools.map(as => as.school.name).join(', ')} disabled className="bg-gray-100" />
                         </div>
                     )}
 
-                    {role === UserRole.STUDENT && (
+                    {/* School & class management for students and teachers */}
+                    {(role === UserRole.STUDENT || role === UserRole.TEACHER) && (
                         <>
                             <div>
-                                <Label htmlFor="tokenNumber">Token Number</Label>
-                                <Input
-                                    id="tokenNumber"
-                                    value={tokenNumber}
-                                    onChange={(e) => setTokenNumber(e.target.value)}
-                                    placeholder="Enter token number"
-                                />
-                            </div>
-
-                            <div>
-                                <Label htmlFor="school">School</Label>
-                                <Select
-                                    value={selectedSchool}
-                                    onValueChange={setSelectedSchool}
-                                    disabled={loadingSchools}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder={loadingSchools ? "Loading schools..." : "Select school"} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {schools.length === 0 && !loadingSchools ? (
-                                            <SelectItem value="" disabled>No schools available</SelectItem>
-                                        ) : (
-                                            schools.map((school) => (
-                                                <SelectItem key={school.id} value={school.id}>
-                                                    {school.name}
-                                                </SelectItem>
-                                            ))
-                                        )}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            {selectedSchool && (
-                                <div>
-                                    <Label htmlFor="class">Class</Label>
-                                    <Select
-                                        value={selectedClass}
-                                        onValueChange={setSelectedClass}
-                                        disabled={loadingClasses}
-                                    >
+                                <Label>School</Label>
+                                {role === UserRole.STUDENT ? (
+                                    <Select value={selectedSchool} onValueChange={handleSchoolChange} disabled={loadingSchools || submitting}>
                                         <SelectTrigger>
-                                            <SelectValue placeholder={loadingClasses ? "Loading classes..." : "Select class"} />
+                                            <SelectValue placeholder={loadingSchools ? "Loading..." : "Select school"} />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {classes.length === 0 && !loadingClasses ? (
-                                                <SelectItem value="" disabled>No classes available for this school</SelectItem>
-                                            ) : (
-                                                classes.map((classItem) => (
-                                                    <SelectItem key={classItem.id} value={classItem.id}>
-                                                        {classItem.name}
-                                                    </SelectItem>
-                                                ))
-                                            )}
+                                            {schools.map(school => (
+                                                <SelectItem key={school.id} value={school.id}>{school.name}</SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
+                                ) : (
+                                    <Input
+                                        value={[...new Set(effectiveClasses.map(c => c.schoolName))].join(', ') || 'No school assigned'}
+                                        disabled className="bg-gray-100"
+                                    />
+                                )}
+                            </div>
+
+                            {/* Current class assignments */}
+                            <div>
+                                <Label>Assigned Classes</Label>
+                                {effectiveClasses.length === 0 ? (
+                                    <p className="text-sm text-muted-foreground py-2">No classes assigned</p>
+                                ) : (
+                                    <div className="space-y-1 mt-1">
+                                        {effectiveClasses.map(cls => (
+                                            <div key={cls.id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-1.5 text-sm">
+                                                <span>{cls.name} <span className="text-muted-foreground">({cls.schoolName})</span></span>
+                                                {role === UserRole.STUDENT && (
+                                                    <Button
+                                                        type="button" variant="ghost" size="sm"
+                                                        onClick={() => handleRemoveClass(cls.id)}
+                                                        disabled={submitting}
+                                                        className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                    >
+                                                        <X className="h-3 w-3" />
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Add class (students only) */}
+                            {role === UserRole.STUDENT && selectedSchool && (
+                                <div>
+                                    <Label>Add Class</Label>
+                                    <div className="flex gap-2">
+                                        <Select value={classToAdd} onValueChange={setClassToAdd} disabled={loadingClasses || submitting}>
+                                            <SelectTrigger className="flex-1">
+                                                <SelectValue placeholder={loadingClasses ? "Loading..." : "Select class to add"} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {availableClasses.length === 0 ? (
+                                                    <SelectItem value="" disabled>No more classes available</SelectItem>
+                                                ) : (
+                                                    availableClasses.map(c => (
+                                                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                                    ))
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                        <Button type="button" size="sm" onClick={handleAddClass} disabled={!classToAdd || submitting}>
+                                            Add
+                                        </Button>
+                                    </div>
                                 </div>
+                            )}
+
+                            {hasChanges && (
+                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                                    {classesToAdd.size > 0 && `${classesToAdd.size} class(es) to add. `}
+                                    {classesToRemove.size > 0 && `${classesToRemove.size} class(es) to remove. `}
+                                    Changes apply on save.
+                                </p>
                             )}
                         </>
                     )}
-                    
+
                     <DialogFooter>
-                        <Button type="button" variant="outline" onClick={handleClose}>
-                            Cancel
-                        </Button>
-                        <Button 
-                            type="submit" 
-                            disabled={submitting || loadingSchools || loadingClasses || (role === UserRole.STUDENT && !selectedClass)}
-                        >
-                            {submitting ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Updating...
-                                </>
-                            ) : (
-                                'Update User'
-                            )}
+                        <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
+                        <Button type="submit" disabled={submitting || (role === UserRole.STUDENT && effectiveClasses.length === 0)}>
+                            {submitting ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Updating...</>) : 'Update User'}
                         </Button>
                     </DialogFooter>
                 </form>
