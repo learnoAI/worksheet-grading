@@ -424,6 +424,29 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                         />
                     </div>
                     
+                    {/* School info for teachers and admins (read-only) */}
+                    {role === UserRole.TEACHER && user?.teacherClasses && user.teacherClasses.length > 0 && (
+                        <div>
+                            <Label>School</Label>
+                            <Input
+                                value={[...new Set(user.teacherClasses.map(tc => tc.class.school.name))].join(', ')}
+                                disabled
+                                className="bg-gray-100"
+                            />
+                        </div>
+                    )}
+
+                    {role === UserRole.ADMIN && user?.adminSchools && user.adminSchools.length > 0 && (
+                        <div>
+                            <Label>School</Label>
+                            <Input
+                                value={user.adminSchools.map(as => as.school.name).join(', ')}
+                                disabled
+                                className="bg-gray-100"
+                            />
+                        </div>
+                    )}
+
                     {role === UserRole.STUDENT && (
                         <>
                             <div>
@@ -435,11 +458,11 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                                     placeholder="Enter token number"
                                 />
                             </div>
-                            
+
                             <div>
                                 <Label htmlFor="school">School</Label>
-                                <Select 
-                                    value={selectedSchool} 
+                                <Select
+                                    value={selectedSchool}
                                     onValueChange={setSelectedSchool}
                                     disabled={loadingSchools}
                                 >
@@ -459,12 +482,12 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                                     </SelectContent>
                                 </Select>
                             </div>
-                            
+
                             {selectedSchool && (
                                 <div>
                                     <Label htmlFor="class">Class</Label>
-                                    <Select 
-                                        value={selectedClass} 
+                                    <Select
+                                        value={selectedClass}
                                         onValueChange={setSelectedClass}
                                         disabled={loadingClasses}
                                     >
