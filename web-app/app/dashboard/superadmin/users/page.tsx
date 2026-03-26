@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { userAPI } from '@/lib/api/user';
+import { classAPI } from '@/lib/api/class';
 import { analyticsAPI, Class as AnalyticsClass, School as AnalyticsSchool } from '@/lib/api/analyticsAPI';
 import { User, UserRole} from '@/lib/api/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -366,8 +367,9 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                 try {
                     if (role === UserRole.STUDENT) {
                         await analyticsAPI.removeStudentFromClass(user.id, classId);
+                    } else if (role === UserRole.TEACHER) {
+                        await classAPI.removeTeacherFromClass(classId, user.id);
                     }
-                    // For teachers, use classAPI if available or analytics
                 } catch (error) {
                     console.warn(`Could not remove from class ${classId}:`, error);
                 }
@@ -378,6 +380,8 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                 try {
                     if (role === UserRole.STUDENT) {
                         await analyticsAPI.addStudentToClass(user.id, classId);
+                    } else if (role === UserRole.TEACHER) {
+                        await classAPI.addTeacherToClass(classId, user.id);
                     }
                 } catch (error) {
                     console.warn(`Could not add to class ${classId}:`, error);
@@ -453,23 +457,16 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                         <>
                             <div>
                                 <Label>School</Label>
-                                {role === UserRole.STUDENT ? (
-                                    <Select value={selectedSchool} onValueChange={handleSchoolChange} disabled={loadingSchools || submitting}>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder={loadingSchools ? "Loading..." : "Select school"} />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {schools.map(school => (
-                                                <SelectItem key={school.id} value={school.id}>{school.name}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                ) : (
-                                    <Input
-                                        value={[...new Set(effectiveClasses.map(c => c.schoolName))].join(', ') || 'No school assigned'}
-                                        disabled className="bg-gray-100"
-                                    />
-                                )}
+                                <Select value={selectedSchool} onValueChange={handleSchoolChange} disabled={loadingSchools || submitting}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder={loadingSchools ? "Loading..." : "Select school"} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {schools.map(school => (
+                                            <SelectItem key={school.id} value={school.id}>{school.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
 
                             {/* Current class assignments */}
@@ -482,24 +479,22 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                                         {effectiveClasses.map(cls => (
                                             <div key={cls.id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-1.5 text-sm">
                                                 <span>{cls.name} <span className="text-muted-foreground">({cls.schoolName})</span></span>
-                                                {role === UserRole.STUDENT && (
-                                                    <Button
-                                                        type="button" variant="ghost" size="sm"
-                                                        onClick={() => handleRemoveClass(cls.id)}
-                                                        disabled={submitting}
-                                                        className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                                                    >
-                                                        <X className="h-3 w-3" />
-                                                    </Button>
-                                                )}
+                                                <Button
+                                                    type="button" variant="ghost" size="sm"
+                                                    onClick={() => handleRemoveClass(cls.id)}
+                                                    disabled={submitting}
+                                                    className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                >
+                                                    <X className="h-3 w-3" />
+                                                </Button>
                                             </div>
                                         ))}
                                     </div>
                                 )}
                             </div>
 
-                            {/* Add class (students only) */}
-                            {role === UserRole.STUDENT && selectedSchool && (
+                            {/* Add class */}
+                            {(role === UserRole.STUDENT || role === UserRole.TEACHER) && selectedSchool && (
                                 <div>
                                     <Label>Add Class</Label>
                                     <div className="flex gap-2">
