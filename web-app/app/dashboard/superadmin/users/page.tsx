@@ -217,7 +217,6 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
     const [schools, setSchools] = useState<AnalyticsSchool[]>([]);
     const [classes, setClasses] = useState<AnalyticsClass[]>([]);
     const [selectedSchool, setSelectedSchool] = useState('');
-    const [classToAdd, setClassToAdd] = useState('');
     const [loadingSchools, setLoadingSchools] = useState(false);
     const [loadingClasses, setLoadingClasses] = useState(false);
 
@@ -247,12 +246,6 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
         });
         return [...kept, ...added];
     }, [currentUserClasses, classesToRemove, classesToAdd, classes, schools, selectedSchool]);
-
-    // Available classes to add (from selected school, not already assigned)
-    const availableClasses = useMemo(() => {
-        const effectiveIds = new Set(effectiveClasses.map(c => c.id));
-        return classes.filter(c => !effectiveIds.has(c.id));
-    }, [classes, effectiveClasses]);
 
     useEffect(() => {
         if (user) {
@@ -316,19 +309,16 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
         // Switching school: mark all current classes for removal
         setClassesToRemove(new Set(currentUserClasses.map(c => c.id)));
         setClassesToAdd(new Set());
-        setClassToAdd('');
         setSelectedSchool(newSchoolId);
     };
 
-    const handleAddClass = () => {
-        if (!classToAdd) return;
+    const handleAddClass = (classId: string) => {
         // If it was originally assigned and marked for removal, just un-remove it
-        if (assignedClassIds.has(classToAdd)) {
-            setClassesToRemove(prev => { const next = new Set(prev); next.delete(classToAdd); return next; });
+        if (assignedClassIds.has(classId)) {
+            setClassesToRemove(prev => { const next = new Set(prev); next.delete(classId); return next; });
         } else {
-            setClassesToAdd(prev => new Set(prev).add(classToAdd));
+            setClassesToAdd(prev => new Set(prev).add(classId));
         }
-        setClassToAdd('');
     };
 
     const handleRemoveClass = (classId: string) => {
@@ -400,7 +390,7 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
 
     const handleClose = () => {
         setName(''); setUsername(''); setRole(''); setTokenNumber('');
-        setSelectedSchool(''); setClassToAdd('');
+        setSelectedSchool('');
         setSchools([]); setClasses([]);
         setClassesToAdd(new Set()); setClassesToRemove(new Set());
         setAssignedClassIds(new Set());
@@ -469,55 +459,41 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                                 </Select>
                             </div>
 
-                            {/* Current class assignments */}
+                            {/* Class multi-select */}
                             <div>
-                                <Label>Assigned Classes</Label>
-                                {effectiveClasses.length === 0 ? (
-                                    <p className="text-sm text-muted-foreground py-2">No classes assigned</p>
+                                <Label>Classes</Label>
+                                {loadingClasses ? (
+                                    <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+                                        <Loader2 className="h-3 w-3 animate-spin" /> Loading classes...
+                                    </div>
+                                ) : !selectedSchool ? (
+                                    <p className="text-sm text-muted-foreground py-2">Select a school first</p>
+                                ) : classes.length === 0 ? (
+                                    <p className="text-sm text-muted-foreground py-2">No classes in this school</p>
                                 ) : (
-                                    <div className="space-y-1 mt-1">
-                                        {effectiveClasses.map(cls => (
-                                            <div key={cls.id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-1.5 text-sm">
-                                                <span>{cls.name} <span className="text-muted-foreground">({cls.schoolName})</span></span>
-                                                <Button
-                                                    type="button" variant="ghost" size="sm"
-                                                    onClick={() => handleRemoveClass(cls.id)}
+                                    <div className="space-y-1 mt-1 max-h-48 overflow-y-auto border rounded-md p-2">
+                                        {classes.map(cls => {
+                                            const isAssigned = effectiveClasses.some(c => c.id === cls.id);
+                                            return (
+                                                <button
+                                                    key={cls.id}
+                                                    type="button"
                                                     disabled={submitting}
-                                                    className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                    onClick={() => isAssigned ? handleRemoveClass(cls.id) : handleAddClass(cls.id)}
+                                                    className={`w-full flex items-center justify-between rounded px-3 py-1.5 text-sm text-left transition-colors ${
+                                                        isAssigned
+                                                            ? 'bg-blue-50 border border-blue-200 text-blue-900'
+                                                            : 'bg-gray-50 hover:bg-gray-100 text-gray-700'
+                                                    }`}
                                                 >
-                                                    <X className="h-3 w-3" />
-                                                </Button>
-                                            </div>
-                                        ))}
+                                                    <span>{cls.name}</span>
+                                                    {isAssigned && <X className="h-3 w-3 text-blue-500" />}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 )}
                             </div>
-
-                            {/* Add class */}
-                            {(role === UserRole.STUDENT || role === UserRole.TEACHER) && selectedSchool && (
-                                <div>
-                                    <Label>Add Class</Label>
-                                    <div className="flex gap-2">
-                                        <Select value={classToAdd} onValueChange={setClassToAdd} disabled={loadingClasses || submitting}>
-                                            <SelectTrigger className="flex-1">
-                                                <SelectValue placeholder={loadingClasses ? "Loading..." : "Select class to add"} />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {availableClasses.length === 0 ? (
-                                                    <SelectItem value="__none" disabled>No more classes available</SelectItem>
-                                                ) : (
-                                                    availableClasses.map(c => (
-                                                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                                                    ))
-                                                )}
-                                            </SelectContent>
-                                        </Select>
-                                        <Button type="button" size="sm" onClick={handleAddClass} disabled={!classToAdd || submitting}>
-                                            Add
-                                        </Button>
-                                    </div>
-                                </div>
-                            )}
 
                             {hasChanges && (
                                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
