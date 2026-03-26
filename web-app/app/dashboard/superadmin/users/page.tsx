@@ -416,17 +416,12 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                     
                     <div>
                         <Label htmlFor="role">Role</Label>
-                        <Select value={role} onValueChange={handleRoleChange}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select role" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value={UserRole.STUDENT}>Student</SelectItem>
-                                <SelectItem value={UserRole.TEACHER}>Teacher</SelectItem>
-                                <SelectItem value={UserRole.ADMIN}>Admin</SelectItem>
-                                <SelectItem value={UserRole.SUPERADMIN}>Superadmin</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <Input
+                            id="role"
+                            value={role === UserRole.STUDENT ? 'Student' : role === UserRole.TEACHER ? 'Teacher' : role === UserRole.ADMIN ? 'Admin' : 'Superadmin'}
+                            disabled
+                            className="bg-gray-100"
+                        />
                     </div>
                     
                     {role === UserRole.STUDENT && (

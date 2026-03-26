@@ -113,17 +113,12 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
 
                         <div className="space-y-2">
                             <Label htmlFor="role">User Role</Label>
-                            <select
+                            <input
                                 id="role"
-                                value={selectedRole}
-                                onChange={(e) => setSelectedRole(e.target.value)}
-                                className="w-full p-2 border rounded"
-                            >
-                                <option value={UserRole.TEACHER}>Teacher</option>
-                                <option value={UserRole.STUDENT}>Student</option>
-                                <option value={UserRole.ADMIN}>Admin</option>
-                                <option value={UserRole.SUPERADMIN}>Superadmin</option>
-                            </select>
+                                value={selectedRole === UserRole.STUDENT ? 'Student' : selectedRole === UserRole.TEACHER ? 'Teacher' : selectedRole === UserRole.ADMIN ? 'Admin' : 'Superadmin'}
+                                disabled
+                                className="w-full p-2 border rounded bg-gray-100"
+                            />
                         </div>
                     </CardContent>
                     <CardFooter className="flex justify-between">
