@@ -1004,10 +1004,10 @@ export const getClassWorksheetsForDate = async (
         process.env.PROGRESSION_THRESHOLD || "32",
       );
 
-      // Fetch only the minimal data needed for recommendations
+      // Fetch worksheet history across ALL classes for these students
+      // so that worksheet numbering carries over across academic years.
       const historyData = await prisma.worksheet.findMany({
         where: {
-          classId: classId as string,
           studentId: { in: studentsWithoutWorksheets },
           submittedOn: {
             lt: endDateForHistory,
@@ -1821,11 +1821,10 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
       dateFilter.lt = beforeDateObj;
     }
 
-    // Get student's worksheet history and resolve worksheet number from direct field
-    // with a template fallback for legacy rows.
+    // Get student's worksheet history across ALL classes (not just current)
+    // so that worksheet numbering carries over across academic years.
     const worksheetHistory = await prisma.worksheet.findMany({
       where: {
-        classId,
         studentId,
         status: ProcessingStatus.COMPLETED,
         isAbsent: false,
