@@ -1004,36 +1004,47 @@ export const getClassWorksheetsForDate = async (
         process.env.PROGRESSION_THRESHOLD || "32",
       );
 
-      // Fetch worksheet history across ALL classes for these students
-      // so that worksheet numbering carries over across academic years.
-      const historyData = await prisma.worksheet.findMany({
-        where: {
-          studentId: { in: studentsWithoutWorksheets },
-          submittedOn: {
-            lt: endDateForHistory,
+      // Fetch worksheet history across ALL classes for progression numbering,
+      // and current class history separately for isRecommendedRepeated.
+      const [historyData, currentClassHistoryData] = await Promise.all([
+        prisma.worksheet.findMany({
+          where: {
+            studentId: { in: studentsWithoutWorksheets },
+            submittedOn: { lt: endDateForHistory },
+            status: ProcessingStatus.COMPLETED,
+            isAbsent: false,
+            grade: { not: null },
           },
-          status: ProcessingStatus.COMPLETED,
-          isAbsent: false,
-          grade: { not: null },
-        },
-        select: {
-          studentId: true,
-          grade: true,
-          submittedOn: true,
-          createdAt: true,
-          worksheetNumber: true,
-          template: {
-            select: {
-              worksheetNumber: true,
-            },
+          select: {
+            studentId: true,
+            grade: true,
+            submittedOn: true,
+            createdAt: true,
+            worksheetNumber: true,
+            template: { select: { worksheetNumber: true } },
           },
-        },
-        orderBy: [
-          { submittedOn: "desc" },
-          { createdAt: "desc" },
-          { worksheetNumber: "desc" },
-        ],
-      });
+          orderBy: [
+            { submittedOn: "desc" },
+            { createdAt: "desc" },
+            { worksheetNumber: "desc" },
+          ],
+        }),
+        prisma.worksheet.findMany({
+          where: {
+            classId: classId as string,
+            studentId: { in: studentsWithoutWorksheets },
+            submittedOn: { lt: endDateForHistory },
+            status: ProcessingStatus.COMPLETED,
+            isAbsent: false,
+            grade: { not: null },
+          },
+          select: {
+            studentId: true,
+            worksheetNumber: true,
+            template: { select: { worksheetNumber: true } },
+          },
+        }),
+      ]);
 
       for (const studentId of studentsWithoutWorksheets) {
         const studentHistory = historyData
@@ -1048,9 +1059,17 @@ export const getClassWorksheetsForDate = async (
             ),
           }));
 
+        const currentClassCompleted = [...new Set(
+          currentClassHistoryData
+            .filter((h) => h.studentId === studentId)
+            .map(h => getEffectiveWorksheetNumber(h.worksheetNumber, h.template?.worksheetNumber ?? null))
+            .filter((n): n is number => n !== null && n > 0)
+        )];
+
         const recommendation = buildWorksheetRecommendationFromHistory(
           studentHistory,
           progressionThreshold,
+          currentClassCompleted,
         );
 
         studentSummaries[studentId] = {
@@ -1754,7 +1773,8 @@ export const checkIsRepeated = async (req: Request, res: Response) => {
       dateFilter.lt = beforeDateObj;
     }
 
-    // Check if student has completed this worksheet before
+    // Check if student has completed this worksheet before in the CURRENT class
+    // (cross-class completions don't count as repeats in the new class)
     const existingWorksheet = await prisma.worksheet.findFirst({
       where: {
         classId,
@@ -1823,31 +1843,50 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
 
     // Get student's worksheet history across ALL classes (not just current)
     // so that worksheet numbering carries over across academic years.
-    const worksheetHistory = await prisma.worksheet.findMany({
-      where: {
-        studentId,
-        status: ProcessingStatus.COMPLETED,
-        isAbsent: false,
-        grade: { not: null },
-        ...(beforeDate ? { submittedOn: dateFilter } : {}),
-      },
-      select: {
-        grade: true,
-        worksheetNumber: true,
-        submittedOn: true,
-        createdAt: true,
-        template: {
-          select: {
-            worksheetNumber: true,
-          },
+    const [worksheetHistory, currentClassHistory] = await Promise.all([
+      prisma.worksheet.findMany({
+        where: {
+          studentId,
+          status: ProcessingStatus.COMPLETED,
+          isAbsent: false,
+          grade: { not: null },
+          ...(beforeDate ? { submittedOn: dateFilter } : {}),
         },
-      },
-      orderBy: [
-        { submittedOn: "desc" },
-        { createdAt: "desc" },
-        { worksheetNumber: "desc" },
-      ],
-    });
+        select: {
+          grade: true,
+          worksheetNumber: true,
+          submittedOn: true,
+          createdAt: true,
+          template: { select: { worksheetNumber: true } },
+        },
+        orderBy: [
+          { submittedOn: "desc" },
+          { createdAt: "desc" },
+          { worksheetNumber: "desc" },
+        ],
+      }),
+      // Separate query for current class only — used for isRecommendedRepeated
+      prisma.worksheet.findMany({
+        where: {
+          classId,
+          studentId,
+          status: ProcessingStatus.COMPLETED,
+          isAbsent: false,
+          grade: { not: null },
+          ...(beforeDate ? { submittedOn: dateFilter } : {}),
+        },
+        select: {
+          worksheetNumber: true,
+          template: { select: { worksheetNumber: true } },
+        },
+      }),
+    ]);
+
+    const currentClassCompletedNumbers = [...new Set(
+      currentClassHistory
+        .map(w => getEffectiveWorksheetNumber(w.worksheetNumber, w.template?.worksheetNumber ?? null))
+        .filter((n): n is number => n !== null && n > 0)
+    )];
 
     const recommendation = buildWorksheetRecommendationFromHistory(
       worksheetHistory.map((worksheet) => ({
@@ -1860,6 +1899,7 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
         ),
       })),
       PROGRESSION_THRESHOLD,
+      currentClassCompletedNumbers,
     );
 
     if (recommendation.lastWorksheetNumber === null) {

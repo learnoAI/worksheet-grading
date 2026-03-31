@@ -28,7 +28,8 @@ function toDayKey(entry: WorksheetHistoryEntry): string {
 
 export function buildWorksheetRecommendationFromHistory(
   history: WorksheetHistoryEntry[],
-  progressionThreshold: number
+  progressionThreshold: number,
+  currentClassCompletedNumbers?: number[]
 ): WorksheetRecommendation {
   const validHistory = history.filter(
     (entry): entry is WorksheetHistoryEntry & { effectiveWorksheetNumber: number } =>
@@ -40,6 +41,10 @@ export function buildWorksheetRecommendationFromHistory(
       .map((entry) => entry.effectiveWorksheetNumber)
       .filter((worksheetNumber): worksheetNumber is number => worksheetNumber > 0)
   )].sort((a, b) => a - b);
+
+  // For isRecommendedRepeated, check against current class only (if provided)
+  // so that worksheets completed in old classes don't incorrectly flag as repeated
+  const repeatedCheckNumbers = currentClassCompletedNumbers ?? completedWorksheetNumbers;
 
   if (validHistory.length === 0) {
     return {
@@ -100,7 +105,7 @@ export function buildWorksheetRecommendationFromHistory(
       lastGrade,
       completedWorksheetNumbers,
       recommendedWorksheetNumber,
-      isRecommendedRepeated: completedWorksheetNumbers.includes(recommendedWorksheetNumber),
+      isRecommendedRepeated: repeatedCheckNumbers.includes(recommendedWorksheetNumber),
     };
   }
 
