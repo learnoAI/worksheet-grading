@@ -1004,52 +1004,53 @@ export const getClassWorksheetsForDate = async (
         process.env.PROGRESSION_THRESHOLD || "32",
       );
 
-      // Use current-class history for recommendations (performant),
-      // plus a lightweight aggregate to get max worksheet number across all classes
-      // so numbering carries over across academic years.
-      const [historyData, globalMaxData] = await Promise.all([
-        prisma.worksheet.findMany({
-          where: {
-            classId: classId as string,
-            studentId: { in: studentsWithoutWorksheets },
-            submittedOn: { lt: endDateForHistory },
-            status: ProcessingStatus.COMPLETED,
-            isAbsent: false,
-            grade: { not: null },
-          },
-          select: {
-            studentId: true,
-            grade: true,
-            submittedOn: true,
-            createdAt: true,
-            worksheetNumber: true,
-            template: { select: { worksheetNumber: true } },
-          },
-          orderBy: [
-            { submittedOn: "desc" },
-            { createdAt: "desc" },
-            { worksheetNumber: "desc" },
-          ],
-        }),
-        // Lightweight query: just get the max worksheet number per student across ALL classes
-        prisma.worksheet.groupBy({
+      // Fetch current-class history for recommendations
+      const historyData = await prisma.worksheet.findMany({
+        where: {
+          classId: classId as string,
+          studentId: { in: studentsWithoutWorksheets },
+          submittedOn: { lt: endDateForHistory },
+          status: ProcessingStatus.COMPLETED,
+          isAbsent: false,
+          grade: { not: null },
+        },
+        select: {
+          studentId: true,
+          grade: true,
+          submittedOn: true,
+          createdAt: true,
+          worksheetNumber: true,
+          template: { select: { worksheetNumber: true } },
+        },
+        orderBy: [
+          { submittedOn: "desc" },
+          { createdAt: "desc" },
+          { worksheetNumber: "desc" },
+        ],
+      });
+
+      // Find students with zero worksheets in this class — only they need
+      // the cross-class lookup to carry over numbering from a prior year.
+      const studentIdsWithHistory = new Set(historyData.map(h => h.studentId));
+      const newStudentIds = studentsWithoutWorksheets.filter(id => !studentIdsWithHistory.has(id));
+
+      let globalMaxMap = new Map<string, number>();
+      if (newStudentIds.length > 0) {
+        const globalMaxData = await prisma.worksheet.groupBy({
           by: ['studentId'],
           where: {
-            studentId: { in: studentsWithoutWorksheets },
+            studentId: { in: newStudentIds },
             status: ProcessingStatus.COMPLETED,
             isAbsent: false,
             grade: { not: null },
             worksheetNumber: { gt: 0 },
           },
           _max: { worksheetNumber: true },
-        }),
-      ]);
-
-      // Build a map of global max worksheet number per student
-      const globalMaxMap = new Map<string, number>();
-      for (const row of globalMaxData) {
-        if (row.studentId && row._max.worksheetNumber) {
-          globalMaxMap.set(row.studentId, row._max.worksheetNumber);
+        });
+        for (const row of globalMaxData) {
+          if (row.studentId && row._max.worksheetNumber) {
+            globalMaxMap.set(row.studentId, row._max.worksheetNumber);
+          }
         }
       }
 
@@ -1066,27 +1067,19 @@ export const getClassWorksheetsForDate = async (
             ),
           }));
 
-        const currentClassCompleted = [...new Set(
-          studentHistory
-            .map(h => h.effectiveWorksheetNumber)
-            .filter((n): n is number => n !== null && n > 0)
-        )];
-
         let recommendation = buildWorksheetRecommendationFromHistory(
           studentHistory,
           progressionThreshold,
-          currentClassCompleted,
         );
 
-        // If the student has a higher worksheet number from a previous class,
-        // use that for the recommendation instead of restarting from 1
+        // For students new to this class, carry over numbering from prior classes
         const globalMax = globalMaxMap.get(studentId);
         if (globalMax && recommendation.recommendedWorksheetNumber <= globalMax) {
           recommendation = {
             ...recommendation,
             lastWorksheetNumber: globalMax,
             recommendedWorksheetNumber: globalMax + 1,
-            isRecommendedRepeated: currentClassCompleted.includes(globalMax + 1),
+            isRecommendedRepeated: false,
           };
         }
 
@@ -1859,52 +1852,29 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
       dateFilter.lt = beforeDateObj;
     }
 
-    // Get student's worksheet history across ALL classes (not just current)
-    // so that worksheet numbering carries over across academic years.
-    const [worksheetHistory, currentClassHistory] = await Promise.all([
-      prisma.worksheet.findMany({
-        where: {
-          studentId,
-          status: ProcessingStatus.COMPLETED,
-          isAbsent: false,
-          grade: { not: null },
-          ...(beforeDate ? { submittedOn: dateFilter } : {}),
-        },
-        select: {
-          grade: true,
-          worksheetNumber: true,
-          submittedOn: true,
-          createdAt: true,
-          template: { select: { worksheetNumber: true } },
-        },
-        orderBy: [
-          { submittedOn: "desc" },
-          { createdAt: "desc" },
-          { worksheetNumber: "desc" },
-        ],
-      }),
-      // Separate query for current class only — used for isRecommendedRepeated
-      prisma.worksheet.findMany({
-        where: {
-          classId,
-          studentId,
-          status: ProcessingStatus.COMPLETED,
-          isAbsent: false,
-          grade: { not: null },
-          ...(beforeDate ? { submittedOn: dateFilter } : {}),
-        },
-        select: {
-          worksheetNumber: true,
-          template: { select: { worksheetNumber: true } },
-        },
-      }),
-    ]);
-
-    const currentClassCompletedNumbers = [...new Set(
-      currentClassHistory
-        .map(w => getEffectiveWorksheetNumber(w.worksheetNumber, w.template?.worksheetNumber ?? null))
-        .filter((n): n is number => n !== null && n > 0)
-    )];
+    // Get student's worksheet history in the current class
+    const worksheetHistory = await prisma.worksheet.findMany({
+      where: {
+        classId,
+        studentId,
+        status: ProcessingStatus.COMPLETED,
+        isAbsent: false,
+        grade: { not: null },
+        ...(beforeDate ? { submittedOn: dateFilter } : {}),
+      },
+      select: {
+        grade: true,
+        worksheetNumber: true,
+        submittedOn: true,
+        createdAt: true,
+        template: { select: { worksheetNumber: true } },
+      },
+      orderBy: [
+        { submittedOn: "desc" },
+        { createdAt: "desc" },
+        { worksheetNumber: "desc" },
+      ],
+    });
 
     const recommendation = buildWorksheetRecommendationFromHistory(
       worksheetHistory.map((worksheet) => ({
@@ -1917,11 +1887,33 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
         ),
       })),
       PROGRESSION_THRESHOLD,
-      currentClassCompletedNumbers,
     );
 
+    // If no history in current class, check for prior class history
+    // to carry over worksheet numbering across academic years
     if (recommendation.lastWorksheetNumber === null) {
-      // No previous worksheet, start from 1
+      const globalMax = await prisma.worksheet.aggregate({
+        where: {
+          studentId,
+          status: ProcessingStatus.COMPLETED,
+          isAbsent: false,
+          grade: { not: null },
+          worksheetNumber: { gt: 0 },
+        },
+        _max: { worksheetNumber: true },
+      });
+
+      const maxNum = globalMax._max.worksheetNumber;
+      if (maxNum && maxNum > 0) {
+        return res.status(200).json({
+          recommendedWorksheetNumber: maxNum + 1,
+          isRepeated: false,
+          lastWorksheetNumber: maxNum,
+          lastGrade: null,
+          progressionThreshold: PROGRESSION_THRESHOLD,
+        });
+      }
+
       return res.status(200).json({
         recommendedWorksheetNumber: 1,
         isRepeated: false,
