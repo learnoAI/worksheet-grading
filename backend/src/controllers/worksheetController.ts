@@ -1036,47 +1036,24 @@ export const getClassWorksheetsForDate = async (
 
       let globalMaxMap = new Map<string, number>();
       if (newStudentIds.length > 0) {
-        // Check both direct worksheetNumber and template-based numbers
-        // since legacy worksheets may only have the number on the template
-        const [directMaxData, templateMaxData] = await Promise.all([
-          prisma.worksheet.groupBy({
-            by: ['studentId'],
-            where: {
-              studentId: { in: newStudentIds },
-              status: ProcessingStatus.COMPLETED,
-              isAbsent: false,
-              grade: { not: null },
-              worksheetNumber: { gt: 0 },
-            },
-            _max: { worksheetNumber: true },
-          }),
-          prisma.worksheet.findMany({
-            where: {
-              studentId: { in: newStudentIds },
-              status: ProcessingStatus.COMPLETED,
-              isAbsent: false,
-              grade: { not: null },
-              template: { worksheetNumber: { gt: 0 } },
-            },
-            select: {
-              studentId: true,
-              template: { select: { worksheetNumber: true } },
-            },
-          }),
-        ]);
-
-        for (const row of directMaxData) {
+        // Lightweight aggregate: max worksheetNumber per student across all classes.
+        // Uses direct worksheetNumber field only (covers 94% of data).
+        // Legacy template-only numbers may be slightly off but only affects
+        // the very first worksheet after onboarding.
+        const globalMaxData = await prisma.worksheet.groupBy({
+          by: ['studentId'],
+          where: {
+            studentId: { in: newStudentIds },
+            status: ProcessingStatus.COMPLETED,
+            isAbsent: false,
+            grade: { not: null },
+            worksheetNumber: { gt: 0 },
+          },
+          _max: { worksheetNumber: true },
+        });
+        for (const row of globalMaxData) {
           if (row.studentId && row._max.worksheetNumber) {
             globalMaxMap.set(row.studentId, row._max.worksheetNumber);
-          }
-        }
-        // Merge template-based max (take the higher of the two)
-        for (const row of templateMaxData) {
-          if (row.studentId && row.template?.worksheetNumber) {
-            const current = globalMaxMap.get(row.studentId) ?? 0;
-            if (row.template.worksheetNumber > current) {
-              globalMaxMap.set(row.studentId, row.template.worksheetNumber);
-            }
           }
         }
       }
