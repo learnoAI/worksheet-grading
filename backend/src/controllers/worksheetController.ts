@@ -1004,11 +1004,13 @@ export const getClassWorksheetsForDate = async (
         process.env.PROGRESSION_THRESHOLD || "32",
       );
 
-      // Fetch worksheet history across ALL classes for progression numbering,
-      // and current class history separately for isRecommendedRepeated.
-      const [historyData, currentClassHistoryData] = await Promise.all([
+      // Use current-class history for recommendations (performant),
+      // plus a lightweight aggregate to get max worksheet number across all classes
+      // so numbering carries over across academic years.
+      const [historyData, globalMaxData] = await Promise.all([
         prisma.worksheet.findMany({
           where: {
+            classId: classId as string,
             studentId: { in: studentsWithoutWorksheets },
             submittedOn: { lt: endDateForHistory },
             status: ProcessingStatus.COMPLETED,
@@ -1029,22 +1031,27 @@ export const getClassWorksheetsForDate = async (
             { worksheetNumber: "desc" },
           ],
         }),
-        prisma.worksheet.findMany({
+        // Lightweight query: just get the max worksheet number per student across ALL classes
+        prisma.worksheet.groupBy({
+          by: ['studentId'],
           where: {
-            classId: classId as string,
             studentId: { in: studentsWithoutWorksheets },
-            submittedOn: { lt: endDateForHistory },
             status: ProcessingStatus.COMPLETED,
             isAbsent: false,
             grade: { not: null },
+            worksheetNumber: { gt: 0 },
           },
-          select: {
-            studentId: true,
-            worksheetNumber: true,
-            template: { select: { worksheetNumber: true } },
-          },
+          _max: { worksheetNumber: true },
         }),
       ]);
+
+      // Build a map of global max worksheet number per student
+      const globalMaxMap = new Map<string, number>();
+      for (const row of globalMaxData) {
+        if (row.studentId && row._max.worksheetNumber) {
+          globalMaxMap.set(row.studentId, row._max.worksheetNumber);
+        }
+      }
 
       for (const studentId of studentsWithoutWorksheets) {
         const studentHistory = historyData
@@ -1060,17 +1067,28 @@ export const getClassWorksheetsForDate = async (
           }));
 
         const currentClassCompleted = [...new Set(
-          currentClassHistoryData
-            .filter((h) => h.studentId === studentId)
-            .map(h => getEffectiveWorksheetNumber(h.worksheetNumber, h.template?.worksheetNumber ?? null))
+          studentHistory
+            .map(h => h.effectiveWorksheetNumber)
             .filter((n): n is number => n !== null && n > 0)
         )];
 
-        const recommendation = buildWorksheetRecommendationFromHistory(
+        let recommendation = buildWorksheetRecommendationFromHistory(
           studentHistory,
           progressionThreshold,
           currentClassCompleted,
         );
+
+        // If the student has a higher worksheet number from a previous class,
+        // use that for the recommendation instead of restarting from 1
+        const globalMax = globalMaxMap.get(studentId);
+        if (globalMax && recommendation.recommendedWorksheetNumber <= globalMax) {
+          recommendation = {
+            ...recommendation,
+            lastWorksheetNumber: globalMax,
+            recommendedWorksheetNumber: globalMax + 1,
+            isRecommendedRepeated: currentClassCompleted.includes(globalMax + 1),
+          };
+        }
 
         studentSummaries[studentId] = {
           lastWorksheetNumber: recommendation.lastWorksheetNumber,
