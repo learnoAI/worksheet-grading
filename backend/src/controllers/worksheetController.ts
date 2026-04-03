@@ -1035,6 +1035,51 @@ export const getClassWorksheetsForDate = async (
         ],
       });
 
+      // Find students with no history in this class — they may have
+      // history in a prior class (e.g., after academic year onboarding)
+      const studentIdsWithHistory = new Set(historyData.map(h => h.studentId));
+      const newStudentIds = studentsWithoutWorksheets.filter(id => !studentIdsWithHistory.has(id));
+
+      // For new-to-class students, fetch their most recent worksheet
+      // from ANY class to continue date-based progression
+      let priorClassHistory = new Map<string, { worksheetNumber: number; grade: number | null; submittedOn: Date | null; createdAt: Date }>();
+      if (newStudentIds.length > 0) {
+        for (const sid of newStudentIds) {
+          const latest = await prisma.worksheet.findFirst({
+            where: {
+              studentId: sid,
+              submittedOn: { lt: endDateForHistory },
+              status: ProcessingStatus.COMPLETED,
+              isAbsent: false,
+              grade: { not: null },
+            },
+            select: {
+              worksheetNumber: true,
+              grade: true,
+              submittedOn: true,
+              createdAt: true,
+              template: { select: { worksheetNumber: true } },
+            },
+            orderBy: [
+              { submittedOn: "desc" },
+              { createdAt: "desc" },
+              { worksheetNumber: "desc" },
+            ],
+          });
+          if (latest) {
+            const wsNum = getEffectiveWorksheetNumber(latest.worksheetNumber, latest.template?.worksheetNumber ?? null);
+            if (wsNum && wsNum > 0) {
+              priorClassHistory.set(sid, {
+                worksheetNumber: wsNum,
+                grade: latest.grade,
+                submittedOn: latest.submittedOn,
+                createdAt: latest.createdAt,
+              });
+            }
+          }
+        }
+      }
+
       for (const studentId of studentsWithoutWorksheets) {
         const studentHistory = historyData
           .filter((h) => h.studentId === studentId)
@@ -1048,8 +1093,16 @@ export const getClassWorksheetsForDate = async (
             ),
           }));
 
+        // If no history in current class, use prior class history
+        const prior = priorClassHistory.get(studentId);
+        const historyForRecommendation = studentHistory.length > 0
+          ? studentHistory
+          : prior
+            ? [{ grade: prior.grade, submittedOn: prior.submittedOn, createdAt: prior.createdAt, effectiveWorksheetNumber: prior.worksheetNumber }]
+            : [];
+
         const recommendation = buildWorksheetRecommendationFromHistory(
-          studentHistory,
+          historyForRecommendation,
           progressionThreshold,
         );
 
@@ -1865,7 +1918,51 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
     );
 
     if (recommendation.lastWorksheetNumber === null) {
-      // No previous worksheet, start from 1
+      // No history in current class — check for prior class history
+      // to continue date-based progression after academic year onboarding
+      const latestPrior = await prisma.worksheet.findFirst({
+        where: {
+          studentId,
+          status: ProcessingStatus.COMPLETED,
+          isAbsent: false,
+          grade: { not: null },
+          ...(beforeDate ? { submittedOn: dateFilter } : {}),
+        },
+        select: {
+          worksheetNumber: true,
+          grade: true,
+          submittedOn: true,
+          createdAt: true,
+          template: { select: { worksheetNumber: true } },
+        },
+        orderBy: [
+          { submittedOn: "desc" },
+          { createdAt: "desc" },
+          { worksheetNumber: "desc" },
+        ],
+      });
+
+      if (latestPrior) {
+        const priorWsNum = getEffectiveWorksheetNumber(
+          latestPrior.worksheetNumber,
+          latestPrior.template?.worksheetNumber ?? null,
+        );
+        if (priorWsNum && priorWsNum > 0) {
+          const priorRecommendation = buildWorksheetRecommendationFromHistory(
+            [{ grade: latestPrior.grade, submittedOn: latestPrior.submittedOn, createdAt: latestPrior.createdAt, effectiveWorksheetNumber: priorWsNum }],
+            PROGRESSION_THRESHOLD,
+          );
+          return res.status(200).json({
+            recommendedWorksheetNumber: priorRecommendation.recommendedWorksheetNumber,
+            isRepeated: false,
+            lastWorksheetNumber: priorRecommendation.lastWorksheetNumber,
+            lastGrade: priorRecommendation.lastGrade,
+            progressionThreshold: PROGRESSION_THRESHOLD,
+          });
+        }
+      }
+
+      // Truly no history anywhere — start from 1
       return res.status(200).json({
         recommendedWorksheetNumber: 1,
         isRepeated: false,
