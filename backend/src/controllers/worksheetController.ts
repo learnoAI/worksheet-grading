@@ -5,7 +5,7 @@ import { uploadToS3 } from "../services/s3Service";
 import { enqueueWorksheet } from "../services/queueService";
 import { GradingJobStatus, Prisma, ProcessingStatus } from "@prisma/client";
 import fetch from "node-fetch";
-import { buildWorksheetRecommendationFromHistory } from "../services/worksheetRecommendation";
+import { buildWorksheetRecommendationFromHistory, WorksheetHistoryEntry } from "../services/worksheetRecommendation";
 
 interface MulterFile extends Express.Multer.File {}
 
@@ -1040,16 +1040,37 @@ export const getClassWorksheetsForDate = async (
       const studentIdsWithHistory = new Set(historyData.map(h => h.studentId));
       const newStudentIds = studentsWithoutWorksheets.filter(id => !studentIdsWithHistory.has(id));
 
-      // For new-to-class students, fetch their most recent worksheet
-      // from ANY class to continue date-based progression
-      let priorClassHistory = new Map<string, { worksheetNumber: number; grade: number | null; submittedOn: Date | null; createdAt: Date }>();
+      // For new-to-class students, fetch their most recent day's worksheets
+      // from ANY class to continue date-based progression.
+      // We need the full day's data (not just one row) because multiple
+      // worksheets can share the same submittedOn date.
+      let priorClassHistoryMap = new Map<string, WorksheetHistoryEntry[]>();
       if (newStudentIds.length > 0) {
-        const results = await Promise.all(
+        // Step 1: find the latest submittedOn per student (parallel)
+        const latestDates = await Promise.all(
           newStudentIds.map(sid =>
             prisma.worksheet.findFirst({
               where: {
                 studentId: sid,
                 submittedOn: { lt: endDateForHistory },
+                status: ProcessingStatus.COMPLETED,
+                isAbsent: false,
+                grade: { not: null },
+              },
+              select: { studentId: true, submittedOn: true },
+              orderBy: { submittedOn: "desc" },
+            })
+          )
+        );
+
+        // Step 2: fetch all worksheets from that day per student (parallel)
+        const dayQueries = latestDates
+          .filter((r): r is NonNullable<typeof r> => r !== null && r.submittedOn !== null)
+          .map(r =>
+            prisma.worksheet.findMany({
+              where: {
+                studentId: r.studentId!,
+                submittedOn: r.submittedOn!,
                 status: ProcessingStatus.COMPLETED,
                 isAbsent: false,
                 grade: { not: null },
@@ -1062,25 +1083,21 @@ export const getClassWorksheetsForDate = async (
                 createdAt: true,
                 template: { select: { worksheetNumber: true } },
               },
-              orderBy: [
-                { submittedOn: "desc" },
-                { createdAt: "desc" },
-                { worksheetNumber: "desc" },
-              ],
             })
-          )
-        );
-        for (const latest of results) {
-          if (latest) {
-            const wsNum = getEffectiveWorksheetNumber(latest.worksheetNumber, latest.template?.worksheetNumber ?? null);
-            if (wsNum && wsNum > 0) {
-              priorClassHistory.set(latest.studentId!, {
-                worksheetNumber: wsNum,
-                grade: latest.grade,
-                submittedOn: latest.submittedOn,
-                createdAt: latest.createdAt,
-              });
-            }
+          );
+        const dayResults = await Promise.all(dayQueries);
+
+        for (const worksheets of dayResults) {
+          if (worksheets.length > 0) {
+            const sid = worksheets[0].studentId!;
+            priorClassHistoryMap.set(sid, worksheets.map(w => ({
+              grade: w.grade,
+              submittedOn: w.submittedOn,
+              createdAt: w.createdAt,
+              effectiveWorksheetNumber: getEffectiveWorksheetNumber(
+                w.worksheetNumber, w.template?.worksheetNumber ?? null,
+              ),
+            })));
           }
         }
       }
@@ -1098,13 +1115,11 @@ export const getClassWorksheetsForDate = async (
             ),
           }));
 
-        // If no history in current class, use prior class history
-        const prior = priorClassHistory.get(studentId);
+        // If no history in current class, use prior class's latest day history
+        const priorHistory = priorClassHistoryMap.get(studentId);
         const historyForRecommendation = studentHistory.length > 0
           ? studentHistory
-          : prior
-            ? [{ grade: prior.grade, submittedOn: prior.submittedOn, createdAt: prior.createdAt, effectiveWorksheetNumber: prior.worksheetNumber }]
-            : [];
+          : priorHistory ?? [];
 
         const recommendation = buildWorksheetRecommendationFromHistory(
           historyForRecommendation,
@@ -1924,7 +1939,8 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
 
     if (recommendation.lastWorksheetNumber === null) {
       // No history in current class — check for prior class history
-      // to continue date-based progression after academic year onboarding
+      // to continue date-based progression after academic year onboarding.
+      // Fetch the latest day's date, then all worksheets from that day.
       const latestPrior = await prisma.worksheet.findFirst({
         where: {
           studentId,
@@ -1933,28 +1949,38 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
           grade: { not: null },
           ...(beforeDate ? { submittedOn: dateFilter } : {}),
         },
-        select: {
-          worksheetNumber: true,
-          grade: true,
-          submittedOn: true,
-          createdAt: true,
-          template: { select: { worksheetNumber: true } },
-        },
-        orderBy: [
-          { submittedOn: "desc" },
-          { createdAt: "desc" },
-          { worksheetNumber: "desc" },
-        ],
+        select: { submittedOn: true },
+        orderBy: { submittedOn: "desc" },
       });
 
-      if (latestPrior) {
-        const priorWsNum = getEffectiveWorksheetNumber(
-          latestPrior.worksheetNumber,
-          latestPrior.template?.worksheetNumber ?? null,
-        );
-        if (priorWsNum && priorWsNum > 0) {
+      if (latestPrior?.submittedOn) {
+        const latestDayWorksheets = await prisma.worksheet.findMany({
+          where: {
+            studentId,
+            submittedOn: latestPrior.submittedOn,
+            status: ProcessingStatus.COMPLETED,
+            isAbsent: false,
+            grade: { not: null },
+          },
+          select: {
+            worksheetNumber: true,
+            grade: true,
+            submittedOn: true,
+            createdAt: true,
+            template: { select: { worksheetNumber: true } },
+          },
+        });
+
+        if (latestDayWorksheets.length > 0) {
           const priorRecommendation = buildWorksheetRecommendationFromHistory(
-            [{ grade: latestPrior.grade, submittedOn: latestPrior.submittedOn, createdAt: latestPrior.createdAt, effectiveWorksheetNumber: priorWsNum }],
+            latestDayWorksheets.map(w => ({
+              grade: w.grade,
+              submittedOn: w.submittedOn,
+              createdAt: w.createdAt,
+              effectiveWorksheetNumber: getEffectiveWorksheetNumber(
+                w.worksheetNumber, w.template?.worksheetNumber ?? null,
+              ),
+            })),
             PROGRESSION_THRESHOLD,
           );
           return res.status(200).json({
