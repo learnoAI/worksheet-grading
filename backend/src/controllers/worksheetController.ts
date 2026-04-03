@@ -1044,32 +1044,37 @@ export const getClassWorksheetsForDate = async (
       // from ANY class to continue date-based progression
       let priorClassHistory = new Map<string, { worksheetNumber: number; grade: number | null; submittedOn: Date | null; createdAt: Date }>();
       if (newStudentIds.length > 0) {
-        for (const sid of newStudentIds) {
-          const latest = await prisma.worksheet.findFirst({
-            where: {
-              studentId: sid,
-              submittedOn: { lt: endDateForHistory },
-              status: ProcessingStatus.COMPLETED,
-              isAbsent: false,
-              grade: { not: null },
-            },
-            select: {
-              worksheetNumber: true,
-              grade: true,
-              submittedOn: true,
-              createdAt: true,
-              template: { select: { worksheetNumber: true } },
-            },
-            orderBy: [
-              { submittedOn: "desc" },
-              { createdAt: "desc" },
-              { worksheetNumber: "desc" },
-            ],
-          });
+        const results = await Promise.all(
+          newStudentIds.map(sid =>
+            prisma.worksheet.findFirst({
+              where: {
+                studentId: sid,
+                submittedOn: { lt: endDateForHistory },
+                status: ProcessingStatus.COMPLETED,
+                isAbsent: false,
+                grade: { not: null },
+              },
+              select: {
+                studentId: true,
+                worksheetNumber: true,
+                grade: true,
+                submittedOn: true,
+                createdAt: true,
+                template: { select: { worksheetNumber: true } },
+              },
+              orderBy: [
+                { submittedOn: "desc" },
+                { createdAt: "desc" },
+                { worksheetNumber: "desc" },
+              ],
+            })
+          )
+        );
+        for (const latest of results) {
           if (latest) {
             const wsNum = getEffectiveWorksheetNumber(latest.worksheetNumber, latest.template?.worksheetNumber ?? null);
             if (wsNum && wsNum > 0) {
-              priorClassHistory.set(sid, {
+              priorClassHistory.set(latest.studentId!, {
                 worksheetNumber: wsNum,
                 grade: latest.grade,
                 submittedOn: latest.submittedOn,
