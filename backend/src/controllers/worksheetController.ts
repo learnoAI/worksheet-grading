@@ -1004,12 +1004,14 @@ export const getClassWorksheetsForDate = async (
         process.env.PROGRESSION_THRESHOLD || "32",
       );
 
-      // Fetch current-class history for recommendations
+      // Fetch only the minimal data needed for recommendations
       const historyData = await prisma.worksheet.findMany({
         where: {
           classId: classId as string,
           studentId: { in: studentsWithoutWorksheets },
-          submittedOn: { lt: endDateForHistory },
+          submittedOn: {
+            lt: endDateForHistory,
+          },
           status: ProcessingStatus.COMPLETED,
           isAbsent: false,
           grade: { not: null },
@@ -1020,7 +1022,11 @@ export const getClassWorksheetsForDate = async (
           submittedOn: true,
           createdAt: true,
           worksheetNumber: true,
-          template: { select: { worksheetNumber: true } },
+          template: {
+            select: {
+              worksheetNumber: true,
+            },
+          },
         },
         orderBy: [
           { submittedOn: "desc" },
@@ -1028,35 +1034,6 @@ export const getClassWorksheetsForDate = async (
           { worksheetNumber: "desc" },
         ],
       });
-
-      // Find students with zero worksheets in this class — only they need
-      // the cross-class lookup to carry over numbering from a prior year.
-      const studentIdsWithHistory = new Set(historyData.map(h => h.studentId));
-      const newStudentIds = studentsWithoutWorksheets.filter(id => !studentIdsWithHistory.has(id));
-
-      let globalMaxMap = new Map<string, number>();
-      if (newStudentIds.length > 0) {
-        // Lightweight aggregate: max worksheetNumber per student across all classes.
-        // Uses direct worksheetNumber field only (covers 94% of data).
-        // Legacy template-only numbers may be slightly off but only affects
-        // the very first worksheet after onboarding.
-        const globalMaxData = await prisma.worksheet.groupBy({
-          by: ['studentId'],
-          where: {
-            studentId: { in: newStudentIds },
-            status: ProcessingStatus.COMPLETED,
-            isAbsent: false,
-            grade: { not: null },
-            worksheetNumber: { gt: 0 },
-          },
-          _max: { worksheetNumber: true },
-        });
-        for (const row of globalMaxData) {
-          if (row.studentId && row._max.worksheetNumber) {
-            globalMaxMap.set(row.studentId, row._max.worksheetNumber);
-          }
-        }
-      }
 
       for (const studentId of studentsWithoutWorksheets) {
         const studentHistory = historyData
@@ -1071,21 +1048,10 @@ export const getClassWorksheetsForDate = async (
             ),
           }));
 
-        let recommendation = buildWorksheetRecommendationFromHistory(
+        const recommendation = buildWorksheetRecommendationFromHistory(
           studentHistory,
           progressionThreshold,
         );
-
-        // For students new to this class, carry over numbering from prior classes
-        const globalMax = globalMaxMap.get(studentId);
-        if (globalMax && recommendation.recommendedWorksheetNumber <= globalMax) {
-          recommendation = {
-            ...recommendation,
-            lastWorksheetNumber: globalMax,
-            recommendedWorksheetNumber: globalMax + 1,
-            isRecommendedRepeated: false,
-          };
-        }
 
         studentSummaries[studentId] = {
           lastWorksheetNumber: recommendation.lastWorksheetNumber,
@@ -1856,7 +1822,8 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
       dateFilter.lt = beforeDateObj;
     }
 
-    // Get student's worksheet history in the current class
+    // Get student's worksheet history and resolve worksheet number from direct field
+    // with a template fallback for legacy rows.
     const worksheetHistory = await prisma.worksheet.findMany({
       where: {
         classId,
@@ -1871,7 +1838,11 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
         worksheetNumber: true,
         submittedOn: true,
         createdAt: true,
-        template: { select: { worksheetNumber: true } },
+        template: {
+          select: {
+            worksheetNumber: true,
+          },
+        },
       },
       orderBy: [
         { submittedOn: "desc" },
@@ -1893,49 +1864,8 @@ export const getRecommendedWorksheet = async (req: Request, res: Response) => {
       PROGRESSION_THRESHOLD,
     );
 
-    // If no history in current class, check for prior class history
-    // to carry over worksheet numbering across academic years
     if (recommendation.lastWorksheetNumber === null) {
-      // Check both direct worksheetNumber and template-based numbers
-      const [directMax, templateMax] = await Promise.all([
-        prisma.worksheet.aggregate({
-          where: {
-            studentId,
-            status: ProcessingStatus.COMPLETED,
-            isAbsent: false,
-            grade: { not: null },
-            worksheetNumber: { gt: 0 },
-          },
-          _max: { worksheetNumber: true },
-        }),
-        prisma.worksheet.findFirst({
-          where: {
-            studentId,
-            status: ProcessingStatus.COMPLETED,
-            isAbsent: false,
-            grade: { not: null },
-            template: { worksheetNumber: { gt: 0 } },
-          },
-          select: { template: { select: { worksheetNumber: true } } },
-          orderBy: { template: { worksheetNumber: 'desc' } },
-        }),
-      ]);
-
-      const maxNum = Math.max(
-        directMax._max.worksheetNumber ?? 0,
-        templateMax?.template?.worksheetNumber ?? 0,
-      );
-
-      if (maxNum > 0) {
-        return res.status(200).json({
-          recommendedWorksheetNumber: maxNum + 1,
-          isRepeated: false,
-          lastWorksheetNumber: maxNum,
-          lastGrade: null,
-          progressionThreshold: PROGRESSION_THRESHOLD,
-        });
-      }
-
+      // No previous worksheet, start from 1
       return res.status(200).json({
         recommendedWorksheetNumber: 1,
         isRepeated: false,
