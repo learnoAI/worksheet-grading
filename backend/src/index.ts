@@ -13,6 +13,7 @@ import schoolRoutes from './routes/schoolRoutes';
 import gradingJobRoutes from './routes/gradingJobRoutes';
 import internalGradingWorkerRoutes from './routes/internalGradingWorkerRoutes';
 import config from './config/env';
+import { requestDiagnostics } from './middleware/requestDiagnostics';
 import { startGradingDispatchLoop } from './workers/gradingDispatchLoop';
 
 // Legacy Bull queue remains available and enabled by default for backward compatibility.
@@ -31,6 +32,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+app.use(requestDiagnostics);
 
 // Routes
 app.use('/api/auth', authRoutes);

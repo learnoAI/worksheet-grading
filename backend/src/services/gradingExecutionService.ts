@@ -217,7 +217,7 @@ export async function executeGradingJob(
         jobId,
         options.onHeartbeat
     );
-    const persisted = await persistWorksheetForGradingJob(job, pythonResponse);
+    const persisted = await persistWorksheetForGradingJob(job, pythonResponse, prisma, { jobId });
 
     captureGradingPipelineEvent('execution_persisted', jobId, {
         jobId,

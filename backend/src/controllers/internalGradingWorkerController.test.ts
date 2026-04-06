@@ -33,6 +33,15 @@ vi.mock('../services/errorLogService', () => ({
   logError: vi.fn(async () => {}),
 }));
 
+vi.mock('../services/logger', () => ({
+  aiGradingLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
 import { complete } from './internalGradingWorkerController';
 
 describe('internalGradingWorkerController.complete', () => {

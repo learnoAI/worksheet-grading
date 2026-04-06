@@ -1,7 +1,11 @@
 import { GradingJob, Prisma, ProcessingStatus } from '@prisma/client';
+import config from '../config/env';
 import prisma from '../utils/prisma';
 import { withRetry } from '../utils/retry';
+import { summarizeError, summarizeGradingJobContext, summarizeGradingResponse } from './gradingDiagnostics';
 import { GradingApiResponse } from './gradingTypes';
+import { aiGradingLogger } from './logger';
+import { captureGradingPipelineEvent } from './posthogService';
 
 export interface PersistWorksheetResult {
     worksheetId: string;
@@ -10,6 +14,10 @@ export interface PersistWorksheetResult {
 }
 
 type DbClient = Prisma.TransactionClient | typeof prisma;
+
+interface PersistWorksheetDiagnosticsOptions {
+    jobId?: string;
+}
 
 function normalizeSubmittedOnDate(submittedOn: Date | null): Date {
     const date = submittedOn ? new Date(submittedOn) : new Date();
@@ -57,10 +65,25 @@ export async function persistWorksheetForGradingJob(
         | 'isRepeated'
     >,
     gradingResponse: GradingApiResponse,
-    db: DbClient = prisma
+    db: DbClient = prisma,
+    diagnostics: PersistWorksheetDiagnosticsOptions = {}
 ): Promise<PersistWorksheetResult> {
+    const persistenceStartedAt = Date.now();
+    const distinctId = diagnostics.jobId || job.studentId;
+    const baseDiagnostics = {
+        jobId: diagnostics.jobId,
+        ...summarizeGradingJobContext(job),
+        gradingResponseSummary: summarizeGradingResponse(gradingResponse)
+    };
+
     if (!gradingResponse.success) {
-        throw new Error(gradingResponse.error || 'Grading response was not successful');
+        const error = new Error(gradingResponse.error || 'Grading response was not successful');
+        aiGradingLogger.warn('Worksheet persistence rejected unsuccessful grading response', baseDiagnostics);
+        captureGradingPipelineEvent('worksheet_persist_rejected_response', distinctId, {
+            ...baseDiagnostics,
+            persistenceDurationMs: Date.now() - persistenceStartedAt
+        });
+        throw error;
     }
 
     const template = await withRetry(() =>
@@ -85,6 +108,12 @@ export async function persistWorksheetForGradingJob(
     });
 
     const wasCreated = !existing;
+    const diagnosticsContext = {
+        ...baseDiagnostics,
+        submittedOnDate: submittedOnDate.toISOString(),
+        templateId: template?.id || null,
+        existingWorksheetId: existing?.id || null
+    };
 
     let worksheet;
     try {
@@ -129,6 +158,11 @@ export async function persistWorksheetForGradingJob(
         });
     } catch (error: any) {
         const message = error instanceof Error ? error.message : String(error);
+        const errorDiagnostics = {
+            ...diagnosticsContext,
+            persistenceDurationMs: Date.now() - persistenceStartedAt,
+            ...summarizeError(error)
+        };
 
         // If the DB is missing the unique index that Prisma uses for upsert ON CONFLICT,
         // fall back to a non-upsert path so grading can still complete.
@@ -137,6 +171,9 @@ export async function persistWorksheetForGradingJob(
             message.includes('code: \"42P10\"') ||
             message.includes('code: 42P10')
         ) {
+            aiGradingLogger.warn('Worksheet upsert fell back because the unique index is missing', errorDiagnostics);
+            captureGradingPipelineEvent('worksheet_persist_fallback_missing_unique_index', distinctId, errorDiagnostics);
+
             if (existing) {
                 worksheet = await db.worksheet.update({
                     where: { id: existing.id },
@@ -204,8 +241,26 @@ export async function persistWorksheetForGradingJob(
                 }
             });
         } else {
+            aiGradingLogger.error(
+                'Worksheet persistence failed',
+                errorDiagnostics,
+                error instanceof Error ? error : new Error(String(error))
+            );
+            captureGradingPipelineEvent('worksheet_persist_failed', distinctId, errorDiagnostics);
             throw error;
         }
+    }
+
+    const persistenceDurationMs = Date.now() - persistenceStartedAt;
+    if (persistenceDurationMs >= config.diagnostics.gradingPersistenceSlowMs) {
+        const slowDiagnostics = {
+            ...diagnosticsContext,
+            persistenceDurationMs,
+            worksheetId: worksheet.id,
+            action: wasCreated ? 'CREATED' : 'UPDATED'
+        };
+        aiGradingLogger.warn('Worksheet persistence slow', slowDiagnostics);
+        captureGradingPipelineEvent('worksheet_persist_slow', distinctId, slowDiagnostics);
     }
 
     return {
@@ -236,5 +291,5 @@ export async function persistWorksheetForGradingJobId(
         throw new Error(`Grading job not found: ${jobId}`);
     }
 
-    return persistWorksheetForGradingJob(job, gradingResponse, db);
+    return persistWorksheetForGradingJob(job, gradingResponse, db, { jobId });
 }

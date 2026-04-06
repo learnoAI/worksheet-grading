@@ -15,9 +15,26 @@ const mockPrisma = vi.hoisted(() => ({
   },
 }));
 
+const loggerMocks = vi.hoisted(() => ({
+  aiGradingLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+const posthogMocks = vi.hoisted(() => ({
+  captureGradingPipelineEvent: vi.fn(),
+}));
+
 vi.mock('../utils/prisma', () => ({
   default: mockPrisma,
 }));
+
+vi.mock('./logger', () => loggerMocks);
+
+vi.mock('./posthogService', () => posthogMocks);
 
 import { ProcessingStatus } from '@prisma/client';
 import { persistWorksheetForGradingJob } from './gradingWorksheetPersistenceService';
@@ -187,5 +204,95 @@ describe('gradingWorksheetPersistenceService', () => {
     expect(second.worksheetId).toBe('ws-dup');
     expect(first.action).toBe('CREATED');
     expect(second.action).toBe('UPDATED');
+  });
+
+  it('logs diagnostics when persistence rejects an unsuccessful grading response', async () => {
+    await expect(
+      persistWorksheetForGradingJob(
+        {
+          studentId: 'student-1',
+          classId: 'class-1',
+          teacherId: 'teacher-1',
+          worksheetNumber: 15,
+          submittedOn: new Date('2026-02-14T12:34:56.789Z'),
+          isRepeated: false,
+        },
+        {
+          success: false,
+          error: 'worksheetId did not match expected type',
+        },
+        mockPrisma as any,
+        { jobId: 'job-99' }
+      )
+    ).rejects.toThrow('worksheetId did not match expected type');
+
+    expect(loggerMocks.aiGradingLogger.warn).toHaveBeenCalledWith(
+      'Worksheet persistence rejected unsuccessful grading response',
+      expect.objectContaining({
+        jobId: 'job-99',
+        gradingResponseSummary: expect.objectContaining({
+          errorPreview: 'worksheetId did not match expected type',
+        }),
+      })
+    );
+    expect(posthogMocks.captureGradingPipelineEvent).toHaveBeenCalledWith(
+      'worksheet_persist_rejected_response',
+      'job-99',
+      expect.objectContaining({
+        jobId: 'job-99',
+      })
+    );
+  });
+
+  it('logs diagnostics when persistence fails with a non-retryable database error', async () => {
+    mockPrisma.worksheet.findFirst.mockResolvedValue(null);
+    mockPrisma.worksheet.upsert.mockRejectedValue(new Error('Invalid argument type for worksheetId'));
+
+    await expect(
+      persistWorksheetForGradingJob(
+        {
+          studentId: 'student-1',
+          classId: 'class-1',
+          teacherId: 'teacher-1',
+          worksheetNumber: 15,
+          submittedOn: new Date('2026-02-14T12:34:56.789Z'),
+          isRepeated: false,
+        },
+        {
+          success: true,
+          grade: 37,
+          total_possible: 40,
+          total_questions: 10,
+          correct_answers: 7,
+          wrong_answers: 2,
+          unanswered: 1,
+          grade_percentage: 92.5,
+          question_scores: [],
+          wrong_questions: [{ question_number: 5 }, { question_number: 2 }],
+          unanswered_questions: [{ question_number: 3 }],
+          overall_feedback: 'ok',
+        },
+        mockPrisma as any,
+        { jobId: 'job-123' }
+      )
+    ).rejects.toThrow('Invalid argument type for worksheetId');
+
+    expect(loggerMocks.aiGradingLogger.error).toHaveBeenCalledWith(
+      'Worksheet persistence failed',
+      expect.objectContaining({
+        jobId: 'job-123',
+        errorCode: undefined,
+        errorMessage: 'Invalid argument type for worksheetId',
+      }),
+      expect.any(Error)
+    );
+    expect(posthogMocks.captureGradingPipelineEvent).toHaveBeenCalledWith(
+      'worksheet_persist_failed',
+      'job-123',
+      expect.objectContaining({
+        jobId: 'job-123',
+        errorMessage: 'Invalid argument type for worksheetId',
+      })
+    );
   });
 });

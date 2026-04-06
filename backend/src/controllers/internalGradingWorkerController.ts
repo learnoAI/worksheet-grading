@@ -6,9 +6,11 @@ import {
     requeueGradingJobForRetry,
     touchGradingJobHeartbeat
 } from '../services/gradingJobLifecycleService';
+import { summarizeError, summarizeGradingResponse, summarizeRequestBodyShape } from '../services/gradingDiagnostics';
 import { persistWorksheetForGradingJobId } from '../services/gradingWorksheetPersistenceService';
 import { GradingApiResponse } from '../services/gradingTypes';
 import { logError } from '../services/errorLogService';
+import { aiGradingLogger } from '../services/logger';
 import { captureGradingPipelineEvent } from '../services/posthogService';
 import { GradingJobStatus } from '@prisma/client';
 
@@ -174,6 +176,17 @@ export async function complete(req: Request, res: Response): Promise<Response> {
     }
 
     if (!gradingResponse) {
+        const requestBodySummary = summarizeRequestBodyShape(req.body);
+        aiGradingLogger.warn('Invalid grading worker completion payload', {
+            jobId,
+            leaseIdProvided: Boolean(leaseId),
+            requestBodySummary
+        });
+        captureGradingPipelineEvent('worker_complete_invalid_payload', jobId, {
+            jobId,
+            leaseIdProvided: Boolean(leaseId),
+            requestBodySummary
+        });
         return res.status(400).json({ success: false, error: 'Invalid grading response payload' });
     }
 
@@ -256,6 +269,8 @@ export async function complete(req: Request, res: Response): Promise<Response> {
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown completion error';
         const code = (error as any)?.code;
+        const errorSummary = summarizeError(error);
+        const gradingResponseSummary = summarizeGradingResponse(gradingResponse);
 
         if (code === 'LEASE_MISMATCH') {
             captureGradingPipelineEvent('worker_complete_lease_mismatch', jobId, {
@@ -266,15 +281,31 @@ export async function complete(req: Request, res: Response): Promise<Response> {
         }
 
         await logError('internal-grading-worker-complete', error instanceof Error ? error : new Error(message), {
-            jobId
+            jobId,
+            leaseId,
+            errorSummary,
+            gradingResponseSummary
         }).catch(() => {
             // best effort
         });
 
+        aiGradingLogger.error(
+            'Grading worker completion failed',
+            {
+                jobId,
+                leaseId,
+                errorSummary,
+                gradingResponseSummary
+            },
+            error instanceof Error ? error : new Error(message)
+        );
+
         captureGradingPipelineEvent('worker_complete_failed', jobId, {
             jobId,
             leaseId,
-            error: message
+            error: message,
+            errorSummary,
+            gradingResponseSummary
         });
 
         // Important: do NOT mark the job FAILED here.

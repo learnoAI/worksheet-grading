@@ -74,6 +74,11 @@ export default {
         apiKey: process.env.POSTHOG_API_KEY || process.env.NEXT_PUBLIC_POSTHOG_KEY || '',
         host: process.env.POSTHOG_HOST || process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
     },
+    diagnostics: {
+        enabled: parseBoolean(process.env.REQUEST_DIAGNOSTICS_ENABLED, true),
+        slowRequestMs: parseNumber(process.env.REQUEST_DIAGNOSTICS_SLOW_MS, 1500),
+        gradingPersistenceSlowMs: parseNumber(process.env.GRADING_PERSISTENCE_SLOW_MS, 750)
+    },
     gradingWorkerToken: process.env.GRADING_WORKER_TOKEN || '',
     grading: {
         queueMode: gradingQueueMode,
