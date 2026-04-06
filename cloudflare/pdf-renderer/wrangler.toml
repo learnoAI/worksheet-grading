@@ -1,6 +1,7 @@
 name = "pdf-renderer"
 main = "src/index.ts"
 compatibility_date = "2026-02-14"
+compatibility_flags = ["nodejs_compat"]
 
 # Secrets (set via `wrangler secret put`):
 # - WORKSHEET_CREATION_WORKER_TOKEN
@@ -19,3 +20,8 @@ max_batch_timeout = 10
 max_concurrency = 100
 max_retries = 3
 dead_letter_queue = "pdf-rendering-dlq"
+
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true

@@ -14,3 +14,8 @@ max_batch_timeout = 5
 max_concurrency = 50
 max_retries = 5
 dead_letter_queue = "question-generation-dlq"
+
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true
