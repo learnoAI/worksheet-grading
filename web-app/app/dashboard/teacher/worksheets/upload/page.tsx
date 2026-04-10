@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { classAPI, worksheetAPI, worksheetProcessingAPI } from '@/lib/api';
-import { gradingJobsAPI } from '@/lib/api/gradingJobs';
+import { gradingJobsAPI, type GradingJob } from '@/lib/api/gradingJobs';
 import { GradingJobsStatus } from '@/components/GradingJobsStatus';
 import { StudentWorksheetCard } from './student-worksheet-card';
 import { usePostHog } from 'posthog-js/react';
@@ -120,6 +120,16 @@ interface DirectUploadPreparationTask {
     worksheetKey: string;
     pageNumber: number;
     file: File;
+}
+
+interface GradingJobPollingTarget {
+    jobId: string;
+    studentId?: string | null;
+    studentName?: string | null;
+    worksheetNumber: number;
+    worksheetEntryId?: string;
+    showSuccessToast?: boolean;
+    showFailureToast?: boolean;
 }
 
 interface LoadedImageElement {
@@ -661,6 +671,149 @@ export default function UploadWorksheetPage() {
         );
     }, [groupedStudentWorksheets, searchTerm]);
 
+    const updatePollingTarget = (
+        target: GradingJobPollingTarget,
+        updater: (worksheet: StudentWorksheet) => StudentWorksheet
+    ) => {
+        const targetKey = target.studentId
+            ? `${target.studentId}:${target.worksheetNumber}`
+            : null;
+
+        setStudentWorksheets(prev => prev.map(sw => {
+            const matchesTarget =
+                sw.jobId === target.jobId ||
+                (!!target.worksheetEntryId && sw.worksheetEntryId === target.worksheetEntryId) ||
+                (!!targetKey && getWorksheetUploadKey(sw) === targetKey);
+
+            return matchesTarget ? updater(sw) : sw;
+        }));
+    };
+
+    const fetchCompletedWorksheetForJob = async (
+        completedJob: GradingJob,
+        target: GradingJobPollingTarget
+    ): Promise<any | null> => {
+        if (completedJob.worksheetId) {
+            return worksheetAPI.getWorksheetById(completedJob.worksheetId);
+        }
+
+        const studentId = completedJob.studentId || target.studentId;
+        const worksheetNumber = completedJob.worksheetNumber || target.worksheetNumber;
+        if (!studentId || !worksheetNumber) {
+            return null;
+        }
+
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const all = await worksheetAPI.getAllWorksheetsByClassStudentDate(selectedClass, studentId, submittedOn);
+            const gradedWs =
+                all.find((ws: any) => {
+                    const num = ws.worksheetNumber ?? ws.template?.worksheetNumber ?? 0;
+                    return num === worksheetNumber;
+                }) || null;
+
+            if (gradedWs) {
+                return gradedWs;
+            }
+
+            await sleep(1000);
+        }
+
+        return null;
+    };
+
+    const pollGradingJobToCompletion = async (target: GradingJobPollingTarget) => {
+        try {
+            const completedJob = await gradingJobsAPI.pollJobStatus(
+                target.jobId,
+                (job) => {
+                    updatePollingTarget(target, (worksheet) => ({
+                        ...worksheet,
+                        jobId: target.jobId,
+                        jobStatus: job.status,
+                        isUploading: job.status === 'QUEUED' || job.status === 'PROCESSING'
+                    }));
+                }
+            );
+
+            if (completedJob.status === 'COMPLETED') {
+                const gradedWs = await fetchCompletedWorksheetForJob(completedJob, target);
+
+                if (!gradedWs) {
+                    updatePollingTarget(target, (worksheet) => ({
+                        ...worksheet,
+                        isUploading: false,
+                        jobStatus: 'COMPLETED'
+                    }));
+                    return { success: true, pending: true };
+                }
+
+                const grade = gradedWs.grade ?? 0;
+                const gradingDetails = gradedWs.gradingDetails as GradingDetails;
+                const wrongQuestionNumbers = gradedWs.wrongQuestionNumbers || '';
+                const images = gradedWs.images || [];
+                const page1 = images.find((img: any) => img.pageNumber === 1);
+                const page2 = images.find((img: any) => img.pageNumber === 2);
+
+                updatePollingTarget(target, (worksheet) => ({
+                    ...worksheet,
+                    grade: grade.toString(),
+                    isUploading: false,
+                    jobStatus: 'COMPLETED',
+                    gradingDetails,
+                    wrongQuestionNumbers,
+                    page1Url: page1?.imageUrl ?? worksheet.page1Url,
+                    page2Url: page2?.imageUrl ?? worksheet.page2Url,
+                    page1File: null,
+                    page2File: null,
+                    existing: true,
+                    id: gradedWs.id || completedJob.worksheetId || worksheet.id
+                }));
+
+                if (target.showSuccessToast) {
+                    toast.success(`Worksheet for ${target.studentName || 'student'} graded! Score: ${grade}`);
+                }
+
+                return { success: true };
+            }
+
+            if (completedJob.status === 'FAILED') {
+                throw new Error(completedJob.errorMessage || 'Grading failed');
+            }
+
+            return { success: true };
+        } catch (pollError) {
+            console.error('Polling error:', pollError);
+            const message = pollError instanceof Error ? pollError.message : 'Grading status tracking interrupted';
+            const likelyConnectivityError = isLikelyConnectivityError(pollError);
+
+            if (likelyConnectivityError) {
+                updatePollingTarget(target, (worksheet) => ({
+                    ...worksheet,
+                    isUploading: true,
+                    jobStatus: worksheet.jobStatus || 'QUEUED'
+                }));
+
+                if (target.showFailureToast) {
+                    toast.info(`Connection interrupted for ${target.studentName || 'student'}. Grading continues in background.`);
+                }
+
+                return { success: true, pending: true };
+            }
+
+            updatePollingTarget(target, (worksheet) => ({
+                ...worksheet,
+                isUploading: false,
+                jobStatus: 'FAILED'
+            }));
+
+            if (target.showFailureToast) {
+                toast.error(`Could not track grading for ${target.studentName || 'student'}: ${message}`);
+            }
+
+            return { success: false };
+        }
+    };
+
 
     useEffect(() => {
         const fetchInitialData = async () => {
@@ -855,72 +1008,11 @@ export default function UploadWorksheetPage() {
 
                         // Start polling for active jobs
                         activeJobs.forEach(job => {
-                            gradingJobsAPI.pollJobStatus(
-                                job.id,
-                                (updatedJob) => {
-                                    setStudentWorksheets(prev => prev.map(sw => {
-                                        if (sw.jobId === job.id) {
-                                            return {
-                                                ...sw,
-                                                jobStatus: updatedJob.status,
-                                                isUploading: updatedJob.status === 'QUEUED' || updatedJob.status === 'PROCESSING'
-                                            };
-                                        }
-                                        return sw;
-                                    }));
-
-                                    // If completed, fetch the graded worksheet data (grade + wrong answers).
-                                    if (updatedJob.status === 'COMPLETED') {
-                                        (async () => {
-                                            let gradedWs: any | null = null;
-
-                                            if (updatedJob.worksheetId) {
-                                                gradedWs = await worksheetAPI.getWorksheetById(updatedJob.worksheetId);
-                                            } else if (job.studentId) {
-                                                // Fallback: job completed but worksheetId wasn't persisted on the job yet.
-                                                const all = await worksheetAPI.getAllWorksheetsByClassStudentDate(selectedClass, job.studentId, submittedOn);
-                                                gradedWs =
-                                                    all.find((ws: any) => {
-                                                        const num = ws.worksheetNumber ?? ws.template?.worksheetNumber ?? 0;
-                                                        return num === job.worksheetNumber;
-                                                    }) || null;
-                                            }
-
-                                            if (!gradedWs) {
-                                                return;
-                                            }
-
-                                            const images = gradedWs.images || [];
-                                            const page1 = images.find((img: any) => img.pageNumber === 1);
-                                            const page2 = images.find((img: any) => img.pageNumber === 2);
-
-                                            setStudentWorksheets(prev =>
-                                                prev.map(sw => {
-                                                    if (sw.jobId === job.id) {
-                                                        return {
-                                                            ...sw,
-                                                            grade: gradedWs.grade?.toString() || '',
-                                                            id: gradedWs.id || sw.id,
-                                                            existing: true,
-                                                            isUploading: false,
-                                                            gradingDetails: gradedWs.gradingDetails,
-                                                            wrongQuestionNumbers: gradedWs.wrongQuestionNumbers || sw.wrongQuestionNumbers,
-                                                            page1Url: page1?.imageUrl ?? sw.page1Url,
-                                                            page2Url: page2?.imageUrl ?? sw.page2Url
-                                                        };
-                                                    }
-                                                    return sw;
-                                                })
-                                            );
-                                        })().catch(() => { });
-                                    }
-                                }
-                            ).catch((pollError) => {
-                                console.warn('Background job polling interrupted', {
-                                    jobId: job.id,
-                                    error: pollError instanceof Error ? pollError.message : String(pollError)
-                                });
-                                // Keep current row state untouched; refresh-on-resume and periodic page reload can resync.
+                            void pollGradingJobToCompletion({
+                                jobId: job.id,
+                                studentId: job.studentId,
+                                studentName: job.studentName,
+                                worksheetNumber: job.worksheetNumber
                             });
                         });
                     }
@@ -1205,104 +1297,15 @@ export default function UploadWorksheetPage() {
                         : sw
                 ));
 
-                // Start polling for job completion
-                try {
-                    const completedJob = await gradingJobsAPI.pollJobStatus(
-                        result.jobId,
-                        (job) => {
-                            // Update status as it changes
-                            setStudentWorksheets(prev => prev.map(sw =>
-                                sw.worksheetEntryId === worksheet.worksheetEntryId
-                                    ? { ...sw, jobStatus: job.status }
-                                    : sw
-                            ));
-                        }
-                    );
-
-                    if (completedJob.status === 'COMPLETED') {
-                        // Fetch the actual worksheet data to get grade.
-                        // (Sometimes the job is marked COMPLETED before worksheetId is attached; handle that too.)
-                        let wsData: any | null = null;
-
-                        if (completedJob.worksheetId) {
-                            wsData = await worksheetAPI.getWorksheetById(completedJob.worksheetId);
-                        } else {
-                            for (let attempt = 0; attempt < 3 && !wsData; attempt++) {
-                                const all = await worksheetAPI.getAllWorksheetsByClassStudentDate(selectedClass, worksheet.studentId, submittedOn);
-                                wsData =
-                                    all.find((ws: any) => {
-                                        const num = ws.worksheetNumber ?? ws.template?.worksheetNumber ?? 0;
-                                        return num === worksheet.worksheetNumber;
-                                    }) || null;
-
-                                if (!wsData) {
-                                    await new Promise((resolve) => setTimeout(resolve, 1000));
-                                }
-                            }
-                        }
-
-                        if (!wsData) {
-                            throw new Error('Grading completed but worksheet could not be fetched yet');
-                        }
-
-                        const grade = wsData.grade || 0;
-                        const gradingDetails = wsData.gradingDetails as GradingDetails;
-                        // Use wrongQuestionNumbers from API (already calculated by backend)
-                        const wrongQuestionNumbers = wsData.wrongQuestionNumbers || '';
-                        const images = wsData.images || [];
-                        const page1 = images.find((img: any) => img.pageNumber === 1);
-                        const page2 = images.find((img: any) => img.pageNumber === 2);
-
-                        setStudentWorksheets(prev => prev.map(sw =>
-                            sw.worksheetEntryId === worksheet.worksheetEntryId
-                                ? {
-                                    ...sw,
-                                    grade: grade.toString(),
-                                    isUploading: false,
-                                    jobStatus: 'COMPLETED',
-                                    gradingDetails,
-                                    wrongQuestionNumbers,
-                                    page1Url: page1?.imageUrl ?? sw.page1Url,
-                                    page2Url: page2?.imageUrl ?? sw.page2Url,
-                                    page1File: null,
-                                    page2File: null,
-                                    existing: true,
-                                    id: wsData.id || completedJob.worksheetId
-                                }
-                                : sw
-                        ));
-
-                        toast.success(`Worksheet for ${worksheet.name} graded! Score: ${grade}`);
-                    } else if (completedJob.status === 'FAILED') {
-                        throw new Error(completedJob.errorMessage || 'Grading failed');
-                    }
-                } catch (pollError) {
-                    console.error('Polling error:', pollError);
-                    const message = pollError instanceof Error ? pollError.message : 'Grading status tracking interrupted';
-                    const likelyConnectivityError = isLikelyConnectivityError(pollError);
-
-                    if (likelyConnectivityError) {
-                        // Do not mark the job FAILED on client polling/network issues.
-                        // Job continues on backend/queue and will resync on next refresh/focus.
-                        setStudentWorksheets(prev => prev.map(sw =>
-                            sw.worksheetEntryId === worksheet.worksheetEntryId
-                                ? { ...sw, isUploading: true, jobStatus: sw.jobStatus || 'QUEUED' }
-                                : sw
-                        ));
-                        toast.info(`Connection interrupted for ${worksheet.name}. Grading continues in background.`);
-                        return { success: true, pending: true };
-                    }
-
-                    setStudentWorksheets(prev => prev.map(sw =>
-                        sw.worksheetEntryId === worksheet.worksheetEntryId
-                            ? { ...sw, isUploading: false }
-                            : sw
-                    ));
-                    toast.error(`Could not track grading for ${worksheet.name}: ${message}`);
-                    return { success: false };
-                }
-
-                return { success: true };
+                return pollGradingJobToCompletion({
+                    jobId: result.jobId,
+                    studentId: worksheet.studentId,
+                    studentName: worksheet.name,
+                    worksheetNumber: worksheet.worksheetNumber,
+                    worksheetEntryId: worksheet.worksheetEntryId,
+                    showSuccessToast: true,
+                    showFailureToast: true
+                });
             }
 
             // Fallback for immediate response (shouldn't happen with new backend)
@@ -1544,6 +1547,16 @@ export default function UploadWorksheetPage() {
 
                 return sw;
             }));
+
+            finalized.queued
+                .filter((item) => item.jobId)
+                .forEach((item) => {
+                    void pollGradingJobToCompletion({
+                        jobId: item.jobId as string,
+                        studentId: item.studentId,
+                        worksheetNumber: item.worksheetNumber
+                    });
+                });
 
             if (finalized.status === 'FINALIZED') {
                 window.localStorage.removeItem(getUploadSessionStorageKey(selectedClass, submittedOn));
