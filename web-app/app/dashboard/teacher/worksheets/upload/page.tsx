@@ -77,7 +77,121 @@ interface StudentWorksheet {
     isNew?: boolean;
 }
 
-const DIRECT_UPLOAD_CONCURRENCY = 3;
+const DIRECT_UPLOAD_DEFAULT_CONCURRENCY = 4;
+const DIRECT_UPLOAD_MIN_CONCURRENCY = 2;
+const DIRECT_UPLOAD_MAX_ATTEMPTS = 3;
+
+type BrowserNetworkInformation = {
+    effectiveType?: string;
+    saveData?: boolean;
+};
+
+function getBrowserConnection(): BrowserNetworkInformation | undefined {
+    if (typeof navigator === 'undefined') {
+        return undefined;
+    }
+
+    const navigatorWithConnection = navigator as Navigator & {
+        connection?: BrowserNetworkInformation;
+        mozConnection?: BrowserNetworkInformation;
+        webkitConnection?: BrowserNetworkInformation;
+        deviceMemory?: number;
+    };
+
+    return navigatorWithConnection.connection
+        || navigatorWithConnection.mozConnection
+        || navigatorWithConnection.webkitConnection;
+}
+
+function getDirectUploadConcurrency(): number {
+    if (typeof navigator === 'undefined') {
+        return 3;
+    }
+
+    const connection = getBrowserConnection();
+    if (connection?.saveData) {
+        return DIRECT_UPLOAD_MIN_CONCURRENCY;
+    }
+
+    if (connection?.effectiveType === 'slow-2g' || connection?.effectiveType === '2g') {
+        return DIRECT_UPLOAD_MIN_CONCURRENCY;
+    }
+
+    if (connection?.effectiveType === '3g') {
+        return 3;
+    }
+
+    const navigatorWithDeviceMemory = navigator as Navigator & { deviceMemory?: number };
+    if (navigatorWithDeviceMemory.deviceMemory && navigatorWithDeviceMemory.deviceMemory <= 2) {
+        return 3;
+    }
+
+    if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) {
+        return 3;
+    }
+
+    return DIRECT_UPLOAD_DEFAULT_CONCURRENCY;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function shouldRetryUploadStatus(status: number): boolean {
+    return status === 408 || status === 429 || status >= 500;
+}
+
+function getUploadRetryDelayMs(attempt: number): number {
+    return 750 * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 250);
+}
+
+async function uploadFileWithRetry(
+    uploadUrl: string,
+    file: File,
+    contentType: string,
+    pageNumber: number
+): Promise<void> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= DIRECT_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+        let response: Response;
+
+        try {
+            response = await fetch(uploadUrl, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': contentType
+                },
+                body: file
+            });
+        } catch (error) {
+            lastError = error;
+
+            if (attempt < DIRECT_UPLOAD_MAX_ATTEMPTS) {
+                await sleep(getUploadRetryDelayMs(attempt));
+            }
+
+            continue;
+        }
+
+        if (response.ok) {
+            return;
+        }
+
+        lastError = new Error(`Storage upload failed for page ${pageNumber} (${response.status})`);
+        if (!shouldRetryUploadStatus(response.status)) {
+            throw lastError;
+        }
+
+        if (attempt < DIRECT_UPLOAD_MAX_ATTEMPTS) {
+            await sleep(getUploadRetryDelayMs(attempt));
+        }
+    }
+
+    throw lastError instanceof Error
+        ? lastError
+        : new Error(`Storage upload failed for page ${pageNumber}`);
+}
 
 async function runWithConcurrency<T, R>(
     items: T[],
@@ -1002,9 +1116,10 @@ export default function UploadWorksheetPage() {
                 }))
             );
 
+            const uploadConcurrency = getDirectUploadConcurrency();
             const uploadResults = await runWithConcurrency(
                 uploadTasks,
-                DIRECT_UPLOAD_CONCURRENCY,
+                uploadConcurrency,
                 async ({ slot, file }) => {
                     if (!file) {
                         throw new Error(`Missing local file for page ${slot.pageNumber}`);
@@ -1014,17 +1129,12 @@ export default function UploadWorksheetPage() {
                         throw new Error(`Missing upload URL for page ${slot.pageNumber}`);
                     }
 
-                    const response = await fetch(slot.uploadUrl, {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': file.type || slot.mimeType || 'image/jpeg'
-                        },
-                        body: file
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`Storage upload failed (${response.status})`);
-                    }
+                    await uploadFileWithRetry(
+                        slot.uploadUrl,
+                        file,
+                        file.type || slot.mimeType || 'image/jpeg',
+                        slot.pageNumber
+                    );
 
                     return slot.imageId;
                 }
@@ -1096,7 +1206,8 @@ export default function UploadWorksheetPage() {
                 queuedCount: finalized.queued.length,
                 pendingCount: finalized.pending.length,
                 failedCount: finalized.failed.length,
-                uploadFailures
+                uploadFailures,
+                uploadConcurrency
             });
         } catch (error) {
             console.error('Direct batch upload failed:', error);
