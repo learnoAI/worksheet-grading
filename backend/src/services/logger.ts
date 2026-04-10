@@ -13,13 +13,15 @@ interface LogEntry {
 }
 
 let collection: Collection<LogEntry> | null = null;
-let connectionAttempted = false;
+let lastConnectionAttemptAt = 0;
+
+const CONNECTION_RETRY_MS = 60_000;
 
 async function getCollection(): Promise<Collection<LogEntry> | null> {
     if (collection) return collection;
-    if (connectionAttempted) return null;
+    if (Date.now() - lastConnectionAttemptAt < CONNECTION_RETRY_MS) return null;
 
-    connectionAttempted = true;
+    lastConnectionAttemptAt = Date.now();
     const mongoUrl = process.env.MONGO_URL;
     if (!mongoUrl) return null;
 

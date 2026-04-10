@@ -1,7 +1,14 @@
 import { Request, Response } from 'express';
-import { GradingJobStatus } from '@prisma/client';
+import { randomUUID } from 'crypto';
+import {
+    GradingJobStatus,
+    StorageProvider,
+    UserRole,
+    WorksheetUploadBatchStatus,
+    WorksheetUploadItemStatus
+} from '@prisma/client';
 import prisma from '../utils/prisma';
-import { uploadToS3 } from '../services/s3Service';
+import { getPresignedUrl, getPublicObjectUrl, uploadToS3 } from '../services/s3Service';
 import config from '../config/env';
 import { aiGradingLogger } from '../services/logger';
 import { logError } from '../services/errorLogService';
@@ -15,6 +22,32 @@ import { runGradingJob } from '../services/gradingJobRunner';
 interface MulterFile extends Express.Multer.File {}
 
 type DispatchState = 'DISPATCHED' | 'PENDING_DISPATCH';
+
+const DIRECT_UPLOAD_URL_TTL_SECONDS = 15 * 60;
+const MAX_DIRECT_UPLOAD_ITEMS = 80;
+const MAX_DIRECT_UPLOAD_FILES_PER_ITEM = 10;
+const MAX_DIRECT_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
+
+class ValidationError extends Error {
+    statusCode = 400;
+}
+
+interface DirectUploadFileInput {
+    pageNumber: number;
+    fileName: string;
+    mimeType: string;
+    fileSize?: number;
+}
+
+interface DirectUploadWorksheetInput {
+    studentId: string;
+    studentName: string;
+    tokenNo?: string;
+    worksheetNumber: number;
+    worksheetName: string;
+    isRepeated: boolean;
+    files: DirectUploadFileInput[];
+}
 
 function parseBoolean(value: unknown): boolean {
     if (typeof value === 'boolean') {
@@ -30,6 +63,210 @@ function parseBoolean(value: unknown): boolean {
 
 function sanitizeFilename(filename: string): string {
     return filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+function parsePositiveInteger(value: unknown, fieldName: string): number {
+    const parsed = Number.parseInt(String(value), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new ValidationError(`${fieldName} must be a positive integer`);
+    }
+
+    return parsed;
+}
+
+function parseSubmittedOn(value: unknown): Date {
+    const date = value ? new Date(String(value)) : new Date();
+    if (Number.isNaN(date.getTime())) {
+        throw new ValidationError('submittedOn must be a valid date');
+    }
+
+    date.setUTCHours(0, 0, 0, 0);
+    return date;
+}
+
+function requireString(value: unknown, fieldName: string): string {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+        throw new ValidationError(`${fieldName} is required`);
+    }
+
+    return value.trim();
+}
+
+function optionalString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function getExtension(fileName: string, mimeType: string): string {
+    const sanitized = sanitizeFilename(fileName);
+    const extension = sanitized.match(/\.[a-zA-Z0-9]{1,8}$/)?.[0];
+    if (extension) {
+        return extension.toLowerCase();
+    }
+
+    if (mimeType === 'image/png') {
+        return '.png';
+    }
+
+    if (mimeType === 'image/webp') {
+        return '.webp';
+    }
+
+    return '.jpg';
+}
+
+function buildDirectUploadKey(
+    teacherId: string,
+    classId: string,
+    submittedOn: Date,
+    batchId: string,
+    item: DirectUploadWorksheetInput,
+    file: DirectUploadFileInput
+): string {
+    const submittedDate = submittedOn.toISOString().slice(0, 10);
+    const extension = getExtension(file.fileName, file.mimeType);
+    return [
+        'worksheet-uploads',
+        teacherId,
+        classId,
+        submittedDate,
+        batchId,
+        item.studentId,
+        `worksheet-${item.worksheetNumber}-page-${file.pageNumber}-${randomUUID()}${extension}`
+    ].join('/');
+}
+
+function normalizeDirectUploadItems(value: unknown): DirectUploadWorksheetInput[] {
+    if (!Array.isArray(value) || value.length === 0) {
+        throw new ValidationError('worksheets must include at least one worksheet');
+    }
+
+    if (value.length > MAX_DIRECT_UPLOAD_ITEMS) {
+        throw new ValidationError(`A batch can include at most ${MAX_DIRECT_UPLOAD_ITEMS} worksheets`);
+    }
+
+    const seenWorksheetKeys = new Set<string>();
+
+    return value.map((raw, index) => {
+        if (!raw || typeof raw !== 'object') {
+            throw new ValidationError(`worksheets[${index}] must be an object`);
+        }
+
+        const record = raw as Record<string, unknown>;
+        const studentId = requireString(record.studentId, `worksheets[${index}].studentId`);
+        const worksheetNumber = parsePositiveInteger(record.worksheetNumber, `worksheets[${index}].worksheetNumber`);
+        const studentName = optionalString(record.studentName) || 'Unknown';
+        const tokenNo = optionalString(record.tokenNo);
+        const worksheetName = optionalString(record.worksheetName) || String(worksheetNumber);
+        const filesRaw = record.files;
+
+        if (!Array.isArray(filesRaw) || filesRaw.length === 0) {
+            throw new ValidationError(`worksheets[${index}].files must include at least one image`);
+        }
+
+        if (filesRaw.length > MAX_DIRECT_UPLOAD_FILES_PER_ITEM) {
+            throw new ValidationError(
+                `worksheets[${index}].files can include at most ${MAX_DIRECT_UPLOAD_FILES_PER_ITEM} images`
+            );
+        }
+
+        const worksheetKey = `${studentId}:${worksheetNumber}`;
+        if (seenWorksheetKeys.has(worksheetKey)) {
+            throw new ValidationError(`Duplicate worksheet ${worksheetNumber} for student ${studentId} in this batch`);
+        }
+        seenWorksheetKeys.add(worksheetKey);
+
+        const seenPages = new Set<number>();
+        const files = filesRaw.map((fileRaw, fileIndex) => {
+            if (!fileRaw || typeof fileRaw !== 'object') {
+                throw new ValidationError(`worksheets[${index}].files[${fileIndex}] must be an object`);
+            }
+
+            const fileRecord = fileRaw as Record<string, unknown>;
+            const pageNumber = parsePositiveInteger(
+                fileRecord.pageNumber ?? fileIndex + 1,
+                `worksheets[${index}].files[${fileIndex}].pageNumber`
+            );
+            const mimeType = requireString(fileRecord.mimeType, `worksheets[${index}].files[${fileIndex}].mimeType`);
+            const fileName = optionalString(fileRecord.fileName) || `page-${pageNumber}.jpg`;
+            const fileSize =
+                fileRecord.fileSize === undefined || fileRecord.fileSize === null
+                    ? undefined
+                    : parsePositiveInteger(fileRecord.fileSize, `worksheets[${index}].files[${fileIndex}].fileSize`);
+
+            if (!mimeType.startsWith('image/')) {
+                throw new ValidationError(`worksheets[${index}].files[${fileIndex}] must be an image`);
+            }
+
+            if (fileSize && fileSize > MAX_DIRECT_UPLOAD_FILE_BYTES) {
+                throw new ValidationError(
+                    `worksheets[${index}].files[${fileIndex}] exceeds the ${MAX_DIRECT_UPLOAD_FILE_BYTES} byte limit`
+                );
+            }
+
+            if (seenPages.has(pageNumber)) {
+                throw new ValidationError(`Duplicate page ${pageNumber} for worksheet ${worksheetNumber}`);
+            }
+            seenPages.add(pageNumber);
+
+            return {
+                pageNumber,
+                fileName,
+                mimeType,
+                fileSize
+            };
+        });
+
+        return {
+            studentId,
+            studentName,
+            tokenNo,
+            worksheetNumber,
+            worksheetName,
+            isRepeated: parseBoolean(record.isRepeated),
+            files
+        };
+    });
+}
+
+async function assertDirectUploadAccess(req: Request, classId: string, studentIds: string[]): Promise<void> {
+    if (!req.user) {
+        throw new ValidationError('Authentication required');
+    }
+
+    if (req.user.role === UserRole.STUDENT) {
+        throw new ValidationError('Students cannot create grading upload sessions');
+    }
+
+    if (req.user.role === UserRole.TEACHER) {
+        const teacherClass = await prisma.teacherClass.findUnique({
+            where: {
+                teacherId_classId: {
+                    teacherId: req.user.userId,
+                    classId
+                }
+            },
+            select: { teacherId: true }
+        });
+
+        if (!teacherClass) {
+            throw new ValidationError('Teacher is not assigned to this class');
+        }
+    }
+
+    const uniqueStudentIds = Array.from(new Set(studentIds));
+    const studentClasses = await prisma.studentClass.findMany({
+        where: {
+            classId,
+            studentId: { in: uniqueStudentIds }
+        },
+        select: { studentId: true }
+    });
+
+    const validStudentIds = new Set(studentClasses.map((studentClass) => studentClass.studentId));
+    const missingStudentIds = uniqueStudentIds.filter((studentId) => !validStudentIds.has(studentId));
+    if (missingStudentIds.length > 0) {
+        throw new ValidationError(`Some students are not assigned to this class: ${missingStudentIds.join(', ')}`);
+    }
 }
 
 function parsePageNumber(req: Request, index: number): number {
@@ -150,6 +387,519 @@ async function dispatchJob(jobId: string): Promise<{ dispatchState: DispatchStat
         queuedAt
     };
 }
+
+function toUploadFileResponse(image: {
+    id: string;
+    pageNumber: number;
+    mimeType: string;
+    fileSize: number | null;
+    originalName: string | null;
+    s3Key: string;
+    imageUrl: string;
+    uploadedAt: Date | null;
+}) {
+    return {
+        imageId: image.id,
+        pageNumber: image.pageNumber,
+        mimeType: image.mimeType,
+        fileSize: image.fileSize,
+        originalName: image.originalName,
+        s3Key: image.s3Key,
+        imageUrl: image.imageUrl,
+        uploadedAt: image.uploadedAt?.toISOString() || null,
+        uploadUrl: image.uploadedAt
+            ? null
+            : getPresignedUrl(image.s3Key, image.mimeType, DIRECT_UPLOAD_URL_TTL_SECONDS, 'r2'),
+        expiresAt: image.uploadedAt
+            ? null
+            : new Date(Date.now() + DIRECT_UPLOAD_URL_TTL_SECONDS * 1000).toISOString()
+    };
+}
+
+function serializeUploadBatch(batch: {
+    id: string;
+    classId: string;
+    submittedOn: Date;
+    status: WorksheetUploadBatchStatus;
+    finalizedAt: Date | null;
+    items: {
+        id: string;
+        studentId: string;
+        studentName: string;
+        tokenNo: string | null;
+        worksheetNumber: number;
+        worksheetName: string | null;
+        isRepeated: boolean;
+        status: WorksheetUploadItemStatus;
+        jobId: string | null;
+        errorMessage: string | null;
+        images: {
+            id: string;
+            pageNumber: number;
+            mimeType: string;
+            fileSize: number | null;
+            originalName: string | null;
+            s3Key: string;
+            imageUrl: string;
+            uploadedAt: Date | null;
+        }[];
+    }[];
+}) {
+    return {
+        batchId: batch.id,
+        classId: batch.classId,
+        submittedOn: batch.submittedOn.toISOString(),
+        status: batch.status,
+        finalizedAt: batch.finalizedAt?.toISOString() || null,
+        items: batch.items.map((item) => ({
+            itemId: item.id,
+            studentId: item.studentId,
+            studentName: item.studentName,
+            tokenNo: item.tokenNo,
+            worksheetNumber: item.worksheetNumber,
+            worksheetName: item.worksheetName,
+            isRepeated: item.isRepeated,
+            status: item.status,
+            jobId: item.jobId,
+            errorMessage: item.errorMessage,
+            files: item.images.map(toUploadFileResponse)
+        }))
+    };
+}
+
+async function loadUploadBatchForUser(batchId: string, req: Request) {
+    const batch = await prisma.worksheetUploadBatch.findUnique({
+        where: { id: batchId },
+        include: {
+            items: {
+                orderBy: { createdAt: 'asc' },
+                include: {
+                    images: {
+                        orderBy: { pageNumber: 'asc' }
+                    }
+                }
+            }
+        }
+    });
+
+    if (!batch) {
+        return null;
+    }
+
+    if (req.user?.role === UserRole.TEACHER && batch.teacherId !== req.user.userId) {
+        return null;
+    }
+
+    return batch;
+}
+
+async function createGradingJobFromUploadItem(itemId: string): Promise<{
+    itemId: string;
+    studentId: string;
+    worksheetNumber: number;
+    jobId: string | null;
+    created: boolean;
+    error?: string;
+}> {
+    return prisma.$transaction(async (tx) => {
+        const claimed = await tx.worksheetUploadItem.updateMany({
+            where: {
+                id: itemId,
+                status: WorksheetUploadItemStatus.PENDING
+            },
+            data: {
+                status: WorksheetUploadItemStatus.QUEUED,
+                errorMessage: null
+            }
+        });
+
+        const item = await tx.worksheetUploadItem.findUnique({
+            where: { id: itemId },
+            include: {
+                batch: true,
+                images: {
+                    orderBy: { pageNumber: 'asc' }
+                }
+            }
+        });
+
+        if (!item) {
+            throw new Error(`Upload item not found: ${itemId}`);
+        }
+
+        if (claimed.count === 0) {
+            return {
+                itemId: item.id,
+                studentId: item.studentId,
+                worksheetNumber: item.worksheetNumber,
+                jobId: item.jobId,
+                created: false,
+                error: item.errorMessage || undefined
+            };
+        }
+
+        if (!item.images.length || item.images.some((image) => !image.uploadedAt)) {
+            throw new Error('Upload item is missing one or more uploaded images');
+        }
+
+        const job = await tx.gradingJob.create({
+            data: {
+                studentId: item.studentId,
+                studentName: item.studentName,
+                worksheetNumber: item.worksheetNumber,
+                worksheetName: item.worksheetName || String(item.worksheetNumber),
+                tokenNo: item.tokenNo,
+                classId: item.batch.classId,
+                teacherId: item.batch.teacherId,
+                status: GradingJobStatus.QUEUED,
+                submittedOn: item.batch.submittedOn,
+                isRepeated: item.isRepeated
+            },
+            select: { id: true }
+        });
+
+        await tx.gradingJobImage.createMany({
+            data: item.images.map((image) => ({
+                gradingJobId: job.id,
+                storageProvider: image.storageProvider,
+                imageUrl: image.imageUrl,
+                s3Key: image.s3Key,
+                pageNumber: image.pageNumber,
+                mimeType: image.mimeType
+            }))
+        });
+
+        await tx.worksheetUploadItem.update({
+            where: { id: item.id },
+            data: {
+                jobId: job.id,
+                errorMessage: null
+            }
+        });
+
+        return {
+            itemId: item.id,
+            studentId: item.studentId,
+            worksheetNumber: item.worksheetNumber,
+            jobId: job.id,
+            created: true
+        };
+    });
+}
+
+/**
+ * Create a direct-to-R2 upload session and return short-lived signed PUT URLs.
+ * @route POST /api/worksheet-processing/upload-session
+ */
+export const createDirectUploadSession = async (req: Request, res: Response) => {
+    try {
+        const teacherId = req.user?.userId;
+        if (!teacherId) {
+            return res.status(401).json({ success: false, error: 'Authentication required' });
+        }
+
+        const classId = requireString(req.body.classId, 'classId');
+        const submittedOn = parseSubmittedOn(req.body.submittedOn);
+        const items = normalizeDirectUploadItems(req.body.worksheets);
+
+        await assertDirectUploadAccess(req, classId, items.map((item) => item.studentId));
+
+        const created = await prisma.$transaction(async (tx) => {
+            const batch = await tx.worksheetUploadBatch.create({
+                data: {
+                    classId,
+                    teacherId,
+                    submittedOn,
+                    status: WorksheetUploadBatchStatus.UPLOADING
+                },
+                select: {
+                    id: true,
+                    classId: true,
+                    submittedOn: true,
+                    status: true,
+                    finalizedAt: true
+                }
+            });
+
+            const uploadItems = [];
+
+            for (const itemInput of items) {
+                const item = await tx.worksheetUploadItem.create({
+                    data: {
+                        batchId: batch.id,
+                        studentId: itemInput.studentId,
+                        studentName: itemInput.studentName,
+                        tokenNo: itemInput.tokenNo,
+                        worksheetNumber: itemInput.worksheetNumber,
+                        worksheetName: itemInput.worksheetName,
+                        isRepeated: itemInput.isRepeated,
+                        status: WorksheetUploadItemStatus.PENDING
+                    },
+                    select: {
+                        id: true,
+                        studentId: true,
+                        studentName: true,
+                        tokenNo: true,
+                        worksheetNumber: true,
+                        worksheetName: true,
+                        isRepeated: true,
+                        status: true,
+                        jobId: true,
+                        errorMessage: true
+                    }
+                });
+
+                const images = [];
+                for (const file of itemInput.files) {
+                    const key = buildDirectUploadKey(teacherId, classId, submittedOn, batch.id, itemInput, file);
+                    const image = await tx.worksheetUploadImage.create({
+                        data: {
+                            itemId: item.id,
+                            storageProvider: StorageProvider.R2,
+                            imageUrl: getPublicObjectUrl(key, 'r2'),
+                            s3Key: key,
+                            pageNumber: file.pageNumber,
+                            mimeType: file.mimeType,
+                            fileSize: file.fileSize,
+                            originalName: file.fileName
+                        },
+                        select: {
+                            id: true,
+                            pageNumber: true,
+                            mimeType: true,
+                            fileSize: true,
+                            originalName: true,
+                            s3Key: true,
+                            imageUrl: true,
+                            uploadedAt: true
+                        }
+                    });
+
+                    images.push(image);
+                }
+
+                uploadItems.push({
+                    ...item,
+                    images
+                });
+            }
+
+            return {
+                ...batch,
+                items: uploadItems
+            };
+        });
+
+        captureGradingPipelineEvent('direct_upload_session_created', created.id, {
+            batchId: created.id,
+            classId,
+            teacherId,
+            submittedOn: submittedOn.toISOString(),
+            worksheetsCount: items.length,
+            filesCount: items.reduce((total, item) => total + item.files.length, 0)
+        });
+
+        return res.status(201).json({
+            success: true,
+            ...serializeUploadBatch(created)
+        });
+    } catch (error) {
+        const statusCode = error instanceof ValidationError ? error.statusCode : 500;
+        const message = error instanceof Error ? error.message : 'Failed to create upload session';
+
+        await logError('direct-upload-session', error instanceof Error ? error : new Error(message), {
+            classId: req.body?.classId,
+            teacherId: req.user?.userId
+        }).catch(() => {
+            // best effort
+        });
+
+        return res.status(statusCode).json({
+            success: false,
+            error: statusCode === 500 ? 'Failed to create upload session' : message
+        });
+    }
+};
+
+/**
+ * Fetch a direct upload session and refresh signed URLs for unfinished image slots.
+ * @route GET /api/worksheet-processing/upload-session/:batchId
+ */
+export const getDirectUploadSession = async (req: Request, res: Response) => {
+    const batch = await loadUploadBatchForUser(req.params.batchId, req);
+    if (!batch) {
+        return res.status(404).json({ success: false, error: 'Upload session not found' });
+    }
+
+    return res.json({
+        success: true,
+        ...serializeUploadBatch(batch)
+    });
+};
+
+/**
+ * Finalize direct uploads by creating grading jobs from issued R2 keys.
+ * @route POST /api/worksheet-processing/upload-session/:batchId/finalize
+ */
+export const finalizeDirectUploadSession = async (req: Request, res: Response) => {
+    try {
+        const batch = await loadUploadBatchForUser(req.params.batchId, req);
+        if (!batch) {
+            return res.status(404).json({ success: false, error: 'Upload session not found' });
+        }
+
+        const requestedUploadedIds: string[] = Array.isArray(req.body?.uploadedImageIds)
+            ? req.body.uploadedImageIds.filter((id: unknown): id is string => typeof id === 'string')
+            : [];
+        const issuedImageIds = new Set(batch.items.flatMap((item) => item.images.map((image) => image.id)));
+        const uploadedImageIds = requestedUploadedIds.filter((id) => issuedImageIds.has(id));
+
+        if (uploadedImageIds.length > 0) {
+            await prisma.worksheetUploadImage.updateMany({
+                where: {
+                    id: { in: uploadedImageIds }
+                },
+                data: {
+                    uploadedAt: new Date()
+                }
+            });
+        }
+
+        const refreshedBatch = await loadUploadBatchForUser(batch.id, req);
+        if (!refreshedBatch) {
+            return res.status(404).json({ success: false, error: 'Upload session not found' });
+        }
+
+        const queued = [];
+        const pending = [];
+        const failed = [];
+
+        for (const item of refreshedBatch.items) {
+            if (item.status === WorksheetUploadItemStatus.QUEUED && item.jobId) {
+                queued.push({
+                    itemId: item.id,
+                    studentId: item.studentId,
+                    worksheetNumber: item.worksheetNumber,
+                    jobId: item.jobId,
+                    dispatchState: 'DISPATCHED' as DispatchState
+                });
+                continue;
+            }
+
+            if (item.status === WorksheetUploadItemStatus.FAILED) {
+                failed.push({
+                    itemId: item.id,
+                    studentId: item.studentId,
+                    worksheetNumber: item.worksheetNumber,
+                    error: item.errorMessage || 'Upload item failed'
+                });
+                continue;
+            }
+
+            const missingImageIds = item.images
+                .filter((image) => !image.uploadedAt)
+                .map((image) => image.id);
+
+            if (missingImageIds.length > 0) {
+                pending.push({
+                    itemId: item.id,
+                    studentId: item.studentId,
+                    worksheetNumber: item.worksheetNumber,
+                    missingImageIds
+                });
+                continue;
+            }
+
+            try {
+                const jobResult = await createGradingJobFromUploadItem(item.id);
+
+                if (!jobResult.jobId) {
+                    failed.push({
+                        itemId: item.id,
+                        studentId: item.studentId,
+                        worksheetNumber: item.worksheetNumber,
+                        error: jobResult.error || 'Unable to create grading job'
+                    });
+                    continue;
+                }
+
+                const dispatchResult = jobResult.created
+                    ? await dispatchJob(jobResult.jobId)
+                    : { dispatchState: 'DISPATCHED' as DispatchState };
+
+                queued.push({
+                    itemId: item.id,
+                    studentId: item.studentId,
+                    worksheetNumber: item.worksheetNumber,
+                    jobId: jobResult.jobId,
+                    dispatchState: dispatchResult.dispatchState,
+                    queuedAt: dispatchResult.queuedAt
+                });
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Failed to create grading job';
+                failed.push({
+                    itemId: item.id,
+                    studentId: item.studentId,
+                    worksheetNumber: item.worksheetNumber,
+                    error: message
+                });
+
+                await prisma.worksheetUploadItem.update({
+                    where: { id: item.id },
+                    data: {
+                        status: WorksheetUploadItemStatus.FAILED,
+                        errorMessage: message
+                    }
+                }).catch(() => {
+                    // best effort
+                });
+            }
+        }
+
+        const stillPending = await prisma.worksheetUploadItem.count({
+            where: {
+                batchId: batch.id,
+                status: WorksheetUploadItemStatus.PENDING
+            }
+        });
+
+        if (stillPending === 0) {
+            await prisma.worksheetUploadBatch.update({
+                where: { id: batch.id },
+                data: {
+                    status: WorksheetUploadBatchStatus.FINALIZED,
+                    finalizedAt: new Date()
+                }
+            });
+        }
+
+        captureGradingPipelineEvent('direct_upload_session_finalized', batch.id, {
+            batchId: batch.id,
+            queuedCount: queued.length,
+            pendingCount: pending.length,
+            failedCount: failed.length
+        });
+
+        return res.json({
+            success: true,
+            batchId: batch.id,
+            status: stillPending === 0 ? WorksheetUploadBatchStatus.FINALIZED : WorksheetUploadBatchStatus.UPLOADING,
+            queued,
+            pending,
+            failed
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to finalize upload session';
+        await logError('direct-upload-finalize', error instanceof Error ? error : new Error(message), {
+            batchId: req.params.batchId,
+            teacherId: req.user?.userId
+        }).catch(() => {
+            // best effort
+        });
+
+        return res.status(500).json({ success: false, error: 'Failed to finalize upload session' });
+    }
+};
 
 /**
  * Queue grading job and return immediately.

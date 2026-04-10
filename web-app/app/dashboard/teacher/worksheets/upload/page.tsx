@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { classAPI, worksheetAPI } from '@/lib/api';
+import { classAPI, worksheetAPI, worksheetProcessingAPI } from '@/lib/api';
 import { gradingJobsAPI } from '@/lib/api/gradingJobs';
 import { GradingJobsStatus } from '@/components/GradingJobsStatus';
 import { StudentWorksheetCard } from './student-worksheet-card';
@@ -75,6 +75,50 @@ interface StudentWorksheet {
     jobStatus?: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
     isAdditional?: boolean; // True for manually added worksheet entries
     isNew?: boolean;
+}
+
+const DIRECT_UPLOAD_CONCURRENCY = 3;
+
+async function runWithConcurrency<T, R>(
+    items: T[],
+    limit: number,
+    worker: (item: T, index: number) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+    const results: PromiseSettledResult<R>[] = new Array(items.length);
+    let nextIndex = 0;
+
+    async function runNext() {
+        while (nextIndex < items.length) {
+            const currentIndex = nextIndex;
+            nextIndex += 1;
+
+            try {
+                results[currentIndex] = {
+                    status: 'fulfilled',
+                    value: await worker(items[currentIndex], currentIndex)
+                };
+            } catch (reason) {
+                results[currentIndex] = {
+                    status: 'rejected',
+                    reason
+                };
+            }
+        }
+    }
+
+    await Promise.all(
+        Array.from({ length: Math.min(limit, items.length) }, () => runNext())
+    );
+
+    return results;
+}
+
+function getWorksheetUploadKey(worksheet: Pick<StudentWorksheet, 'studentId' | 'worksheetNumber'>): string {
+    return `${worksheet.studentId}:${worksheet.worksheetNumber}`;
+}
+
+function getUploadSessionStorageKey(classId: string, submittedOn: string): string {
+    return `worksheet-upload-session:${classId}:${submittedOn}`;
 }
 
 function isLikelyConnectivityError(error: unknown): boolean {
@@ -486,6 +530,44 @@ export default function UploadWorksheetPage() {
                     // Failed to fetch jobs, continue without processing state
                 }
 
+                try {
+                    const storedSession = window.localStorage.getItem(getUploadSessionStorageKey(selectedClass, submittedOn));
+                    const storedBatchId = storedSession ? JSON.parse(storedSession).batchId : null;
+
+                    if (typeof storedBatchId === 'string' && storedBatchId.length > 0) {
+                        const session = await worksheetProcessingAPI.getDirectUploadSession(storedBatchId);
+                        const queuedItems = session.items.filter((item) => item.status === 'QUEUED' && item.jobId);
+
+                        if (queuedItems.length > 0) {
+                            const queuedByWorksheet = new Map(
+                                queuedItems.map((item) => [`${item.studentId}:${item.worksheetNumber}`, item])
+                            );
+
+                            worksheets = worksheets.map((ws) => {
+                                const queued = queuedByWorksheet.get(getWorksheetUploadKey(ws));
+                                if (!queued) {
+                                    return ws;
+                                }
+
+                                return {
+                                    ...ws,
+                                    isUploading: true,
+                                    jobId: queued.jobId || ws.jobId,
+                                    jobStatus: 'QUEUED'
+                                };
+                            });
+                        }
+
+                        if (session.status === 'FINALIZED') {
+                            window.localStorage.removeItem(getUploadSessionStorageKey(selectedClass, submittedOn));
+                        } else if (session.items.some((item) => item.status === 'PENDING')) {
+                            toast.info('A previous upload was interrupted. Re-select the missing files and upload again.');
+                        }
+                    }
+                } catch {
+                    window.localStorage.removeItem(getUploadSessionStorageKey(selectedClass, submittedOn));
+                }
+
                 setStudentWorksheets(worksheets);
             } catch (error) {
                 toast.error('Failed to load student data');
@@ -861,36 +943,168 @@ export default function UploadWorksheetPage() {
         ));
 
         try {
-            toast.info(`Processing ${studentsWithFiles.length} worksheet${studentsWithFiles.length !== 1 ? 's' : ''}`);
-            const results = await Promise.allSettled(
-                studentsWithFiles.map((worksheet) => handleUpload(worksheet))
-            );
+            toast.info(`Uploading ${studentsWithFiles.length} worksheet${studentsWithFiles.length !== 1 ? 's' : ''} directly to storage`);
 
-            let successful = 0;
-            let failed = 0;
+            const fileLookup = new Map<string, Map<number, File>>();
+            const uploadRequest = studentsWithFiles.map((worksheet) => {
+                const files: { pageNumber: number; fileName: string; mimeType: string; fileSize: number }[] = [];
+                const pageFiles = new Map<number, File>();
 
-            results.forEach((result, index) => {
-                if (result.status === 'fulfilled' && result.value?.success) {
-                    successful++;
-                } else {
-                    failed++;
-                    const worksheet = studentsWithFiles[index];
-                    console.error(`Error processing worksheet for ${worksheet.name}:`, result);
+                if (worksheet.page1File) {
+                    files.push({
+                        pageNumber: 1,
+                        fileName: worksheet.page1File.name,
+                        mimeType: worksheet.page1File.type || 'image/jpeg',
+                        fileSize: worksheet.page1File.size
+                    });
+                    pageFiles.set(1, worksheet.page1File);
                 }
+
+                if (worksheet.page2File) {
+                    files.push({
+                        pageNumber: 2,
+                        fileName: worksheet.page2File.name,
+                        mimeType: worksheet.page2File.type || 'image/jpeg',
+                        fileSize: worksheet.page2File.size
+                    });
+                    pageFiles.set(2, worksheet.page2File);
+                }
+
+                fileLookup.set(getWorksheetUploadKey(worksheet), pageFiles);
+
+                return {
+                    studentId: worksheet.studentId,
+                    studentName: worksheet.name,
+                    tokenNo: worksheet.tokenNumber,
+                    worksheetNumber: worksheet.worksheetNumber,
+                    worksheetName: worksheet.worksheetNumber.toString(),
+                    isRepeated: !!worksheet.isRepeated,
+                    files
+                };
             });
 
-            if (successful > 0) {
-                toast.success(`Successfully processed ${successful} worksheet${successful !== 1 ? 's' : ''}!`);
+            const session = await worksheetProcessingAPI.createDirectUploadSession(
+                selectedClass,
+                submittedOn,
+                uploadRequest
+            );
+
+            window.localStorage.setItem(
+                getUploadSessionStorageKey(selectedClass, submittedOn),
+                JSON.stringify({ batchId: session.batchId, createdAt: new Date().toISOString() })
+            );
+
+            const uploadTasks = session.items.flatMap((item) =>
+                item.files.map((slot) => ({
+                    item,
+                    slot,
+                    file: fileLookup.get(`${item.studentId}:${item.worksheetNumber}`)?.get(slot.pageNumber)
+                }))
+            );
+
+            const uploadResults = await runWithConcurrency(
+                uploadTasks,
+                DIRECT_UPLOAD_CONCURRENCY,
+                async ({ slot, file }) => {
+                    if (!file) {
+                        throw new Error(`Missing local file for page ${slot.pageNumber}`);
+                    }
+
+                    if (!slot.uploadUrl) {
+                        throw new Error(`Missing upload URL for page ${slot.pageNumber}`);
+                    }
+
+                    const response = await fetch(slot.uploadUrl, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': file.type || slot.mimeType || 'image/jpeg'
+                        },
+                        body: file
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Storage upload failed (${response.status})`);
+                    }
+
+                    return slot.imageId;
+                }
+            );
+
+            const uploadedImageIds = uploadResults
+                .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+                .map((result) => result.value);
+            const uploadFailures = uploadResults.filter((result) => result.status === 'rejected').length;
+
+            const finalized = await worksheetProcessingAPI.finalizeDirectUploadSession(
+                session.batchId,
+                uploadedImageIds
+            );
+
+            const queuedByWorksheet = new Map(
+                finalized.queued
+                    .filter((item) => item.jobId)
+                    .map((item) => [`${item.studentId}:${item.worksheetNumber}`, item])
+            );
+
+            setStudentWorksheets(prev => prev.map(sw => {
+                const queued = queuedByWorksheet.get(getWorksheetUploadKey(sw));
+                if (queued) {
+                    return {
+                        ...sw,
+                        isUploading: true,
+                        jobId: queued.jobId || sw.jobId,
+                        jobStatus: 'QUEUED',
+                        page1File: null,
+                        page2File: null
+                    };
+                }
+
+                if (studentsWithFiles.some((candidate) => candidate.worksheetEntryId === sw.worksheetEntryId)) {
+                    return {
+                        ...sw,
+                        isUploading: false
+                    };
+                }
+
+                return sw;
+            }));
+
+            if (finalized.status === 'FINALIZED') {
+                window.localStorage.removeItem(getUploadSessionStorageKey(selectedClass, submittedOn));
             }
 
-            if (failed > 0) {
-                toast.error(`Failed to process ${failed} worksheet${failed !== 1 ? 's' : ''}.`);
+            if (finalized.queued.length > 0) {
+                toast.success(
+                    `Queued ${finalized.queued.length} worksheet${finalized.queued.length !== 1 ? 's' : ''}. Grading will continue in the background.`
+                );
             }
 
-            if (successful === 0 && failed === 0) {
-                toast.info('No worksheets were processed.');
+            if (finalized.pending.length > 0 || uploadFailures > 0) {
+                toast.error(
+                    `${finalized.pending.length || uploadFailures} worksheet${(finalized.pending.length || uploadFailures) !== 1 ? 's' : ''} did not finish uploading. Keep the page open and retry.`
+                );
             }
+
+            if (finalized.failed.length > 0) {
+                toast.error(`Failed to queue ${finalized.failed.length} worksheet${finalized.failed.length !== 1 ? 's' : ''}.`);
+            }
+
+            posthog.capture('direct_class_upload_queued', {
+                classId: selectedClass,
+                submittedOn,
+                worksheetsCount: studentsWithFiles.length,
+                queuedCount: finalized.queued.length,
+                pendingCount: finalized.pending.length,
+                failedCount: finalized.failed.length,
+                uploadFailures
+            });
         } catch (error) {
+            console.error('Direct batch upload failed:', error);
+            setStudentWorksheets(prev => prev.map(sw =>
+                studentsWithFiles.some(s => s.worksheetEntryId === sw.worksheetEntryId)
+                    ? { ...sw, isUploading: false }
+                    : sw
+            ));
             toast.error('Failed to process worksheets');
         }
     };

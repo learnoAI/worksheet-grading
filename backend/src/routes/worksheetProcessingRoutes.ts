@@ -4,7 +4,12 @@ import { auth, authorizeRoles } from '../middleware/utils';
 import { asHandler } from '../middleware/utils';
 import { UserRole } from '@prisma/client';
 import multer from 'multer';
-import { processWorksheets } from '../controllers/worksheetProcessingController';
+import {
+    createDirectUploadSession,
+    finalizeDirectUploadSession,
+    getDirectUploadSession,
+    processWorksheets
+} from '../controllers/worksheetProcessingController';
 
 const router = express.Router();
 
@@ -25,6 +30,27 @@ const upload = multer({
 });
 
 // Process worksheets through Python API
+router.post(
+    '/upload-session',
+    auth,
+    authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+    asHandler(createDirectUploadSession)
+);
+
+router.get(
+    '/upload-session/:batchId',
+    auth,
+    authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+    asHandler(getDirectUploadSession)
+);
+
+router.post(
+    '/upload-session/:batchId/finalize',
+    auth,
+    authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+    asHandler(finalizeDirectUploadSession)
+);
+
 router.post(
     '/process',
     auth,

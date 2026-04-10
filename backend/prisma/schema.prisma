@@ -8,25 +8,27 @@ datasource db {
 }
 
 model User {
-  id                String          @id @default(uuid())
-  username          String          @unique
-  password          String
-  name              String
-  tokenNumber       String?         @unique
-  role              UserRole
-  isArchived        Boolean         @default(false)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  adminSchools      AdminSchool[]
-  notifications     Notification[]
-  studentClasses    StudentClass[]
-  teacherClasses    TeacherClass[]
-  studentSchools    StudentSchool[]
-  worksheets        Worksheet[]     @relation("SubmittedBy")
-  studentWorksheets Worksheet[]     @relation("StudentWorksheets")
-  teacherSchools    TeacherSchool[]
-  studentGradingJobs GradingJob[]   @relation("StudentGradingJobs")
-  teacherGradingJobs GradingJob[]   @relation("TeacherGradingJobs")
+  id                   String                 @id @default(uuid())
+  username             String                 @unique
+  password             String
+  name                 String
+  tokenNumber          String?                @unique
+  role                 UserRole
+  isArchived           Boolean                @default(false)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  adminSchools         AdminSchool[]
+  notifications        Notification[]
+  studentClasses       StudentClass[]
+  teacherClasses       TeacherClass[]
+  studentSchools       StudentSchool[]
+  worksheets           Worksheet[]            @relation("SubmittedBy")
+  studentWorksheets    Worksheet[]            @relation("StudentWorksheets")
+  teacherSchools       TeacherSchool[]
+  studentGradingJobs   GradingJob[]           @relation("StudentGradingJobs")
+  teacherGradingJobs   GradingJob[]           @relation("TeacherGradingJobs")
+  teacherUploadBatches WorksheetUploadBatch[] @relation("TeacherUploadBatches")
+  studentUploadItems   WorksheetUploadItem[]  @relation("StudentUploadItems")
 }
 
 model School {
@@ -52,18 +54,19 @@ model Cluster {
 }
 
 model Class {
-  id             String         @id @default(uuid())
+  id             String                 @id @default(uuid())
   name           String
   schoolId       String
-  academicYear   String         @default("25-26")
-  isArchived     Boolean        @default(false)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  school         School         @relation(fields: [schoolId], references: [id])
+  academicYear   String                 @default("25-26")
+  isArchived     Boolean                @default(false)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  school         School                 @relation(fields: [schoolId], references: [id])
   studentClasses StudentClass[]
   teacherClasses TeacherClass[]
   worksheets     Worksheet[]
   gradingJobs    GradingJob[]
+  uploadBatches  WorksheetUploadBatch[]
 
   @@unique([name, schoolId, academicYear])
 }
@@ -187,13 +190,14 @@ model Worksheet {
   isAbsent             Boolean             @default(false)
   isRepeated           Boolean             @default(false)
   isCorrectGrade       Boolean             @default(false)
-  isIncorrectGrade     Boolean             @default(false)  // Flag to mark if teacher thinks grade is incorrect
+  isIncorrectGrade     Boolean             @default(false) // Flag to mark if teacher thinks grade is incorrect
   mongoDbId            String?             @unique
-  gradingDetails       Json?               // Store the detailed grading information from AI
-  wrongQuestionNumbers String?             // Comma-separated wrong question numbers
-  adminComments        String?             // Administrative comments for incorrect grading review
-  worksheetNumber      Int                 @default(0)  // Direct worksheet number storage (0 = absent/unassigned)
+  gradingDetails       Json? // Store the detailed grading information from AI
+  wrongQuestionNumbers String? // Comma-separated wrong question numbers
+  adminComments        String? // Administrative comments for incorrect grading review
+  worksheetNumber      Int                 @default(0) // Direct worksheet number storage (0 = absent/unassigned)
 
+  @@unique([studentId, classId, worksheetNumber, submittedOn], name: "unique_worksheet_per_student_day")
   // Performance indexes for analytics queries
   @@index([createdAt])
   @@index([submittedOn])
@@ -202,7 +206,6 @@ model Worksheet {
   @@index([isAbsent, createdAt])
   @@index([isRepeated, createdAt])
   @@index([grade, outOf, isAbsent])
-  @@unique([studentId, classId, worksheetNumber, submittedOn], name: "unique_worksheet_per_student_day")
 }
 
 model WorksheetImage {
@@ -258,32 +261,43 @@ enum GradingJobStatus {
   FAILED
 }
 
+enum WorksheetUploadBatchStatus {
+  UPLOADING
+  FINALIZED
+}
+
+enum WorksheetUploadItemStatus {
+  PENDING
+  QUEUED
+  FAILED
+}
+
 model GradingJob {
-  id              String           @id @default(uuid())
+  id              String            @id @default(uuid())
   studentId       String
-  student         User             @relation("StudentGradingJobs", fields: [studentId], references: [id])
-  studentName     String           // Denormalized for quick display
+  student         User              @relation("StudentGradingJobs", fields: [studentId], references: [id])
+  studentName     String // Denormalized for quick display
   worksheetNumber Int
   worksheetName   String?
   tokenNo         String?
-  isRepeated      Boolean          @default(false)
+  isRepeated      Boolean           @default(false)
   classId         String
-  class           Class            @relation(fields: [classId], references: [id])
+  class           Class             @relation(fields: [classId], references: [id])
   teacherId       String
-  teacher         User             @relation("TeacherGradingJobs", fields: [teacherId], references: [id])
-  status          GradingJobStatus @default(QUEUED)
-  worksheetId     String?          // Set after worksheet created/updated
+  teacher         User              @relation("TeacherGradingJobs", fields: [teacherId], references: [id])
+  status          GradingJobStatus  @default(QUEUED)
+  worksheetId     String? // Set after worksheet created/updated
   errorMessage    String?
   dispatchError   String?
   leaseId         String?
-  attemptCount    Int              @default(0)
+  attemptCount    Int               @default(0)
   enqueuedAt      DateTime?
   startedAt       DateTime?
   lastHeartbeatAt DateTime?
   lastErrorAt     DateTime?
-  submittedOn     DateTime         // The date the worksheet was submitted for
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  submittedOn     DateTime // The date the worksheet was submitted for
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
   completedAt     DateTime?
   images          GradingJobImage[]
 
@@ -295,16 +309,74 @@ model GradingJob {
   @@index([status, lastHeartbeatAt])
 }
 
+model WorksheetUploadBatch {
+  id          String                     @id @default(uuid())
+  classId     String
+  class       Class                      @relation(fields: [classId], references: [id])
+  teacherId   String
+  teacher     User                       @relation("TeacherUploadBatches", fields: [teacherId], references: [id])
+  submittedOn DateTime
+  status      WorksheetUploadBatchStatus @default(UPLOADING)
+  finalizedAt DateTime?
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+  items       WorksheetUploadItem[]
+
+  @@index([teacherId, classId, submittedOn])
+  @@index([status, updatedAt])
+}
+
+model WorksheetUploadItem {
+  id              String                    @id @default(uuid())
+  batchId         String
+  batch           WorksheetUploadBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  studentId       String
+  student         User                      @relation("StudentUploadItems", fields: [studentId], references: [id])
+  studentName     String
+  tokenNo         String?
+  worksheetNumber Int
+  worksheetName   String?
+  isRepeated      Boolean                   @default(false)
+  status          WorksheetUploadItemStatus @default(PENDING)
+  jobId           String?
+  errorMessage    String?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  images          WorksheetUploadImage[]
+
+  @@unique([batchId, studentId, worksheetNumber])
+  @@index([studentId, status])
+  @@index([jobId])
+}
+
+model WorksheetUploadImage {
+  id              String              @id @default(uuid())
+  itemId          String
+  item            WorksheetUploadItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  storageProvider StorageProvider     @default(R2)
+  imageUrl        String
+  s3Key           String
+  pageNumber      Int
+  mimeType        String
+  fileSize        Int?
+  originalName    String?
+  uploadedAt      DateTime?
+  createdAt       DateTime            @default(now())
+
+  @@unique([itemId, pageNumber])
+  @@index([s3Key])
+}
+
 model GradingJobImage {
-  id           String     @id @default(uuid())
-  gradingJobId String
-  gradingJob   GradingJob @relation(fields: [gradingJobId], references: [id], onDelete: Cascade)
+  id              String          @id @default(uuid())
+  gradingJobId    String
+  gradingJob      GradingJob      @relation(fields: [gradingJobId], references: [id], onDelete: Cascade)
   storageProvider StorageProvider @default(S3)
-  imageUrl     String
-  s3Key        String
-  pageNumber   Int
-  mimeType     String
-  createdAt    DateTime   @default(now())
+  imageUrl        String
+  s3Key           String
+  pageNumber      Int
+  mimeType        String
+  createdAt       DateTime        @default(now())
 
   @@index([gradingJobId, pageNumber])
 }

@@ -9,10 +9,15 @@ interface ErrorLog {
 }
 
 let collection: Collection<ErrorLog> | null = null;
+let lastConnectionAttemptAt = 0;
+
+const CONNECTION_RETRY_MS = 60_000;
 
 async function getCollection(): Promise<Collection<ErrorLog> | null> {
     if (collection) return collection;
+    if (Date.now() - lastConnectionAttemptAt < CONNECTION_RETRY_MS) return null;
 
+    lastConnectionAttemptAt = Date.now();
     const mongoUrl = process.env.MONGO_URL;
     if (!mongoUrl) return null;
 

@@ -208,6 +208,15 @@ export const getPresignedUrl = (
 };
 
 /**
+ * Resolve the stable public/read URL for an object key without uploading it here.
+ * This is used by direct-to-storage uploads where the browser performs the PUT.
+ */
+export const getPublicObjectUrl = (key: string, provider?: StorageBackend): string => {
+    const context = getStorageContext(provider);
+    return resolveObjectLocation(context, key);
+};
+
+/**
  * Delete a file from object storage
  */
 export const deleteFromS3 = async (key: string, provider?: StorageBackend): Promise<void> => {

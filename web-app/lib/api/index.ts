@@ -5,6 +5,7 @@ export * from './utils';
 export { authAPI } from './auth';
 export { userAPI } from './user';
 export { worksheetAPI } from './worksheet';
+export { worksheetProcessingAPI } from './worksheetProcessing';
 export { notificationAPI } from './notification';
 export { classAPI } from './class';
 export { schoolAPI } from './school';
