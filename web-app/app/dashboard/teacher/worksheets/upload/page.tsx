@@ -8,6 +8,11 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { classAPI, worksheetAPI, worksheetProcessingAPI } from '@/lib/api';
 import { gradingJobsAPI, type GradingJob } from '@/lib/api/gradingJobs';
+import type {
+    DirectUploadItem,
+    DirectUploadFileSlot,
+    FinalizeDirectUploadSessionResponse
+} from '@/lib/api/worksheetProcessing';
 import { GradingJobsStatus } from '@/components/GradingJobsStatus';
 import { StudentWorksheetCard } from './student-worksheet-card';
 import { usePostHog } from 'posthog-js/react';
@@ -82,7 +87,7 @@ const DIRECT_UPLOAD_MIN_CONCURRENCY = 2;
 const DIRECT_UPLOAD_MAX_ATTEMPTS = 3;
 const DIRECT_UPLOAD_ATTEMPT_TIMEOUT_MS = parseNumberEnv(
     process.env.NEXT_PUBLIC_DIRECT_UPLOAD_ATTEMPT_TIMEOUT_MS,
-    45_000
+    20_000
 );
 const DIRECT_UPLOAD_IMAGE_COMPRESSION_ENABLED = process.env.NEXT_PUBLIC_DIRECT_UPLOAD_IMAGE_COMPRESSION !== 'false';
 const DIRECT_UPLOAD_IMAGE_MAX_LONG_EDGE = parseNumberEnv(process.env.NEXT_PUBLIC_DIRECT_UPLOAD_IMAGE_MAX_LONG_EDGE, 1800);
@@ -124,6 +129,12 @@ interface DirectUploadPreparationTask {
     worksheetKey: string;
     pageNumber: number;
     file: File;
+}
+
+interface DirectUploadTask {
+    item: DirectUploadItem;
+    slot: DirectUploadFileSlot;
+    file?: PreparedDirectUploadFile;
 }
 
 interface GradingJobPollingTarget {
@@ -1391,8 +1402,11 @@ export default function UploadWorksheetPage() {
             return;
         }
 
+        const uploadWorksheetEntryIds = new Set(studentsWithFiles.map((student) => student.worksheetEntryId));
+        const uploadWorksheetKeys = new Set(studentsWithFiles.map(getWorksheetUploadKey));
+
         setStudentWorksheets(prev => prev.map(sw =>
-            studentsWithFiles.some(s => s.worksheetEntryId === sw.worksheetEntryId)
+            uploadWorksheetEntryIds.has(sw.worksheetEntryId)
                 ? { ...sw, isUploading: true }
                 : sw
         ));
@@ -1517,7 +1531,7 @@ export default function UploadWorksheetPage() {
                 JSON.stringify({ batchId: session.batchId, createdAt: new Date().toISOString() })
             );
 
-            const uploadTasks = session.items.flatMap((item) =>
+            const uploadTasks: DirectUploadTask[] = session.items.flatMap((item) =>
                 item.files.map((slot) => ({
                     item,
                     slot,
@@ -1526,35 +1540,142 @@ export default function UploadWorksheetPage() {
             );
 
             const uploadConcurrency = getDirectUploadConcurrency();
+            const uploadedImageIdsByItem = new Map<string, Set<string>>();
+            const expectedImageCountByItem = new Map(
+                session.items.map((item) => [item.itemId, item.files.length])
+            );
+            const queuedJobIds = new Set<string>();
+            const queuedItemIds = new Set<string>();
+            const failedItemIds = new Set<string>();
+            const uploadFailedItemIds = new Set<string>();
+            const finalizePromises: Promise<void>[] = [];
+            let finalizeFailures = 0;
+            let firstQueuedAfterMs: number | null = null;
+            const uploadStartedAt = getUploadNowMs();
+
+            const applyFinalizeResponse = (finalized: FinalizeDirectUploadSessionResponse) => {
+                const newlyQueued = finalized.queued.filter((item) => item.jobId && !queuedJobIds.has(item.jobId));
+
+                newlyQueued.forEach((item) => {
+                    if (item.jobId) {
+                        queuedJobIds.add(item.jobId);
+                    }
+                    queuedItemIds.add(item.itemId);
+                });
+
+                finalized.failed.forEach((item) => {
+                    failedItemIds.add(item.itemId);
+                });
+
+                if (newlyQueued.length > 0 && firstQueuedAfterMs === null) {
+                    firstQueuedAfterMs = Math.max(0, Math.round(getUploadNowMs() - uploadStartedAt));
+                    toast.success('First worksheet queued. Remaining uploads continue in the background.');
+                }
+
+                if (newlyQueued.length > 0 || finalized.failed.length > 0) {
+                    const queuedByWorksheet = new Map(
+                        newlyQueued.map((item) => [`${item.studentId}:${item.worksheetNumber}`, item])
+                    );
+                    const failedByWorksheet = new Map(
+                        finalized.failed.map((item) => [`${item.studentId}:${item.worksheetNumber}`, item])
+                    );
+
+                    setStudentWorksheets(prev => prev.map(sw => {
+                        const worksheetKey = getWorksheetUploadKey(sw);
+                        const queued = queuedByWorksheet.get(worksheetKey);
+                        if (queued) {
+                            return {
+                                ...sw,
+                                isUploading: true,
+                                jobId: queued.jobId || sw.jobId,
+                                jobStatus: 'QUEUED',
+                                page1File: null,
+                                page2File: null
+                            };
+                        }
+
+                        if (failedByWorksheet.has(worksheetKey)) {
+                            return {
+                                ...sw,
+                                isUploading: false
+                            };
+                        }
+
+                        return sw;
+                    }));
+
+                    newlyQueued.forEach((item) => {
+                        if (!item.jobId) {
+                            return;
+                        }
+
+                        void pollGradingJobToCompletion({
+                            jobId: item.jobId,
+                            studentId: item.studentId,
+                            worksheetNumber: item.worksheetNumber
+                        });
+                    });
+                }
+
+                if (finalized.status === 'FINALIZED') {
+                    window.localStorage.removeItem(getUploadSessionStorageKey(selectedClass, submittedOn));
+                }
+            };
+
+            const finalizeUploadedItem = (item: DirectUploadItem, imageIds: string[]) => {
+                const finalizePromise = worksheetProcessingAPI
+                    .finalizeDirectUploadSession(session.batchId, imageIds)
+                    .then(applyFinalizeResponse)
+                    .catch((error) => {
+                        finalizeFailures += 1;
+                        console.error('Direct upload item finalize failed:', error);
+                    });
+
+                finalizePromises.push(finalizePromise);
+            };
+
             const uploadResults = await runWithConcurrency(
                 uploadTasks,
                 uploadConcurrency,
-                async ({ slot, file }) => {
-                    if (!file) {
-                        throw new Error(`Missing local file for page ${slot.pageNumber}`);
+                async ({ item, slot, file }) => {
+                    try {
+                        if (!file) {
+                            throw new Error(`Missing local file for page ${slot.pageNumber}`);
+                        }
+
+                        if (!slot.uploadUrl) {
+                            throw new Error(`Missing upload URL for page ${slot.pageNumber}`);
+                        }
+
+                        await uploadFileWithRetry(
+                            slot.uploadUrl,
+                            file.file,
+                            file.mimeType || slot.mimeType || 'image/jpeg',
+                            slot.pageNumber
+                        );
+
+                        const itemUploadedImageIds = uploadedImageIdsByItem.get(item.itemId) || new Set<string>();
+                        itemUploadedImageIds.add(slot.imageId);
+                        uploadedImageIdsByItem.set(item.itemId, itemUploadedImageIds);
+
+                        if (itemUploadedImageIds.size === expectedImageCountByItem.get(item.itemId)) {
+                            finalizeUploadedItem(item, Array.from(itemUploadedImageIds));
+                        }
+
+                        return slot.imageId;
+                    } catch (error) {
+                        uploadFailedItemIds.add(item.itemId);
+                        throw error;
                     }
-
-                    if (!slot.uploadUrl) {
-                        throw new Error(`Missing upload URL for page ${slot.pageNumber}`);
-                    }
-
-                    await uploadFileWithRetry(
-                        slot.uploadUrl,
-                        file.file,
-                        file.mimeType || slot.mimeType || 'image/jpeg',
-                        slot.pageNumber
-                    );
-
-                    return slot.imageId;
                 }
             );
 
-            const uploadedImageIds = uploadResults
+            const successfulUploadIds = uploadResults
                 .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
                 .map((result) => result.value);
             const uploadFailures = uploadResults.filter((result) => result.status === 'rejected').length;
 
-            if (uploadedImageIds.length === 0 && uploadTasks.length > 0) {
+            if (successfulUploadIds.length === 0 && uploadTasks.length > 0) {
                 const failureSummary = getUploadFailureSummary(uploadResults);
                 window.localStorage.removeItem(getUploadSessionStorageKey(selectedClass, submittedOn));
                 posthog.capture('direct_class_upload_all_files_failed', {
@@ -1571,86 +1692,102 @@ export default function UploadWorksheetPage() {
                 throw new Error(`No files reached storage. ${failureSummary}`);
             }
 
-            const finalized = await worksheetProcessingAPI.finalizeDirectUploadSession(
-                session.batchId,
-                uploadedImageIds
+            const finalizeResults = await Promise.allSettled(finalizePromises);
+            finalizeFailures += finalizeResults.filter((result) => result.status === 'rejected').length;
+
+            const fullyUploadedItemIds = Array.from(uploadedImageIdsByItem.entries())
+                .filter(([itemId, imageIds]) => imageIds.size === expectedImageCountByItem.get(itemId))
+                .map(([itemId]) => itemId);
+            const unqueuedFullyUploadedItems = fullyUploadedItemIds.filter((itemId) =>
+                !queuedItemIds.has(itemId) && !failedItemIds.has(itemId)
             );
 
-            const queuedByWorksheet = new Map(
-                finalized.queued
-                    .filter((item) => item.jobId)
-                    .map((item) => [`${item.studentId}:${item.worksheetNumber}`, item])
-            );
+            if (unqueuedFullyUploadedItems.length > 0 && successfulUploadIds.length > 0) {
+                try {
+                    const recoveryFinalized = await worksheetProcessingAPI.finalizeDirectUploadSession(
+                        session.batchId,
+                        successfulUploadIds
+                    );
+                    applyFinalizeResponse(recoveryFinalized);
+                } catch (error) {
+                    finalizeFailures += 1;
+                    console.error('Direct upload recovery finalize failed:', error);
+                }
+            }
+
+            const unresolvedFinalizeFailures = fullyUploadedItemIds.some((itemId) =>
+                !queuedItemIds.has(itemId) && !failedItemIds.has(itemId)
+            )
+                ? finalizeFailures
+                : 0;
+            const pendingUploadItemIds = session.items
+                .filter((item) => {
+                    const uploadedIds = uploadedImageIdsByItem.get(item.itemId);
+                    return (uploadedIds?.size || 0) < item.files.length;
+                })
+                .map((item) => item.itemId);
 
             setStudentWorksheets(prev => prev.map(sw => {
-                const queued = queuedByWorksheet.get(getWorksheetUploadKey(sw));
-                if (queued) {
-                    return {
-                        ...sw,
-                        isUploading: true,
-                        jobId: queued.jobId || sw.jobId,
-                        jobStatus: 'QUEUED',
-                        page1File: null,
-                        page2File: null
-                    };
+                const worksheetKey = getWorksheetUploadKey(sw);
+                if (!uploadWorksheetKeys.has(worksheetKey)) {
+                    return sw;
                 }
 
-                if (studentsWithFiles.some((candidate) => candidate.worksheetEntryId === sw.worksheetEntryId)) {
-                    return {
-                        ...sw,
-                        isUploading: false
-                    };
+                const sessionItem = session.items.find((item) =>
+                    `${item.studentId}:${item.worksheetNumber}` === worksheetKey
+                );
+
+                if (!sessionItem) {
+                    return sw;
                 }
 
-                return sw;
+                if (queuedItemIds.has(sessionItem.itemId)) {
+                    return sw;
+                }
+
+                return {
+                    ...sw,
+                    isUploading: false
+                };
             }));
 
-            finalized.queued
-                .filter((item) => item.jobId)
-                .forEach((item) => {
-                    void pollGradingJobToCompletion({
-                        jobId: item.jobId as string,
-                        studentId: item.studentId,
-                        worksheetNumber: item.worksheetNumber
-                    });
-                });
-
-            if (finalized.status === 'FINALIZED') {
-                window.localStorage.removeItem(getUploadSessionStorageKey(selectedClass, submittedOn));
-            }
-
-            if (finalized.queued.length > 0) {
+            const queuedCount = queuedJobIds.size;
+            if (queuedCount > 0) {
                 toast.success(
-                    `Queued ${finalized.queued.length} worksheet${finalized.queued.length !== 1 ? 's' : ''}. Grading will continue in the background.`
+                    `Queued ${queuedCount} worksheet${queuedCount !== 1 ? 's' : ''}. Grading will continue in the background.`
                 );
             }
 
-            if (finalized.pending.length > 0 || uploadFailures > 0) {
+            const unfinishedCount = pendingUploadItemIds.length || uploadFailedItemIds.size || unresolvedFinalizeFailures;
+            if (unfinishedCount > 0) {
                 toast.error(
-                    `${finalized.pending.length || uploadFailures} worksheet${(finalized.pending.length || uploadFailures) !== 1 ? 's' : ''} did not finish uploading. Keep the page open and retry.`
+                    `${unfinishedCount} worksheet${unfinishedCount !== 1 ? 's' : ''} did not finish uploading. Keep the page open and retry.`
                 );
             }
 
-            if (finalized.failed.length > 0) {
-                toast.error(`Failed to queue ${finalized.failed.length} worksheet${finalized.failed.length !== 1 ? 's' : ''}.`);
+            if (failedItemIds.size > 0) {
+                toast.error(`Failed to queue ${failedItemIds.size} worksheet${failedItemIds.size !== 1 ? 's' : ''}.`);
             }
 
             posthog.capture('direct_class_upload_queued', {
                 classId: selectedClass,
                 submittedOn,
                 worksheetsCount: studentsWithFiles.length,
-                queuedCount: finalized.queued.length,
-                pendingCount: finalized.pending.length,
-                failedCount: finalized.failed.length,
+                queuedCount,
+                pendingCount: pendingUploadItemIds.length,
+                failedCount: failedItemIds.size,
                 uploadFailures,
+                finalizeFailures: unresolvedFinalizeFailures,
                 uploadConcurrency,
+                timeToFirstQueuedMs: firstQueuedAfterMs,
+                uploadAndFinalizeMs: Math.max(0, Math.round(getUploadNowMs() - uploadStartedAt)),
                 compressionEnabled: DIRECT_UPLOAD_IMAGE_COMPRESSION_ENABLED,
                 ...compressionSummary
             });
         } catch (error) {
             console.error('Direct batch upload failed:', error);
             setStudentWorksheets(prev => prev.map(sw =>
-                studentsWithFiles.some(s => s.worksheetEntryId === sw.worksheetEntryId)
+                uploadWorksheetEntryIds.has(sw.worksheetEntryId)
                     ? { ...sw, isUploading: false }
                     : sw
             ));
