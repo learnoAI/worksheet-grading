@@ -1173,7 +1173,7 @@ export const getIncorrectGradingWorksheets = async (
       100,
     );
 
-    const where: any = {
+    const where: Prisma.WorksheetWhereInput = {
       isIncorrectGrade: true,
       status: ProcessingStatus.COMPLETED,
     };
@@ -1212,20 +1212,44 @@ export const getIncorrectGradingWorksheets = async (
       ];
     }
 
-    const worksheets = await prisma.worksheet.findMany({
-      where,
-      include: {
-        student: { select: { id: true, name: true, tokenNumber: true } },
-        submittedBy: { select: { name: true, username: true } },
-        class: { select: { name: true } },
-        template: { select: { worksheetNumber: true } },
-        images: {
-          select: { imageUrl: true, pageNumber: true },
-          orderBy: { pageNumber: "asc" },
+    const skip = (pageNum - 1) * sizeNum;
+
+    const [total, worksheets] = await prisma.$transaction([
+      prisma.worksheet.count({ where }),
+      prisma.worksheet.findMany({
+        where,
+        select: {
+          id: true,
+          notes: true,
+          grade: true,
+          submittedOn: true,
+          classId: true,
+          studentId: true,
+          createdAt: true,
+          updatedAt: true,
+          gradingDetails: true,
+          wrongQuestionNumbers: true,
+          adminComments: true,
+          worksheetNumber: true,
+          student: { select: { id: true, name: true, tokenNumber: true } },
+          submittedBy: { select: { name: true, username: true } },
+          class: { select: { name: true } },
+          template: { select: { worksheetNumber: true } },
+          images: {
+            select: { imageUrl: true, pageNumber: true },
+            orderBy: { pageNumber: "asc" },
+          },
         },
-      },
-      orderBy: [{ submittedOn: "desc" }, { worksheetNumber: "asc" }],
-    });
+        orderBy: [
+          { submittedOn: "desc" },
+          { worksheetNumber: "asc" },
+          { updatedAt: "desc" },
+          { id: "asc" },
+        ],
+        skip,
+        take: sizeNum,
+      }),
+    ]);
 
     const worksheetIds = worksheets.map((worksheet) => worksheet.id);
     const gradingJobsWithImages =
@@ -1452,64 +1476,7 @@ export const getIncorrectGradingWorksheets = async (
       };
     });
 
-    const scoreWorksheet = (
-      worksheet: (typeof transformed)[number],
-    ): number => {
-      let score = 0;
-      if (worksheet.gradingDetails) score += 4;
-      if (worksheet.images.length > 0) score += 2;
-      if (worksheet.wrongQuestionNumbers) score += 1;
-      return score;
-    };
-
-    const dedupedByKey = new Map<string, (typeof transformed)[number]>();
-    for (const w of transformed) {
-      const dt = w.submittedOn ? new Date(w.submittedOn as any) : new Date(0);
-      const dateKey = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
-      const studentKey = w.student?.id || "unknown";
-      const key = `${studentKey}|${w.worksheetNumber}|${dateKey}`;
-
-      const current = dedupedByKey.get(key);
-      if (!current) {
-        dedupedByKey.set(key, w);
-        continue;
-      }
-
-      const currentScore = scoreWorksheet(current);
-      const nextScore = scoreWorksheet(w);
-      if (nextScore > currentScore) {
-        dedupedByKey.set(key, w);
-        continue;
-      }
-
-      if (nextScore === currentScore) {
-        const currentUpdatedAt = current.updatedAt
-          ? new Date(current.updatedAt).getTime()
-          : 0;
-        const nextUpdatedAt = w.updatedAt ? new Date(w.updatedAt).getTime() : 0;
-        if (nextUpdatedAt > currentUpdatedAt) {
-          dedupedByKey.set(key, w);
-        }
-      }
-    }
-
-    const submittedOnTime = (value: unknown): number => {
-      if (!value) return 0;
-      const timestamp = new Date(value as any).getTime();
-      return Number.isFinite(timestamp) ? timestamp : 0;
-    };
-
-    const deduped = Array.from(dedupedByKey.values()).sort((a, b) => {
-      const dateDiff =
-        submittedOnTime(b.submittedOn) - submittedOnTime(a.submittedOn);
-      if (dateDiff !== 0) return dateDiff;
-      return a.worksheetNumber - b.worksheetNumber;
-    });
-
-    const total = deduped.length;
-    const startIdx = (pageNum - 1) * sizeNum;
-    const endIdx = startIdx + sizeNum;
-    const data = deduped.slice(startIdx, endIdx).map((w) => ({
+    const data = transformed.map((w) => ({
       id: w.id,
       worksheetNumber: w.worksheetNumber,
       grade: w.grade,

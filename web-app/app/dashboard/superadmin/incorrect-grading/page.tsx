@@ -66,9 +66,6 @@ export default function IncorrectGradingPage() {
         if (!isLoading && (!user || user.role !== UserRole.SUPERADMIN)) {
             toast.error('Access denied');
             router.push('/dashboard');
-        } else if (!isLoading && user?.role === UserRole.SUPERADMIN) {
-            loadIncorrectGradingWorksheets();
-            loadTotalAiGraded();
         }
     }, [user, isLoading, router]);
 
@@ -124,7 +121,7 @@ export default function IncorrectGradingPage() {
             loadIncorrectGradingWorksheets();
             loadTotalAiGraded();
         }
-    }, [page, pageSize, startDate, endDate]);
+    }, [isLoading, user?.role, page, pageSize, startDate, endDate]);
 
     const handleCommentChange = (worksheetId: string, comment: string) => {
         setComments(prev => ({
