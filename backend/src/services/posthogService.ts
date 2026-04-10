@@ -108,3 +108,138 @@ export function captureGradingPipelineEvent(
     });
 }
 
+// ---------------------------------------------------------------------------
+// Exception capture (additive — not yet wired into existing error paths).
+// ---------------------------------------------------------------------------
+
+export interface PosthogExceptionContext {
+    distinctId: string;
+    stage?: string;
+    fingerprint?: string;
+    extra?: PosthogProperties;
+}
+
+interface ParsedStackFrame {
+    filename: string;
+    function: string;
+    lineno: number;
+    colno: number;
+    in_app: boolean;
+}
+
+const STACK_FRAME_WITH_NAME = /^\s*at\s+(?:async\s+)?(.+?)\s+\(([^)]+):(\d+):(\d+)\)\s*$/;
+const STACK_FRAME_WITHOUT_NAME = /^\s*at\s+(?:async\s+)?([^\s()]+):(\d+):(\d+)\s*$/;
+
+function isInAppFrame(filename: string): boolean {
+    if (!filename) {
+        return false;
+    }
+    if (filename.includes('/node_modules/')) {
+        return false;
+    }
+    if (filename.startsWith('node:') || filename.startsWith('internal/')) {
+        return false;
+    }
+    return true;
+}
+
+export function parseStackFrames(stack: string | undefined): ParsedStackFrame[] {
+    if (!stack) {
+        return [];
+    }
+
+    const lines = stack.split('\n');
+    const frames: ParsedStackFrame[] = [];
+
+    for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        if (!line.startsWith('    at ') && !line.trimStart().startsWith('at ')) {
+            continue;
+        }
+
+        let match = STACK_FRAME_WITH_NAME.exec(line);
+        if (match) {
+            const filename = match[2];
+            frames.push({
+                function: match[1],
+                filename,
+                lineno: Number(match[3]),
+                colno: Number(match[4]),
+                in_app: isInAppFrame(filename)
+            });
+            continue;
+        }
+
+        match = STACK_FRAME_WITHOUT_NAME.exec(line);
+        if (match) {
+            const filename = match[1];
+            frames.push({
+                function: '<anonymous>',
+                filename,
+                lineno: Number(match[2]),
+                colno: Number(match[3]),
+                in_app: isInAppFrame(filename)
+            });
+        }
+    }
+
+    return frames;
+}
+
+function toErrorLike(error: unknown): { name: string; message: string; stack: string | undefined; synthetic: boolean } {
+    if (error instanceof Error) {
+        return {
+            name: error.name || 'Error',
+            message: error.message,
+            stack: error.stack,
+            synthetic: false
+        };
+    }
+
+    if (typeof error === 'string') {
+        return { name: 'Error', message: error, stack: undefined, synthetic: true };
+    }
+
+    try {
+        return { name: 'Error', message: JSON.stringify(error), stack: undefined, synthetic: true };
+    } catch {
+        return { name: 'Error', message: String(error), stack: undefined, synthetic: true };
+    }
+}
+
+// Exported for unit tests — kept pure so the shape can be asserted without
+// touching HTTP transport.
+export function buildExceptionProperties(
+    error: unknown,
+    ctx: PosthogExceptionContext
+): PosthogProperties {
+    const normalized = toErrorLike(error);
+    const frames = parseStackFrames(normalized.stack);
+
+    const properties: PosthogProperties = {
+        $exception_list: [
+            {
+                type: normalized.name,
+                value: normalized.message,
+                mechanism: { type: 'generic', handled: true, synthetic: normalized.synthetic },
+                stacktrace: { type: 'resolved', frames }
+            }
+        ],
+        // Legacy top-level fields — kept for dashboards/insights built before $exception_list.
+        $exception_type: normalized.name,
+        $exception_message: normalized.message,
+        ...(ctx.stage ? { $exception_source: ctx.stage, stage: ctx.stage } : {}),
+        ...(ctx.fingerprint ? { $exception_fingerprint: ctx.fingerprint } : {}),
+        ...(ctx.extra || {})
+    };
+
+    return properties;
+}
+
+export function capturePosthogException(
+    error: unknown,
+    ctx: PosthogExceptionContext
+): void {
+    void capturePosthogEvent('$exception', ctx.distinctId, buildExceptionProperties(error, ctx));
+}
+
