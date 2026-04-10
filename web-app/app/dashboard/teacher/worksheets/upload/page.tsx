@@ -80,6 +80,10 @@ interface StudentWorksheet {
 const DIRECT_UPLOAD_DEFAULT_CONCURRENCY = 4;
 const DIRECT_UPLOAD_MIN_CONCURRENCY = 2;
 const DIRECT_UPLOAD_MAX_ATTEMPTS = 3;
+const DIRECT_UPLOAD_ATTEMPT_TIMEOUT_MS = parseNumberEnv(
+    process.env.NEXT_PUBLIC_DIRECT_UPLOAD_ATTEMPT_TIMEOUT_MS,
+    45_000
+);
 const DIRECT_UPLOAD_IMAGE_COMPRESSION_ENABLED = process.env.NEXT_PUBLIC_DIRECT_UPLOAD_IMAGE_COMPRESSION !== 'false';
 const DIRECT_UPLOAD_IMAGE_MAX_LONG_EDGE = parseNumberEnv(process.env.NEXT_PUBLIC_DIRECT_UPLOAD_IMAGE_MAX_LONG_EDGE, 1800);
 const DIRECT_UPLOAD_IMAGE_COMPRESSION_MIN_BYTES = parseNumberEnv(
@@ -222,6 +226,19 @@ function getUploadRetryDelayMs(attempt: number): number {
     return 750 * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 250);
 }
 
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function getUploadFailureSummary(results: PromiseSettledResult<unknown>[]): string {
+    const firstRejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (!firstRejected) {
+        return 'Unknown upload error';
+    }
+
+    return getErrorMessage(firstRejected.reason);
+}
+
 async function uploadFileWithRetry(
     uploadUrl: string,
     file: File,
@@ -232,23 +249,39 @@ async function uploadFileWithRetry(
 
     for (let attempt = 1; attempt <= DIRECT_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
         let response: Response;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
         try {
+            if (controller) {
+                timeoutId = setTimeout(() => {
+                    controller.abort();
+                }, DIRECT_UPLOAD_ATTEMPT_TIMEOUT_MS);
+            }
+
             response = await fetch(uploadUrl, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': contentType
                 },
-                body: file
+                body: file,
+                signal: controller?.signal
             });
         } catch (error) {
-            lastError = error;
+            const errorName = error instanceof Error ? error.name : '';
+            lastError = errorName === 'AbortError'
+                ? new Error(`Storage upload timed out for page ${pageNumber}`)
+                : error;
 
             if (attempt < DIRECT_UPLOAD_MAX_ATTEMPTS) {
                 await sleep(getUploadRetryDelayMs(attempt));
             }
 
             continue;
+        } finally {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
         }
 
         if (response.ok) {
@@ -597,6 +630,7 @@ export default function UploadWorksheetPage() {
     const [submittedOn, setSubmittedOn] = useState<string>(new Date().toISOString().split('T')[0]);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [isOnline, setIsOnline] = useState(true);
+    const [isBatchUploading, setIsBatchUploading] = useState(false);
     const [studentWorksheets, setStudentWorksheets] = useState<StudentWorksheet[]>([]);
     const [worksheetStats, setWorksheetStats] = useState<WorksheetStats | null>(null);
 
@@ -1340,6 +1374,10 @@ export default function UploadWorksheetPage() {
         }
     };
     const handleBatchProcess = async () => {
+        if (isBatchUploading) {
+            return;
+        }
+
         if (!isOnline) {
             toast.error('You are offline. Reconnect to submit grading.');
             return;
@@ -1358,6 +1396,8 @@ export default function UploadWorksheetPage() {
                 ? { ...sw, isUploading: true }
                 : sw
         ));
+
+        setIsBatchUploading(true);
 
         try {
             const preparationTasks: DirectUploadPreparationTask[] = studentsWithFiles.flatMap((worksheet) => {
@@ -1514,6 +1554,23 @@ export default function UploadWorksheetPage() {
                 .map((result) => result.value);
             const uploadFailures = uploadResults.filter((result) => result.status === 'rejected').length;
 
+            if (uploadedImageIds.length === 0 && uploadTasks.length > 0) {
+                const failureSummary = getUploadFailureSummary(uploadResults);
+                window.localStorage.removeItem(getUploadSessionStorageKey(selectedClass, submittedOn));
+                posthog.capture('direct_class_upload_all_files_failed', {
+                    classId: selectedClass,
+                    submittedOn,
+                    worksheetsCount: studentsWithFiles.length,
+                    attemptedUploadFilesCount: uploadTasks.length,
+                    uploadFailures,
+                    failureSummary,
+                    uploadConcurrency,
+                    compressionEnabled: DIRECT_UPLOAD_IMAGE_COMPRESSION_ENABLED,
+                    ...compressionSummary
+                });
+                throw new Error(`No files reached storage. ${failureSummary}`);
+            }
+
             const finalized = await worksheetProcessingAPI.finalizeDirectUploadSession(
                 session.batchId,
                 uploadedImageIds
@@ -1597,7 +1654,9 @@ export default function UploadWorksheetPage() {
                     ? { ...sw, isUploading: false }
                     : sw
             ));
-            toast.error('Failed to process worksheets');
+            toast.error(getErrorMessage(error) || 'Failed to process worksheets');
+        } finally {
+            setIsBatchUploading(false);
         }
     };
 
@@ -2138,11 +2197,11 @@ export default function UploadWorksheetPage() {
                             <div className="hidden md:flex justify-end mt-4 space-x-3">
                                 <Button
                                     onClick={handleBatchProcess}
-                                    disabled={!isOnline || isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) ||
+                                    disabled={!isOnline || isSaving || isBatchUploading || sortedStudentWorksheets.some(ws => ws.isUploading) ||
                                         !studentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
                                     variant="secondary"
                                 >
-                                    AI Grade All {(() => {
+                                    {isBatchUploading ? 'Uploading...' : 'AI Grade All'} {(() => {
                                         const eligibleCount = studentWorksheets.filter(ws =>
                                             !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber
                                         ).length;
@@ -2169,12 +2228,12 @@ export default function UploadWorksheetPage() {
                                         </Button>
                                         <Button
                                             onClick={handleBatchProcess}
-                                            disabled={!isOnline || isSaving || sortedStudentWorksheets.some(ws => ws.isUploading) ||
+                                            disabled={!isOnline || isSaving || isBatchUploading || sortedStudentWorksheets.some(ws => ws.isUploading) ||
                                                 !studentWorksheets.some(ws => !ws.isAbsent && (ws.page1File || ws.page2File) && ws.worksheetNumber)}
                                             className="flex-1 h-12 text-sm font-medium"
                                             variant="secondary"
                                         >
-                                            AI Grade All
+                                            {isBatchUploading ? 'Uploading...' : 'AI Grade All'}
                                         </Button>
                                         <Button
                                             onClick={handleSaveAllChanges}
