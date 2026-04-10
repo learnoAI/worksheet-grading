@@ -35,6 +35,18 @@ interface GradingJobWithImages extends GradingJob {
     }[];
 }
 
+function getImageFilename(pageNumber: number, mimeType: string): string {
+    if (mimeType === 'image/png') {
+        return `page-${pageNumber}.png`;
+    }
+
+    if (mimeType === 'image/webp') {
+        return `page-${pageNumber}.webp`;
+    }
+
+    return `page-${pageNumber}.jpg`;
+}
+
 async function callPythonApi(
     url: string,
     tokenNo: string,
@@ -203,7 +215,7 @@ export async function executeGradingJob(
     for (const image of job.images) {
         const buffer = await downloadFromS3(image.s3Key, image.storageProvider === 'R2' ? 'r2' : 's3');
         files.push({
-            filename: `page-${image.pageNumber}.jpg`,
+            filename: getImageFilename(image.pageNumber, image.mimeType),
             contentType: image.mimeType,
             buffer
         });

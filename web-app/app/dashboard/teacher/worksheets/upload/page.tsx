@@ -80,11 +80,61 @@ interface StudentWorksheet {
 const DIRECT_UPLOAD_DEFAULT_CONCURRENCY = 4;
 const DIRECT_UPLOAD_MIN_CONCURRENCY = 2;
 const DIRECT_UPLOAD_MAX_ATTEMPTS = 3;
+const DIRECT_UPLOAD_IMAGE_COMPRESSION_ENABLED = process.env.NEXT_PUBLIC_DIRECT_UPLOAD_IMAGE_COMPRESSION !== 'false';
+const DIRECT_UPLOAD_IMAGE_MAX_LONG_EDGE = parseNumberEnv(process.env.NEXT_PUBLIC_DIRECT_UPLOAD_IMAGE_MAX_LONG_EDGE, 1800);
+const DIRECT_UPLOAD_IMAGE_COMPRESSION_MIN_BYTES = parseNumberEnv(
+    process.env.NEXT_PUBLIC_DIRECT_UPLOAD_IMAGE_COMPRESSION_MIN_BYTES,
+    750 * 1024
+);
+const DIRECT_UPLOAD_WEBP_QUALITY = parseNumberEnv(process.env.NEXT_PUBLIC_DIRECT_UPLOAD_WEBP_QUALITY, 0.82);
+const DIRECT_UPLOAD_JPEG_FALLBACK_QUALITY = parseNumberEnv(
+    process.env.NEXT_PUBLIC_DIRECT_UPLOAD_JPEG_FALLBACK_QUALITY,
+    0.84
+);
 
 type BrowserNetworkInformation = {
     effectiveType?: string;
     saveData?: boolean;
 };
+
+type DirectUploadCompressionMethod = 'skipped' | 'webp' | 'jpeg_fallback' | 'original_fallback';
+
+interface PreparedDirectUploadFile {
+    file: File;
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    originalFileName: string;
+    originalMimeType: string;
+    originalFileSize: number;
+    method: DirectUploadCompressionMethod;
+    compressionMs: number;
+    width?: number;
+    height?: number;
+    outputWidth?: number;
+    outputHeight?: number;
+    fallbackReason?: string;
+}
+
+interface DirectUploadPreparationTask {
+    worksheetKey: string;
+    pageNumber: number;
+    file: File;
+}
+
+interface LoadedImageElement {
+    image: HTMLImageElement;
+    release: () => void;
+}
+
+function parseNumberEnv(value: string | undefined, fallback: number): number {
+    if (!value) {
+        return fallback;
+    }
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function getBrowserConnection(): BrowserNetworkInformation | undefined {
     if (typeof navigator === 'undefined') {
@@ -131,6 +181,23 @@ function getDirectUploadConcurrency(): number {
     }
 
     return DIRECT_UPLOAD_DEFAULT_CONCURRENCY;
+}
+
+function getDirectUploadImagePreparationConcurrency(): number {
+    if (typeof navigator === 'undefined') {
+        return 1;
+    }
+
+    const navigatorWithDeviceMemory = navigator as Navigator & { deviceMemory?: number };
+    if (navigatorWithDeviceMemory.deviceMemory && navigatorWithDeviceMemory.deviceMemory <= 2) {
+        return 1;
+    }
+
+    if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) {
+        return 1;
+    }
+
+    return 2;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -191,6 +258,223 @@ async function uploadFileWithRetry(
     throw lastError instanceof Error
         ? lastError
         : new Error(`Storage upload failed for page ${pageNumber}`);
+}
+
+function supportsClientImageCompression(): boolean {
+    return (
+        typeof window !== 'undefined' &&
+        typeof document !== 'undefined' &&
+        typeof File !== 'undefined' &&
+        typeof URL !== 'undefined'
+    );
+}
+
+function getUploadFileBaseName(fileName: string): string {
+    const trimmed = fileName.trim() || 'worksheet-page';
+    const lastDot = trimmed.lastIndexOf('.');
+    return lastDot > 0 ? trimmed.slice(0, lastDot) : trimmed;
+}
+
+function getCompressedFileName(fileName: string, mimeType: string): string {
+    const extension = mimeType === 'image/webp' ? 'webp' : 'jpg';
+    return `${getUploadFileBaseName(fileName)}.${extension}`;
+}
+
+function getScaledDimensions(width: number, height: number): { width: number; height: number } {
+    const maxLongEdge = Math.max(1, DIRECT_UPLOAD_IMAGE_MAX_LONG_EDGE);
+    const longEdge = Math.max(width, height);
+
+    if (longEdge <= maxLongEdge) {
+        return { width, height };
+    }
+
+    const scale = maxLongEdge / longEdge;
+    return {
+        width: Math.max(1, Math.round(width * scale)),
+        height: Math.max(1, Math.round(height * scale))
+    };
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number): Promise<Blob | null> {
+    return new Promise((resolve) => {
+        canvas.toBlob(resolve, mimeType, quality);
+    });
+}
+
+function getUploadNowMs(): number {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+}
+
+async function loadImageElement(file: File): Promise<LoadedImageElement> {
+    const objectUrl = URL.createObjectURL(file);
+
+    const image = new Image();
+    image.decoding = 'async';
+
+    await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Browser could not decode image'));
+        };
+        image.src = objectUrl;
+    });
+
+    return {
+        image,
+        release: () => URL.revokeObjectURL(objectUrl)
+    };
+}
+
+function originalUploadFile(file: File, method: DirectUploadCompressionMethod, startedAt: number, fallbackReason?: string): PreparedDirectUploadFile {
+    return {
+        file,
+        fileName: file.name,
+        mimeType: file.type || 'image/jpeg',
+        fileSize: file.size,
+        originalFileName: file.name,
+        originalMimeType: file.type || 'application/octet-stream',
+        originalFileSize: file.size,
+        method,
+        compressionMs: Math.max(0, Math.round(getUploadNowMs() - startedAt)),
+        fallbackReason
+    };
+}
+
+async function prepareImageForDirectUpload(file: File): Promise<PreparedDirectUploadFile> {
+    const startedAt = getUploadNowMs();
+
+    if (!DIRECT_UPLOAD_IMAGE_COMPRESSION_ENABLED) {
+        return originalUploadFile(file, 'skipped', startedAt, 'disabled');
+    }
+
+    if (!supportsClientImageCompression()) {
+        return originalUploadFile(file, 'original_fallback', startedAt, 'unsupported_browser');
+    }
+
+    if (!file.type.startsWith('image/')) {
+        return originalUploadFile(file, 'original_fallback', startedAt, 'not_image');
+    }
+
+    if (file.type === 'image/svg+xml' || file.type === 'image/gif') {
+        return originalUploadFile(file, 'skipped', startedAt, 'unsupported_image_type');
+    }
+
+    if (file.size < DIRECT_UPLOAD_IMAGE_COMPRESSION_MIN_BYTES) {
+        return originalUploadFile(file, 'skipped', startedAt, 'below_size_threshold');
+    }
+
+    try {
+        const loadedImage = await loadImageElement(file);
+        const image = loadedImage.image;
+        const sourceWidth = image.naturalWidth || image.width;
+        const sourceHeight = image.naturalHeight || image.height;
+
+        try {
+            if (!sourceWidth || !sourceHeight) {
+                return originalUploadFile(file, 'original_fallback', startedAt, 'missing_dimensions');
+            }
+
+            const output = getScaledDimensions(sourceWidth, sourceHeight);
+            const canvas = document.createElement('canvas');
+            canvas.width = output.width;
+            canvas.height = output.height;
+
+            const context = canvas.getContext('2d', { alpha: false });
+            if (!context) {
+                return originalUploadFile(file, 'original_fallback', startedAt, 'canvas_context_unavailable');
+            }
+
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, output.width, output.height);
+            context.drawImage(image, 0, 0, output.width, output.height);
+
+            let blob = await canvasToBlob(canvas, 'image/webp', DIRECT_UPLOAD_WEBP_QUALITY);
+            let mimeType = blob?.type === 'image/webp' ? 'image/webp' : '';
+            let method: DirectUploadCompressionMethod = 'webp';
+
+            if (!blob || mimeType !== 'image/webp') {
+                blob = await canvasToBlob(canvas, 'image/jpeg', DIRECT_UPLOAD_JPEG_FALLBACK_QUALITY);
+                mimeType = blob?.type === 'image/jpeg' ? 'image/jpeg' : '';
+                method = 'jpeg_fallback';
+            }
+
+            if (!blob || !mimeType) {
+                return originalUploadFile(file, 'original_fallback', startedAt, 'canvas_to_blob_failed');
+            }
+
+            const shouldKeepOriginal =
+                blob.size >= file.size * 0.98 &&
+                output.width === sourceWidth &&
+                output.height === sourceHeight;
+
+            if (shouldKeepOriginal) {
+                return {
+                    ...originalUploadFile(file, 'skipped', startedAt, 'compressed_not_smaller'),
+                    width: sourceWidth,
+                    height: sourceHeight,
+                    outputWidth: output.width,
+                    outputHeight: output.height
+                };
+            }
+
+            const compressedFile = new File([blob], getCompressedFileName(file.name, mimeType), {
+                type: mimeType,
+                lastModified: file.lastModified
+            });
+
+            return {
+                file: compressedFile,
+                fileName: compressedFile.name,
+                mimeType,
+                fileSize: compressedFile.size,
+                originalFileName: file.name,
+                originalMimeType: file.type || 'application/octet-stream',
+                originalFileSize: file.size,
+                method,
+                compressionMs: Math.max(0, Math.round(getUploadNowMs() - startedAt)),
+                width: sourceWidth,
+                height: sourceHeight,
+                outputWidth: output.width,
+                outputHeight: output.height
+            };
+        } finally {
+            loadedImage.release();
+        }
+    } catch (error) {
+        const fallbackReason = error instanceof Error ? error.message : 'compression_failed';
+        return originalUploadFile(file, 'original_fallback', startedAt, fallbackReason);
+    }
+}
+
+function summarizePreparedUploadFiles(preparedFiles: PreparedDirectUploadFile[]) {
+    const originalBytes = preparedFiles.reduce((total, file) => total + file.originalFileSize, 0);
+    const uploadBytes = preparedFiles.reduce((total, file) => total + file.fileSize, 0);
+    const savedBytes = Math.max(0, originalBytes - uploadBytes);
+    const compressionMs = preparedFiles.reduce((total, file) => total + file.compressionMs, 0);
+
+    return {
+        filesCount: preparedFiles.length,
+        originalBytes,
+        uploadBytes,
+        savedBytes,
+        savedPercent: originalBytes > 0 ? Math.round((savedBytes / originalBytes) * 100) : 0,
+        webpCount: preparedFiles.filter((file) => file.method === 'webp').length,
+        jpegFallbackCount: preparedFiles.filter((file) => file.method === 'jpeg_fallback').length,
+        originalFallbackCount: preparedFiles.filter((file) => file.method === 'original_fallback').length,
+        skippedCount: preparedFiles.filter((file) => file.method === 'skipped').length,
+        compressionMs
+    };
+}
+
+function formatUploadBytes(bytes: number): string {
+    if (bytes >= 1024 * 1024) {
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    return `${Math.round(bytes / 1024)} KB`;
 }
 
 async function runWithConcurrency<T, R>(
@@ -856,11 +1140,27 @@ export default function UploadWorksheetPage() {
             formData.append('worksheet_name', worksheet.worksheetNumber.toString());
 
 
-            if (worksheet.page1File) {
-                formData.append('files', worksheet.page1File);
+            const preparedSingleFiles = await Promise.all(
+                [worksheet.page1File, worksheet.page2File]
+                    .filter((file): file is File => !!file)
+                    .map((file) => prepareImageForDirectUpload(file))
+            );
+            const singleCompressionSummary = summarizePreparedUploadFiles(preparedSingleFiles);
+
+            if (singleCompressionSummary.savedBytes > 256 * 1024) {
+                toast.info(`Optimized image upload by ${formatUploadBytes(singleCompressionSummary.savedBytes)}`);
             }
-            if (worksheet.page2File) {
-                formData.append('files', worksheet.page2File);
+
+            posthog.capture('individual_upload_images_prepared', {
+                classId: selectedClass,
+                submittedOn,
+                worksheetNumber: worksheet.worksheetNumber,
+                ...singleCompressionSummary,
+                compressionEnabled: DIRECT_UPLOAD_IMAGE_COMPRESSION_ENABLED
+            });
+
+            for (const preparedFile of preparedSingleFiles) {
+                formData.append('files', preparedFile.file, preparedFile.fileName);
             }
 
 
@@ -1057,34 +1357,100 @@ export default function UploadWorksheetPage() {
         ));
 
         try {
-            toast.info(`Uploading ${studentsWithFiles.length} worksheet${studentsWithFiles.length !== 1 ? 's' : ''} directly to storage`);
-
-            const fileLookup = new Map<string, Map<number, File>>();
-            const uploadRequest = studentsWithFiles.map((worksheet) => {
-                const files: { pageNumber: number; fileName: string; mimeType: string; fileSize: number }[] = [];
-                const pageFiles = new Map<number, File>();
+            const preparationTasks: DirectUploadPreparationTask[] = studentsWithFiles.flatMap((worksheet) => {
+                const worksheetKey = getWorksheetUploadKey(worksheet);
+                const tasks: DirectUploadPreparationTask[] = [];
 
                 if (worksheet.page1File) {
-                    files.push({
+                    tasks.push({
+                        worksheetKey,
                         pageNumber: 1,
-                        fileName: worksheet.page1File.name,
-                        mimeType: worksheet.page1File.type || 'image/jpeg',
-                        fileSize: worksheet.page1File.size
+                        file: worksheet.page1File
                     });
-                    pageFiles.set(1, worksheet.page1File);
                 }
 
                 if (worksheet.page2File) {
-                    files.push({
+                    tasks.push({
+                        worksheetKey,
                         pageNumber: 2,
-                        fileName: worksheet.page2File.name,
-                        mimeType: worksheet.page2File.type || 'image/jpeg',
-                        fileSize: worksheet.page2File.size
+                        file: worksheet.page2File
                     });
-                    pageFiles.set(2, worksheet.page2File);
                 }
 
-                fileLookup.set(getWorksheetUploadKey(worksheet), pageFiles);
+                return tasks;
+            });
+
+            toast.info(`Preparing ${preparationTasks.length} image${preparationTasks.length !== 1 ? 's' : ''} for faster upload`);
+
+            const preparedResults = await runWithConcurrency(
+                preparationTasks,
+                getDirectUploadImagePreparationConcurrency(),
+                async (task) => ({
+                    ...task,
+                    preparedFile: await prepareImageForDirectUpload(task.file)
+                })
+            );
+
+            const failedPreparation = preparedResults.find((result) => result.status === 'rejected');
+            if (failedPreparation?.status === 'rejected') {
+                throw failedPreparation.reason instanceof Error
+                    ? failedPreparation.reason
+                    : new Error('Failed to prepare one or more images');
+            }
+
+            const preparedUploads = preparedResults
+                .filter((result): result is PromiseFulfilledResult<DirectUploadPreparationTask & { preparedFile: PreparedDirectUploadFile }> => result.status === 'fulfilled')
+                .map((result) => result.value);
+
+            const fileLookup = new Map<string, Map<number, PreparedDirectUploadFile>>();
+            for (const upload of preparedUploads) {
+                const pageFiles = fileLookup.get(upload.worksheetKey) || new Map<number, PreparedDirectUploadFile>();
+                pageFiles.set(upload.pageNumber, upload.preparedFile);
+                fileLookup.set(upload.worksheetKey, pageFiles);
+            }
+
+            const compressionSummary = summarizePreparedUploadFiles(
+                preparedUploads.map((upload) => upload.preparedFile)
+            );
+
+            if (compressionSummary.savedBytes > 256 * 1024) {
+                toast.info(`Optimized images by ${formatUploadBytes(compressionSummary.savedBytes)} before upload`);
+            }
+
+            posthog.capture('direct_class_upload_images_prepared', {
+                classId: selectedClass,
+                submittedOn,
+                worksheetsCount: studentsWithFiles.length,
+                compressionEnabled: DIRECT_UPLOAD_IMAGE_COMPRESSION_ENABLED,
+                preparationConcurrency: getDirectUploadImagePreparationConcurrency(),
+                ...compressionSummary
+            });
+
+            toast.info(`Uploading ${studentsWithFiles.length} worksheet${studentsWithFiles.length !== 1 ? 's' : ''} directly to storage`);
+
+            const uploadRequest = studentsWithFiles.map((worksheet) => {
+                const files: { pageNumber: number; fileName: string; mimeType: string; fileSize: number }[] = [];
+                const pageFiles = fileLookup.get(getWorksheetUploadKey(worksheet));
+
+                const page1File = pageFiles?.get(1);
+                if (page1File) {
+                    files.push({
+                        pageNumber: 1,
+                        fileName: page1File.fileName,
+                        mimeType: page1File.mimeType,
+                        fileSize: page1File.fileSize
+                    });
+                }
+
+                const page2File = pageFiles?.get(2);
+                if (page2File) {
+                    files.push({
+                        pageNumber: 2,
+                        fileName: page2File.fileName,
+                        mimeType: page2File.mimeType,
+                        fileSize: page2File.fileSize
+                    });
+                }
 
                 return {
                     studentId: worksheet.studentId,
@@ -1131,8 +1497,8 @@ export default function UploadWorksheetPage() {
 
                     await uploadFileWithRetry(
                         slot.uploadUrl,
-                        file,
-                        file.type || slot.mimeType || 'image/jpeg',
+                        file.file,
+                        file.mimeType || slot.mimeType || 'image/jpeg',
                         slot.pageNumber
                     );
 
@@ -1207,7 +1573,9 @@ export default function UploadWorksheetPage() {
                 pendingCount: finalized.pending.length,
                 failedCount: finalized.failed.length,
                 uploadFailures,
-                uploadConcurrency
+                uploadConcurrency,
+                compressionEnabled: DIRECT_UPLOAD_IMAGE_COMPRESSION_ENABLED,
+                ...compressionSummary
             });
         } catch (error) {
             console.error('Direct batch upload failed:', error);
