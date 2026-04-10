@@ -1,11 +1,30 @@
 import fetch from 'node-fetch';
+import os from 'os';
 import config from '../config/env';
+import { apiLogger } from './logger';
 
 type PosthogProperties = Record<string, unknown>;
 
 const DEFAULT_POSTHOG_HOST = 'https://us.i.posthog.com';
 const POSTHOG_CAPTURE_PATH = '/capture/';
 const POSTHOG_EVENT_NAME = 'grading_pipeline';
+const SERVICE_NAME = 'worksheet-grading-backend';
+
+// Computed once per process — cheap constants stamped on every event so
+// dashboards can filter by env/release/host without each caller passing them.
+const PROCESS_METADATA: PosthogProperties = {
+    service: SERVICE_NAME,
+    environment: process.env.NODE_ENV || 'unknown',
+    release: process.env.GIT_SHA || process.env.RELEASE || 'unknown',
+    hostname: os.hostname()
+};
+
+// Module-level counter so later phases can expose transport health (e.g. via /health).
+let transportErrorCount = 0;
+
+export function getPosthogTransportErrorCount(): number {
+    return transportErrorCount;
+}
 
 function normalizeHost(rawHost: string): string {
     return rawHost.replace(/\/+$/, '');
@@ -54,6 +73,7 @@ export async function capturePosthogEvent(
         distinct_id: distinctId,
         properties: sanitizeProperties({
             runtime: 'backend',
+            ...PROCESS_METADATA,
             ...properties
         })
     };
@@ -66,8 +86,14 @@ export async function capturePosthogEvent(
             },
             body: JSON.stringify(payload)
         });
-    } catch {
-        // Telemetry is best effort; never block grading flow.
+    } catch (err) {
+        transportErrorCount += 1;
+        // Telemetry is best effort; log but never block grading flow.
+        apiLogger.warn('posthog_capture_failed', {
+            event,
+            error: err instanceof Error ? err.message : String(err),
+            transportErrorCount
+        });
     }
 }
 
