@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 import os from 'os';
 import config from '../config/env';
+import { requestContextStore } from '../middleware/requestContext';
 import { apiLogger } from './logger';
 
 type PosthogProperties = Record<string, unknown>;
@@ -67,6 +68,11 @@ export async function capturePosthogEvent(
     }
 
     const host = normalizeHost(config.posthog.host || DEFAULT_POSTHOG_HOST);
+    // When this capture happens inside an Express request, pick up the
+    // request-scoped context (requestId, sessionId, userId) from AsyncLocalStorage
+    // so every downstream event is correlatable without threading ids manually.
+    // Undefined fields are filtered inside sanitizeProperties.
+    const storeCtx = requestContextStore.getStore();
     const payload = {
         api_key: apiKey,
         event,
@@ -74,6 +80,13 @@ export async function capturePosthogEvent(
         properties: sanitizeProperties({
             runtime: 'backend',
             ...PROCESS_METADATA,
+            ...(storeCtx
+                ? {
+                      requestId: storeCtx.requestId,
+                      sessionId: storeCtx.sessionId,
+                      userId: storeCtx.userId
+                  }
+                : {}),
             ...properties
         })
     };

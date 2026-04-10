@@ -4,6 +4,7 @@ import config from '../config/env';
 import { summarizeRequestBodyShape } from '../services/gradingDiagnostics';
 import { apiLogger } from '../services/logger';
 import { capturePosthogEvent } from '../services/posthogService';
+import { runWithRequestContext } from './requestContext';
 
 function getDurationMs(startedAt: [number, number]): number {
     const [seconds, nanoseconds] = process.hrtime(startedAt);
@@ -132,5 +133,8 @@ export function requestDiagnostics(req: Request, res: Response, next: NextFuncti
         }
     });
 
-    next();
+    // Run the downstream chain inside an AsyncLocalStorage context so any code
+    // spawned by this request (handlers, workers, PostHog captures) can inherit
+    // the requestId without every call site threading it explicitly.
+    runWithRequestContext({ requestId }, () => next());
 }
