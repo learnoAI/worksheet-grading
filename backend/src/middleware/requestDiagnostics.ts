@@ -6,6 +6,11 @@ import { apiLogger } from '../services/logger';
 import { capturePosthogEvent } from '../services/posthogService';
 import { runWithRequestContext } from './requestContext';
 
+// Sample rate for 4xx responses — full telemetry on 4xx is noisy in prod
+// because of legitimate client validation, so we record a representative slice
+// and rely on PostHog trends to catch spikes from a broken client release.
+const CLIENT_ERROR_SAMPLE_RATE = 0.1;
+
 function getDurationMs(startedAt: [number, number]): number {
     const [seconds, nanoseconds] = process.hrtime(startedAt);
     return Math.round((seconds * 1000) + (nanoseconds / 1_000_000));
@@ -102,12 +107,27 @@ export function requestDiagnostics(req: Request, res: Response, next: NextFuncti
         const statusCode = aborted ? 499 : res.statusCode;
         const isSlow = durationMs >= config.diagnostics.slowRequestMs;
         const isServerError = statusCode >= 500;
+        const isClientError = !aborted && statusCode >= 400 && statusCode < 500;
 
-        if (!aborted && !isServerError && !isSlow) {
+        if (!aborted && !isServerError && !isSlow && !isClientError) {
             return;
         }
 
         const payload = buildDiagnosticsPayload(req, requestId, statusCode, durationMs, aborted);
+
+        // 4xx responses are sampled (10%) so legitimate client-side validation
+        // errors don't drown the telemetry stream, while spikes driven by a
+        // broken client release still remain visible in PostHog.
+        if (isClientError) {
+            if (Math.random() < CLIENT_ERROR_SAMPLE_RATE) {
+                void capturePosthogEvent('backend_request_client_error', requestId, {
+                    ...payload,
+                    sampleRate: CLIENT_ERROR_SAMPLE_RATE
+                });
+            }
+            return;
+        }
+
         const message = aborted
             ? 'Request aborted before response completed'
             : isServerError
