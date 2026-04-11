@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { gradingJobsAPI, GradingJobSummary, GradingJob } from '@/lib/api/gradingJobs';
+import { useQuery } from '@tanstack/react-query';
+import { gradingJobsAPI } from '@/lib/api/gradingJobs';
 import { Loader2, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 
 interface GradingJobsStatusProps {
@@ -10,30 +10,19 @@ interface GradingJobsStatusProps {
 }
 
 export function GradingJobsStatus({ className = '', refreshTrigger = 0 }: GradingJobsStatusProps) {
-    const [summary, setSummary] = useState<GradingJobSummary | null>(null);
-    const [activeJobs, setActiveJobs] = useState<GradingJob[]>([]);
-    const [loading, setLoading] = useState(true);
-
-    const fetchData = useCallback(async () => {
-        try {
-            const response = await gradingJobsAPI.getTeacherJobsToday();
-            setSummary(response.summary);
-            setActiveJobs(response.jobs.filter(j => j.status === 'PROCESSING' || j.status === 'QUEUED').slice(0, 3));
-        } catch (e) {
-            console.error('Failed to fetch grading jobs:', e);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 5000);
-        return () => clearInterval(interval);
-    }, [fetchData, refreshTrigger]);
+    const jobsQuery = useQuery({
+        queryKey: ['teacherJobsToday', refreshTrigger],
+        queryFn: gradingJobsAPI.getTeacherJobsToday,
+        refetchInterval: 5000,
+        staleTime: 0
+    });
+    const summary = jobsQuery.data?.summary || null;
+    const activeJobs = jobsQuery.data?.jobs
+        .filter(j => j.status === 'PROCESSING' || j.status === 'QUEUED')
+        .slice(0, 3) || [];
 
     // Don't show if no jobs today
-    if (!loading && summary?.total === 0) {
+    if (!jobsQuery.isLoading && summary?.total === 0) {
         return null;
     }
 

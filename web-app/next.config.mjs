@@ -7,7 +7,7 @@ const apiOrigin = (() => {
 const nextConfig = {
   experimental: {
     instrumentationHook: false,
-    optimizePackageImports: [],
+    optimizePackageImports: ['lucide-react'],
   },
 
   async headers() {
