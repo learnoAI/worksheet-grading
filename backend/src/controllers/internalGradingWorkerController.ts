@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
+import config from '../config/env';
 import {
     acquireGradingJobLease,
     markGradingJobFailed,
@@ -13,6 +14,17 @@ import { logError } from '../services/errorLogService';
 import { aiGradingLogger } from '../services/logger';
 import { captureGradingPipelineEvent } from '../services/posthogService';
 import { GradingJobStatus } from '@prisma/client';
+
+// Gap between consecutive heartbeats beyond which we suspect a GC pause or
+// network stall. 2× the configured interval gives a healthy worker enough
+// jitter budget while still catching real drift before it manifests as a
+// lease-lost failure downstream.
+const HEARTBEAT_DRIFT_MULTIPLIER = 2;
+
+// Threshold for flagging worker↔DB wall-clock disagreement. NTP-synced hosts
+// should be well under a second; 30s is the point at which lease expiry and
+// staleness calculations start producing wrong decisions.
+const CLOCK_SKEW_THRESHOLD_MS = 30_000;
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -46,6 +58,29 @@ function getGradingResponseFromBody(body: unknown): GradingApiResponse | null {
 export async function acquireJob(req: Request, res: Response): Promise<Response> {
     const { jobId } = req.params;
     captureGradingPipelineEvent('worker_acquire_requested', jobId, { jobId });
+
+    // Best-effort worker↔DB wall-clock comparison. Run once per acquire since
+    // acquires are not frequent; a real NTP-synced host is well under a second.
+    // A single failed $queryRaw must never prevent the job from acquiring.
+    try {
+        const dbNowRows = await prisma.$queryRaw<{ now: Date }[]>`SELECT NOW() AS now`;
+        const dbNow = dbNowRows[0]?.now;
+        if (dbNow) {
+            const workerNow = new Date();
+            const skewMs = Math.abs(workerNow.getTime() - dbNow.getTime());
+            if (skewMs > CLOCK_SKEW_THRESHOLD_MS) {
+                captureGradingPipelineEvent('worker_clock_skew', jobId, {
+                    jobId,
+                    skewMs,
+                    thresholdMs: CLOCK_SKEW_THRESHOLD_MS,
+                    workerNowIso: workerNow.toISOString(),
+                    dbNowIso: dbNow.toISOString()
+                });
+            }
+        }
+    } catch {
+        // Skew detection is best-effort; swallow to keep acquires resilient.
+    }
 
     try {
         const leaseId = await acquireGradingJobLease(jobId);
@@ -128,6 +163,20 @@ export async function heartbeat(req: Request, res: Response): Promise<Response> 
         return res.status(400).json({ success: false, error: 'leaseId is required' });
     }
 
+    // Read the previous heartbeat time before touching so we can detect drift
+    // caused by GC pauses or network stalls. Missing the pre-read is not
+    // critical — we'll just skip drift detection for that beat.
+    let previousHeartbeatAt: Date | null = null;
+    try {
+        const existing = await prisma.gradingJob.findUnique({
+            where: { id: jobId },
+            select: { lastHeartbeatAt: true }
+        });
+        previousHeartbeatAt = existing?.lastHeartbeatAt ?? null;
+    } catch {
+        // best effort — drift detection must never block heartbeats
+    }
+
     try {
         const updated = await touchGradingJobHeartbeat(jobId, leaseId);
         if (!updated) {
@@ -138,6 +187,24 @@ export async function heartbeat(req: Request, res: Response): Promise<Response> 
             });
             return res.status(409).json({ success: false, error: 'Lease mismatch' });
         }
+
+        // Compare the gap between this beat and the previous one against the
+        // configured expectation. Only meaningful after the first beat and for
+        // the non-initial phase — the initial beat has nothing to compare to.
+        if (previousHeartbeatAt && phase !== 'initial') {
+            const gapMs = Date.now() - previousHeartbeatAt.getTime();
+            const expectedIntervalMs = config.grading.heartbeatIntervalMs;
+            if (gapMs > expectedIntervalMs * HEARTBEAT_DRIFT_MULTIPLIER) {
+                captureGradingPipelineEvent('worker_heartbeat_drift', jobId, {
+                    jobId,
+                    leaseId,
+                    gapMs,
+                    expectedIntervalMs,
+                    driftMultiplier: HEARTBEAT_DRIFT_MULTIPLIER
+                });
+            }
+        }
+
         if (phase === 'initial') {
             captureGradingPipelineEvent('worker_heartbeat_initial', jobId, {
                 jobId,
