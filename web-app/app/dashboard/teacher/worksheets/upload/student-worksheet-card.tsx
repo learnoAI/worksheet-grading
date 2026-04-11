@@ -56,12 +56,23 @@ interface StudentWorksheet {
     isAdditional?: boolean;
 }
 
+type StudentWorksheetUpdateField =
+    | 'isAbsent'
+    | 'isIncorrectGrade'
+    | 'worksheetNumber'
+    | 'grade'
+    | 'wrongQuestionNumbers'
+    | 'page1File'
+    | 'page2File';
+
+type StudentWorksheetUpdateValue = StudentWorksheet[StudentWorksheetUpdateField];
+
 interface StudentWorksheetCardProps {
     worksheets: StudentWorksheet[]; // Array of worksheets for this student
     studentId: string;
     studentName: string;
     tokenNumber: string;
-    onUpdate: (worksheetEntryId: string, field: string, value: any) => void;
+    onUpdate: (worksheetEntryId: string, field: StudentWorksheetUpdateField, value: StudentWorksheetUpdateValue) => void;
     onPageFileChange?: (studentId: string, pageNumber: number, file: File | null, worksheetEntryId: string) => void;
     onUpload: (worksheet: StudentWorksheet) => void;
     onSave: (worksheet: StudentWorksheet) => void;
@@ -194,6 +205,8 @@ export function StudentWorksheetCard({
     const displayedWrongQuestionNumbers = worksheet.wrongQuestionNumbers !== undefined
         ? worksheet.wrongQuestionNumbers
         : getWrongQuestionNumbersFromGrading();
+    const hasPage1Preview = Boolean(page1Preview);
+    const hasPage2Preview = Boolean(page2Preview);
 
     const handlePageFileUpload = (pageNumber: number) => {
         const input = document.createElement('input');
@@ -403,11 +416,11 @@ export function StudentWorksheetCard({
                 <div className="space-y-1">
                     <Label className="text-xs md:text-sm font-medium">Worksheet Pages</Label>
                     <div className="grid grid-cols-2 gap-2 md:gap-3">
-                        <div className={`border border-dashed rounded-lg p-2 md:p-3 text-center transition-colors ${worksheet.page1File ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-gray-50'
+                        <div className={`border border-dashed rounded-lg p-2 md:p-3 text-center transition-colors ${hasPage1Preview ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-gray-50'
                             } ${worksheet.isAbsent ? 'opacity-50' : ''}`}>
                             <div className="space-y-1 md:space-y-2">
                                 <div className="text-xs md:text-sm font-medium text-gray-700">Page 1</div>
-                                {worksheet.page1File ? (
+                                {hasPage1Preview ? (
                                     <div className="space-y-1 md:space-y-2">
                                         <div className="relative w-full h-16 md:h-24 bg-gray-100 rounded overflow-hidden">
                                             {page1Preview ? (
@@ -421,7 +434,7 @@ export function StudentWorksheetCard({
                                             )}
                                         </div>
                                         <div className="text-xs text-green-600">
-                                            ✓ Uploaded
+                                            {worksheet.page1File ? '✓ Uploaded' : 'Saved image'}
                                         </div>
                                     </div>
                                 ) : (
@@ -452,11 +465,11 @@ export function StudentWorksheetCard({
                             </div>
                         </div>
 
-                        <div className={`border border-dashed rounded-lg p-2 md:p-3 text-center transition-colors ${worksheet.page2File ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-gray-50'
+                        <div className={`border border-dashed rounded-lg p-2 md:p-3 text-center transition-colors ${hasPage2Preview ? 'border-green-300 bg-green-50' : 'border-gray-300 bg-gray-50'
                             } ${worksheet.isAbsent ? 'opacity-50' : ''}`}>
                             <div className="space-y-1 md:space-y-2">
                                 <div className="text-xs md:text-sm font-medium text-gray-700">Page 2</div>
-                                {worksheet.page2File ? (
+                                {hasPage2Preview ? (
                                     <div className="space-y-1 md:space-y-2">
                                         <div className="relative w-full h-16 md:h-24 bg-gray-100 rounded overflow-hidden">
                                             {page2Preview ? (
@@ -470,7 +483,7 @@ export function StudentWorksheetCard({
                                             )}
                                         </div>
                                         <div className="text-xs text-green-600">
-                                            ✓ Uploaded
+                                            {worksheet.page2File ? '✓ Uploaded' : 'Saved image'}
                                         </div>
                                     </div>
                                 ) : (
@@ -496,7 +509,8 @@ export function StudentWorksheetCard({
                                     >
                                         <UploadIcon size={10} className="mr-1" />
                                         Upload
-                                    </Button>                                    </div>
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     </div>
