@@ -8,6 +8,15 @@ import {
 import { runGradingJob } from '../services/gradingJobRunner';
 import { captureGradingPipelineEvent } from '../services/posthogService';
 
+// Message-level thresholds for new telemetry events.
+// A 60s lag means the queue is absorbing more work than the consumer drains
+// and is the earliest signal of backpressure before SLO breach.
+const LAG_DETECTED_THRESHOLD_MS = 60_000;
+// Cloudflare Queues attempts counter (1-based). We flag a message as poison
+// the first time attempts exceeds this threshold so dashboards can split
+// "flaky once" from "will never succeed".
+const POISON_MESSAGE_ATTEMPTS_THRESHOLD = 3;
+
 async function runWithConcurrency<T>(
     items: T[],
     limit: number,
@@ -51,8 +60,35 @@ async function processMessage(message: PulledQueueMessage): Promise<boolean> {
 
     captureGradingPipelineEvent('pull_worker_message_processing_started', parsed.jobId, {
         jobId: parsed.jobId,
-        messageId: message.id
+        messageId: message.id,
+        attempts: message.attempts
     });
+
+    // Lag = time between the producer enqueuing and the consumer picking up.
+    // A spike here precedes every SLO breach we've ever had, so catch it early.
+    const enqueuedAtMs = Date.parse(parsed.enqueuedAt);
+    if (Number.isFinite(enqueuedAtMs)) {
+        const lagMs = Date.now() - enqueuedAtMs;
+        if (lagMs >= LAG_DETECTED_THRESHOLD_MS) {
+            captureGradingPipelineEvent('pull_worker_lag_detected', parsed.jobId, {
+                jobId: parsed.jobId,
+                messageId: message.id,
+                lagMs,
+                thresholdMs: LAG_DETECTED_THRESHOLD_MS
+            });
+        }
+    }
+
+    // Poison = same message retried past the DLQ threshold. Emit once per
+    // crossing so alerting isn't flooded while the queue still holds the msg.
+    if (message.attempts >= POISON_MESSAGE_ATTEMPTS_THRESHOLD) {
+        captureGradingPipelineEvent('pull_worker_poison_message', parsed.jobId, {
+            jobId: parsed.jobId,
+            messageId: message.id,
+            attempts: message.attempts,
+            thresholdAttempts: POISON_MESSAGE_ATTEMPTS_THRESHOLD
+        });
+    }
 
     const result = await runGradingJob(parsed.jobId);
 

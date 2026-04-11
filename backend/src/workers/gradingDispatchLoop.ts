@@ -150,6 +150,13 @@ export function startGradingDispatchLoop(): void {
                 { error: error instanceof Error ? error.message : 'Unknown error' },
                 error instanceof Error ? error : undefined
             );
+            // A silently-dead dispatch loop is the single worst failure mode in
+            // this queue system — every queued job stalls. Emit an explicit
+            // event so the first crash is alertable, not just a buried log line.
+            captureGradingPipelineEvent('dispatch_loop_crashed', 'dispatch-loop', {
+                errorName: error instanceof Error ? error.name : 'UnknownError',
+                errorMessage: error instanceof Error ? error.message : String(error)
+            });
         } finally {
             running = false;
         }
