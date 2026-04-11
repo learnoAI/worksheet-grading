@@ -1,15 +1,16 @@
-import express from 'express';
+import express, { NextFunction, Request, RequestHandler, Response } from 'express';
 import { body, query } from 'express-validator';
 import { auth, authorizeRoles } from '../middleware/utils';
 import { asHandler } from '../middleware/utils';
 import { UserRole } from '@prisma/client';
-import multer from 'multer';
+import multer, { MulterError } from 'multer';
 import {
     createDirectUploadSession,
     finalizeDirectUploadSession,
     getDirectUploadSession,
     processWorksheets
 } from '../controllers/worksheetProcessingController';
+import { capturePosthogEvent } from '../services/posthogService';
 
 const router = express.Router();
 
@@ -28,6 +29,45 @@ const upload = multer({
         }
     }
 });
+
+// Wraps a multer middleware so any rejection (size, count, mime, other) is
+// captured in PostHog before the error continues to the global Express error
+// handler. Behaviour is identical on success — next() runs exactly once.
+function withUploadTelemetry(middleware: RequestHandler): RequestHandler {
+    return (req: Request, res: Response, next: NextFunction) => {
+        middleware(req, res, (err?: unknown) => {
+            if (!err) {
+                return next();
+            }
+
+            let reason: 'size' | 'count' | 'mime' | 'multer_other' | 'unknown';
+            let multerCode: string | null = null;
+            if (err instanceof MulterError) {
+                multerCode = err.code;
+                if (err.code === 'LIMIT_FILE_SIZE') {
+                    reason = 'size';
+                } else if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
+                    reason = 'count';
+                } else {
+                    reason = 'multer_other';
+                }
+            } else if (err instanceof Error && err.message === 'Only image files are allowed') {
+                reason = 'mime';
+            } else {
+                reason = 'unknown';
+            }
+
+            void capturePosthogEvent('image_upload_rejected', req.get('x-request-id') || 'unknown', {
+                reason,
+                multerCode,
+                path: req.originalUrl || req.url,
+                errorMessage: err instanceof Error ? err.message : String(err)
+            });
+
+            return next(err);
+        });
+    };
+}
 
 // Process worksheets through Python API
 router.post(
@@ -54,7 +94,7 @@ router.post(
 router.post(
     '/process',
     auth,
-    upload.array('files', 10), // Allow up to 10 images with field name 'files'
+    withUploadTelemetry(upload.array('files', 10)), // Allow up to 10 images with field name 'files'
     [
         body('token_no').notEmpty().withMessage('Token number is required'),
         body('worksheet_name').notEmpty().withMessage('Worksheet name is required')
