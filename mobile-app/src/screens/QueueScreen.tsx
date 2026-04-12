@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -17,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { apiClient } from '../api/client';
 import { DatePicker } from '../components/DatePicker';
 import { useGradingJobs } from '../hooks/useGradingJobs';
-import { colors, fontSize, spacing, borderRadius } from '../theme';
+import { colors, fontSize, spacing, borderRadius, cardShadow, androidRipple } from '../theme';
 import { QueueWorksheet, TeacherClass, User } from '../types';
 import { toDateInputValue } from '../utils/date';
 import {
@@ -44,6 +45,16 @@ const STATUS_DISPLAY: Record<string, { label: string; color: string; bg: string 
   processing: { label: 'Processing', color: colors.primary, bg: colors.primaryLight },
   completed: { label: 'Done', color: colors.green, bg: colors.greenLight },
   failed: { label: 'Failed', color: colors.red, bg: colors.redLight },
+};
+
+const STATUS_ACCENT: Record<string, string> = {
+  queued: colors.amber,
+  uploading: colors.primary,
+  uploaded: colors.primary,
+  grading_queued: colors.primary,
+  processing: colors.primary,
+  completed: colors.green,
+  failed: colors.red,
 };
 
 export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
@@ -239,7 +250,7 @@ export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
 
         {/* Text filter */}
         <View style={styles.filterContainer}>
-          <Text style={styles.filterIcon}>🔍</Text>
+          <Ionicons name="search" size={16} color={colors.gray400} style={{ marginRight: spacing.sm }} />
           <TextInput
             style={styles.filterInput}
             placeholder="Search name or token"
@@ -267,10 +278,16 @@ export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
           }
           renderItem={({ item }) => {
             const statusInfo = STATUS_DISPLAY[item.status] || STATUS_DISPLAY.queued;
+            const accentColor = STATUS_ACCENT[item.status] || colors.amber;
             return (
               <Pressable
-                style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
+                style={({ pressed }) => [
+                  styles.card,
+                  { borderLeftWidth: 4, borderLeftColor: accentColor },
+                  Platform.OS === 'ios' && pressed && styles.pressed,
+                ]}
                 onPress={() => onNavigateToStudent?.(item.studentId, item.classId, item.submittedOn)}
+                android_ripple={androidRipple}
               >
                 <View style={styles.cardHeader}>
                   <View style={styles.cardInfo}>
@@ -301,26 +318,47 @@ export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
 
                 <View style={styles.pagesRow}>
                   {item.pages.map((page) => (
-                    <Text
-                      key={page.id}
-                      style={[
-                        styles.pageStatus,
-                        page.uploadStatus === 'uploaded' && styles.pageUploaded,
-                        page.uploadStatus === 'failed' && styles.pageFailed,
-                      ]}
-                    >
-                      P{page.pageNumber}: {page.uploadStatus}
-                    </Text>
+                    <View key={page.id} style={styles.pageStatusRow}>
+                      <View
+                        style={[
+                          styles.statusDot,
+                          {
+                            backgroundColor:
+                              page.uploadStatus === 'uploaded'
+                                ? colors.green
+                                : page.uploadStatus === 'failed'
+                                  ? colors.red
+                                  : colors.gray300,
+                          },
+                        ]}
+                      />
+                      <Text style={styles.pageStatusLabel}>P{page.pageNumber}</Text>
+                    </View>
                   ))}
                 </View>
 
                 <View style={styles.cardActions}>
                   {item.status === 'failed' && (
-                    <Pressable style={styles.retryButton} onPress={() => handleRetry(item.localId)}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.retryButton,
+                        Platform.OS === 'ios' && pressed && styles.pressed,
+                      ]}
+                      onPress={() => handleRetry(item.localId)}
+                      android_ripple={androidRipple}
+                    >
+                      <Ionicons name="refresh" size={14} color={colors.amber} />
                       <Text style={styles.retryText}>Retry</Text>
                     </Pressable>
                   )}
-                  <Pressable style={styles.discardButton} onPress={() => handleDiscard(item.localId)}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.discardButton,
+                      Platform.OS === 'ios' && pressed && styles.pressed,
+                    ]}
+                    onPress={() => handleDiscard(item.localId)}
+                    android_ripple={androidRipple}
+                  >
                     <Text style={styles.discardText}>Discard</Text>
                   </Pressable>
                 </View>
@@ -357,7 +395,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xxl,
     fontWeight: '700',
     color: colors.gray900,
-    letterSpacing: -0.3,
+    letterSpacing: -0.5,
   },
   processButton: {
     backgroundColor: colors.primary,
@@ -442,10 +480,6 @@ const styles = StyleSheet.create({
     borderRadius: Platform.select({ ios: 10, android: borderRadius.md }),
     paddingHorizontal: spacing.md,
   },
-  filterIcon: {
-    fontSize: 14,
-    marginRight: spacing.sm,
-  },
   filterInput: {
     flex: 1,
     fontSize: fontSize.md,
@@ -463,15 +497,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     borderRadius: borderRadius.xl,
     padding: spacing.lg,
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.black,
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 3,
-      },
-      android: { elevation: 1 },
-    }),
+    overflow: 'hidden',
+    ...cardShadow,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -516,15 +543,19 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.sm,
   },
-  pageStatus: {
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  pageStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  pageStatusLabel: {
     fontSize: fontSize.xs,
     color: colors.gray500,
-  },
-  pageUploaded: {
-    color: colors.green,
-  },
-  pageFailed: {
-    color: colors.red,
   },
   cardActions: {
     flexDirection: 'row',
@@ -532,10 +563,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.amberLight,
+    overflow: 'hidden',
   },
   retryText: {
     fontSize: fontSize.xs,
@@ -544,14 +579,17 @@ const styles = StyleSheet.create({
   },
   discardButton: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
-    backgroundColor: colors.redLight,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.gray50,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+    overflow: 'hidden',
   },
   discardText: {
     fontSize: fontSize.xs,
     fontWeight: '600',
-    color: colors.red,
+    color: colors.gray500,
   },
   emptyState: {
     alignItems: 'center',
@@ -563,5 +601,8 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.4,
+  },
+  pressed: {
+    transform: [{ scale: 0.98 }],
   },
 });
