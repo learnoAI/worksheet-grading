@@ -57,12 +57,12 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
     borderRadius: borderRadius.full,
   },
   chipText: {
-    fontSize: fontSize.xs,
-    fontWeight: '600',
+    fontSize: fontSize.sm,
+    fontWeight: '700',
   },
 });

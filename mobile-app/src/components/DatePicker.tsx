@@ -19,7 +19,7 @@ export function DatePicker({ value, onChange, label }: DatePickerProps) {
   const dateObj = new Date(`${value}T00:00:00`);
 
   const handleChange = (_event: DateTimePickerEvent, selected?: Date) => {
-    if (Platform.OS === 'android') {
+    if (Platform.OS !== 'ios') {
       setShow(false);
     }
     if (selected) {
@@ -27,63 +27,66 @@ export function DatePicker({ value, onChange, label }: DatePickerProps) {
     }
   };
 
-  if (Platform.OS === 'ios') {
-    return (
-      <View style={styles.wrapper}>
-        {label && <Text style={styles.label}>{label}</Text>}
-        <DateTimePicker
-          value={dateObj}
-          mode="date"
-          display="compact"
-          onChange={handleChange}
-          style={styles.iosPicker}
-        />
-      </View>
-    );
-  }
-
-  // Android: show a button that opens the picker
   return (
     <View style={styles.wrapper}>
       {label && <Text style={styles.label}>{label}</Text>}
-      <Pressable style={styles.androidButton} onPress={() => setShow(true)}>
-        <Text style={styles.androidButtonText}>{formatShortDate(value)}</Text>
+      <Pressable style={styles.button} onPress={() => setShow(true)}>
+        <Text style={styles.dateIcon}>📅</Text>
+        <Text style={styles.buttonText}>{formatShortDate(value)}</Text>
       </Pressable>
       {show && (
         <DateTimePicker
           value={dateObj}
           mode="date"
-          display="default"
+          display={Platform.OS === 'ios' ? 'inline' : 'default'}
           onChange={handleChange}
         />
+      )}
+      {show && Platform.OS === 'ios' && (
+        <Pressable style={styles.doneButton} onPress={() => setShow(false)}>
+          <Text style={styles.doneText}>Done</Text>
+        </Pressable>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    flex: 1,
-  },
+  wrapper: {},
   label: {
     fontSize: fontSize.sm,
     fontWeight: '600',
     color: colors.gray700,
     marginBottom: spacing.xs,
   },
-  iosPicker: {
-    alignSelf: 'flex-start',
-  },
-  androidButton: {
+  button: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.gray300,
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     backgroundColor: colors.white,
+    gap: spacing.sm,
   },
-  androidButtonText: {
+  dateIcon: {
     fontSize: fontSize.md,
+  },
+  buttonText: {
+    fontSize: fontSize.md,
+    fontWeight: '600',
     color: colors.gray800,
+  },
+  doneButton: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  doneText: {
+    fontSize: fontSize.md,
+    fontWeight: '600',
+    color: colors.primary,
   },
 });

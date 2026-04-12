@@ -415,8 +415,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   classChip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
     borderRadius: borderRadius.full,
     backgroundColor: colors.gray100,
     borderWidth: 1,
@@ -427,7 +427,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   classChipText: {
-    fontSize: fontSize.sm,
+    fontSize: fontSize.md,
     fontWeight: '600',
     color: colors.gray700,
   },
