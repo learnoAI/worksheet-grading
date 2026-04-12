@@ -26,11 +26,10 @@ import { GradingDetails, TeacherClass, User } from '../types';
 
 interface RosterScreenProps {
   user: User;
-  onLogout: () => void;
   onNavigateToQueue: () => void;
 }
 
-export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreenProps) {
+export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
   const isOnline = useNetworkStatus();
   const roster = useRoster(user);
   const { summary } = useGradingJobs();
@@ -182,24 +181,16 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
+      {/* Header: date + menu */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Worksheets</Text>
-          <DatePicker value={roster.submittedOn} onChange={roster.setSubmittedOn} />
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable
-            onPress={() => setMenuVisible(!menuVisible)}
-            style={styles.headerButton}
-            hitSlop={8}
-          >
-            <Text style={styles.moreIcon}>...</Text>
-          </Pressable>
-          <Pressable onPress={onLogout} style={styles.headerButton} hitSlop={8}>
-            <Text style={styles.logoutText}>Sign Out</Text>
-          </Pressable>
-        </View>
+        <DatePicker value={roster.submittedOn} onChange={roster.setSubmittedOn} />
+        <Pressable
+          onPress={() => setMenuVisible(!menuVisible)}
+          style={({ pressed }) => [styles.menuButton, pressed && { opacity: 0.5 }]}
+          hitSlop={12}
+        >
+          <Text style={styles.menuDots}>...</Text>
+        </Pressable>
       </View>
 
       {/* Overflow menu */}
@@ -208,7 +199,7 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
           <Pressable style={styles.menuBackdrop} onPress={() => setMenuVisible(false)} />
           <View style={styles.overflowMenu}>
             <Pressable
-              style={styles.menuItem}
+              style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
               onPress={() => {
                 setMenuVisible(false);
                 roster.markUngradedAbsent();
@@ -229,7 +220,7 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
         </View>
       )}
 
-      {/* Grading status banner */}
+      {/* Grading status */}
       <GradingStatusBanner summary={summary} onPress={onNavigateToQueue} />
 
       {/* Class selector */}
@@ -295,34 +286,34 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
         />
       )}
 
-      {/* Sticky bottom bar */}
+      {/* Bottom bar */}
       {roster.selectedClassId && (
         <View style={styles.bottomBar}>
           <Pressable
             style={({ pressed }) => [
-              styles.bottomButton,
-              styles.gradeAllButton,
+              styles.bottomBtn,
+              styles.gradeAllBtn,
               (!isOnline || eligibleUploadCount === 0) && styles.disabled,
-              pressed && styles.buttonPressed,
+              pressed && { transform: [{ scale: 0.97 }] },
             ]}
             onPress={() => roster.aiGradeAll()}
             disabled={!isOnline || eligibleUploadCount === 0}
           >
-            <Text style={styles.gradeAllText}>
-              AI Grade All{eligibleUploadCount > 0 ? ` (${eligibleUploadCount})` : ''}
+            <Text style={styles.bottomBtnText}>
+              AI Grade{eligibleUploadCount > 0 ? ` (${eligibleUploadCount})` : ''}
             </Text>
           </Pressable>
           <Pressable
             style={({ pressed }) => [
-              styles.bottomButton,
-              styles.saveAllButton,
+              styles.bottomBtn,
+              styles.saveAllBtn,
               !isOnline && styles.disabled,
-              pressed && styles.buttonPressed,
+              pressed && { transform: [{ scale: 0.97 }] },
             ]}
             onPress={() => roster.saveAll()}
             disabled={!isOnline}
           >
-            <Text style={styles.saveAllText}>Save All</Text>
+            <Text style={[styles.bottomBtnText, styles.saveAllBtnText]}>Save All</Text>
           </Pressable>
         </View>
       )}
@@ -347,10 +338,7 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Platform.select({
-      ios: colors.gray50,
-      android: colors.gray100,
-    }),
+    backgroundColor: colors.gray50,
   },
   centered: {
     flex: 1,
@@ -362,83 +350,75 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
     backgroundColor: colors.white,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.gray200,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: colors.gray900,
-    letterSpacing: -0.5,
-  },
-  headerActions: {
-    flexDirection: 'row',
+  menuButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.gray100,
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: spacing.lg,
-    paddingTop: spacing.xs,
   },
-  headerButton: {
-    paddingVertical: spacing.xs,
-  },
-  moreIcon: {
-    fontSize: 22,
+  menuDots: {
+    fontSize: 18,
     fontWeight: '800',
-    color: colors.gray500,
-    letterSpacing: 2,
-  },
-  logoutText: {
-    fontSize: fontSize.sm,
-    color: colors.accent,
-    fontWeight: '500',
+    color: colors.gray600,
+    letterSpacing: 1,
+    marginTop: -6,
   },
 
-  // Overflow menu
+  // Menu
   menuBackdrop: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 99,
   },
   overflowMenu: {
     position: 'absolute',
-    top: 80,
+    top: 60,
     right: spacing.xl,
     backgroundColor: colors.white,
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.xl,
     ...Platform.select({
       ios: {
         shadowColor: colors.black,
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.12,
-        shadowRadius: 16,
+        shadowRadius: 24,
       },
-      android: {
-        elevation: 8,
-      },
+      android: { elevation: 8 },
     }),
     zIndex: 100,
-    minWidth: 220,
+    minWidth: 240,
+    overflow: 'hidden',
   },
   menuItem: {
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.lg,
   },
+  menuItemPressed: {
+    backgroundColor: colors.gray50,
+  },
   menuItemText: {
     fontSize: fontSize.md,
     color: colors.gray800,
+    fontWeight: '500',
   },
 
   // Banners
   offlineBanner: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: colors.accentLight,
     marginHorizontal: spacing.lg,
     marginTop: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
     borderColor: '#FECACA',
   },
@@ -463,30 +443,28 @@ const styles = StyleSheet.create({
       ios: {
         shadowColor: colors.black,
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
+        shadowOpacity: 0.05,
         shadowRadius: 2,
       },
-      android: {
-        elevation: 1,
-      },
+      android: { elevation: 1 },
     }),
   },
   classChipActive: {
     backgroundColor: colors.primary,
     ...Platform.select({
       ios: {
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
+        shadowColor: colors.primary,
+        shadowOpacity: 0.25,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 2 },
       },
-      android: {
-        elevation: 3,
-      },
+      android: { elevation: 3 },
     }),
   },
   classChipText: {
     fontSize: fontSize.md,
     fontWeight: '600',
-    color: colors.gray700,
+    color: colors.gray600,
   },
   classChipTextActive: {
     color: colors.white,
@@ -501,19 +479,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Platform.select({
-      ios: '#E8E8ED',
+      ios: colors.gray200,
       android: colors.white,
     }),
-    borderRadius: Platform.select({
-      ios: 10,
-      android: borderRadius.md,
-    }),
+    borderRadius: Platform.select({ ios: 10, android: borderRadius.md }),
     paddingHorizontal: spacing.md,
     ...Platform.select({
-      android: {
-        elevation: 1,
-        borderWidth: 0,
-      },
+      android: { elevation: 1 },
     }),
   },
   searchIcon: {
@@ -529,12 +501,12 @@ const styles = StyleSheet.create({
 
   // Error
   errorBanner: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: colors.accentLight,
     marginHorizontal: spacing.lg,
     marginBottom: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
     borderColor: '#FECACA',
   },
@@ -547,7 +519,7 @@ const styles = StyleSheet.create({
   // List
   listContent: {
     paddingTop: spacing.xs,
-    paddingBottom: 100,
+    paddingBottom: 80,
   },
   emptyState: {
     alignItems: 'center',
@@ -558,7 +530,7 @@ const styles = StyleSheet.create({
     color: colors.gray400,
   },
 
-  // Bottom bar
+  // Bottom bar — compact
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -570,47 +542,33 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.gray200,
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.md,
-    paddingBottom: Platform.select({ ios: spacing.xxl + 8, android: spacing.lg }),
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.black,
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
+    paddingTop: spacing.sm,
+    paddingBottom: Platform.select({ ios: spacing.xxl + 4, android: spacing.md }),
   },
-  bottomButton: {
+  bottomBtn: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: borderRadius.lg,
+    paddingVertical: 10,
+    borderRadius: borderRadius.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonPressed: {
-    opacity: 0.8,
-  },
-  gradeAllButton: {
-    backgroundColor: colors.blue,
-  },
-  gradeAllText: {
-    fontSize: fontSize.md,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  saveAllButton: {
+  gradeAllBtn: {
     backgroundColor: colors.primary,
   },
-  saveAllText: {
-    fontSize: fontSize.md,
+  saveAllBtn: {
+    backgroundColor: colors.gray100,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+  },
+  bottomBtnText: {
+    fontSize: fontSize.sm,
     fontWeight: '600',
     color: colors.white,
   },
+  saveAllBtnText: {
+    color: colors.gray700,
+  },
   disabled: {
-    opacity: 0.4,
+    opacity: 0.35,
   },
 });

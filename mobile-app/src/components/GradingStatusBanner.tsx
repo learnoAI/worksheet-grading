@@ -20,30 +20,36 @@ export function GradingStatusBanner({
   summary,
   onPress,
 }: GradingStatusBannerProps) {
-  if (!summary || summary.total === 0) {
-    return null;
-  }
-
-  const isActive = summary.queued > 0 || summary.processing > 0;
+  const isActive = summary ? summary.queued > 0 || summary.processing > 0 : false;
+  const hasJobs = summary && summary.total > 0;
 
   return (
     <Pressable
       style={({ pressed }) => [styles.banner, pressed && { opacity: 0.8 }]}
       onPress={onPress}
     >
-      {isActive && <ActivityIndicator size="small" color={colors.blue} />}
-      {!isActive && <Text style={styles.checkmark}>✓</Text>}
+      {isActive ? (
+        <ActivityIndicator size="small" color={colors.primary} />
+      ) : hasJobs ? (
+        <Text style={styles.icon}>✓</Text>
+      ) : (
+        <Text style={styles.icon}>📤</Text>
+      )}
       <View style={styles.content}>
-        <Text style={styles.summaryText}>
-          {[
-            summary.processing > 0 && `${summary.processing} grading`,
-            summary.queued > 0 && `${summary.queued} queued`,
-            summary.completed > 0 && `${summary.completed} done`,
-            summary.failed > 0 && `${summary.failed} failed`,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </Text>
+        {hasJobs ? (
+          <Text style={styles.summaryText}>
+            {[
+              summary.processing > 0 && `${summary.processing} grading`,
+              summary.queued > 0 && `${summary.queued} queued`,
+              summary.completed > 0 && `${summary.completed} done`,
+              summary.failed > 0 && `${summary.failed} failed`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        ) : (
+          <Text style={styles.emptyText}>No grading jobs today</Text>
+        )}
       </View>
       <Text style={styles.arrow}>›</Text>
     </Pressable>
@@ -65,18 +71,15 @@ const styles = StyleSheet.create({
       ios: {
         shadowColor: colors.black,
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
+        shadowOpacity: 0.05,
         shadowRadius: 3,
       },
-      android: {
-        elevation: 1,
-      },
+      android: { elevation: 1 },
     }),
   },
-  checkmark: {
-    fontSize: fontSize.lg,
+  icon: {
+    fontSize: fontSize.md,
     color: colors.green,
-    fontWeight: '600',
   },
   content: {
     flex: 1,
@@ -86,9 +89,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.gray700,
   },
+  emptyText: {
+    fontSize: fontSize.sm,
+    color: colors.gray400,
+  },
   arrow: {
     fontSize: 20,
     fontWeight: '300',
-    color: colors.gray400,
+    color: colors.gray300,
   },
 });

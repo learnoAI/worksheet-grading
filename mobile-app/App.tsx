@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
@@ -18,12 +17,14 @@ import { initializeQueueDatabase, listQueueItems } from './src/queue/storage';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { RosterScreen } from './src/screens/RosterScreen';
 import { QueueScreen } from './src/screens/QueueScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
 import { colors } from './src/theme';
 import { User } from './src/types';
 
 type TabParamList = {
   Roster: undefined;
   Queue: undefined;
+  Settings: undefined;
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -34,7 +35,6 @@ export default function App() {
   const [queueBadge, setQueueBadge] = useState(0);
   const navigationRef = useRef<NavigationContainerRef<TabParamList>>(null);
 
-  // Restore session
   useEffect(() => {
     (async () => {
       try {
@@ -58,7 +58,6 @@ export default function App() {
     })();
   }, []);
 
-  // Poll queue badge count
   useEffect(() => {
     if (!user) return;
     const updateBadge = async () => {
@@ -119,7 +118,14 @@ export default function App() {
             headerShown: false,
             tabBarActiveTintColor: colors.primary,
             tabBarInactiveTintColor: colors.gray400,
-            tabBarStyle: { borderTopColor: colors.gray100 },
+            tabBarStyle: {
+              borderTopColor: colors.gray200,
+              borderTopWidth: StyleSheet.hairlineWidth,
+            },
+            tabBarLabelStyle: {
+              fontSize: 11,
+              fontWeight: '500',
+            },
           }}
         >
           <Tab.Screen
@@ -134,7 +140,6 @@ export default function App() {
             {() => (
               <RosterScreen
                 user={user}
-                onLogout={handleLogout}
                 onNavigateToQueue={handleNavigateToQueue}
               />
             )}
@@ -147,9 +152,21 @@ export default function App() {
                 <Text style={{ fontSize: 20, color }}>📤</Text>
               ),
               tabBarBadge: queueBadge > 0 ? queueBadge : undefined,
+              tabBarBadgeStyle: { backgroundColor: colors.primary },
             }}
           >
             {() => <QueueScreen />}
+          </Tab.Screen>
+          <Tab.Screen
+            name="Settings"
+            options={{
+              tabBarLabel: 'Settings',
+              tabBarIcon: ({ color }) => (
+                <Text style={{ fontSize: 20, color }}>⚙️</Text>
+              ),
+            }}
+          >
+            {() => <SettingsScreen user={user} onLogout={handleLogout} />}
           </Tab.Screen>
         </Tab.Navigator>
       </NavigationContainer>

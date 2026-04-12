@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   scanBtn: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryDark,
   },
   scanBtnText: {
     fontSize: fontSize.sm,

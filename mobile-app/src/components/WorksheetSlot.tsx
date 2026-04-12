@@ -260,13 +260,13 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.primaryLight,
     borderRadius: borderRadius.md,
   },
   detailsButtonText: {
     fontSize: fontSize.sm,
     fontWeight: '600',
-    color: colors.blue,
+    color: colors.primary,
   },
   wrongBadge: {
     backgroundColor: colors.red,
@@ -287,15 +287,17 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   scanBothButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primaryLight,
     borderRadius: borderRadius.lg,
     paddingVertical: 14,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.blueLight,
   },
   scanBothText: {
     fontSize: fontSize.md,
     fontWeight: '600',
-    color: colors.white,
+    color: colors.primary,
   },
   togglesRow: {
     flexDirection: 'row',
@@ -323,7 +325,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   aiGradeButton: {
-    backgroundColor: colors.blue,
+    backgroundColor: colors.primary,
   },
   aiGradeText: {
     fontSize: fontSize.md,

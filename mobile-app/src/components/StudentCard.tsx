@@ -108,7 +108,7 @@ export function StudentCard({
         <View style={styles.badges}>
           {hasSavedBadge && (
             <View style={[styles.badge, styles.savedBadge]}>
-              <Text style={[styles.badgeText, { color: colors.blue }]}>Saved</Text>
+              <Text style={[styles.badgeText, { color: colors.primary }]}>Saved</Text>
             </View>
           )}
           {hasRepeatBadge && (
@@ -249,10 +249,10 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.sm,
   },
   savedBadge: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: colors.primaryLight,
   },
   repeatBadge: {
-    backgroundColor: '#FFF7ED',
+    backgroundColor: colors.orangeLight,
   },
   badgeText: {
     fontSize: 11,
