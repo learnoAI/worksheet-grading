@@ -177,29 +177,6 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
         </Pressable>
       </View>
 
-      {/* Class selector — right below header */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.classChips}
-      >
-        {roster.classes.map((cls) => {
-          const isActive = cls.id === roster.selectedClassId;
-          return (
-            <Pressable
-              key={cls.id}
-              onPress={() => roster.setSelectedClassId(cls.id)}
-            >
-              <View style={[styles.classChip, isActive && styles.classChipActive]}>
-                <Text style={[styles.classChipText, isActive && styles.classChipTextActive]}>
-                  {cls.name}
-                </Text>
-              </View>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
       {/* Overflow menu */}
       {menuVisible && (
         <>
@@ -218,51 +195,7 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
         </>
       )}
 
-      {/* Offline banner */}
-      {!isOnline && (
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineText}>
-            You are offline. Upload, AI Grade, and Save are disabled.
-          </Text>
-        </View>
-      )}
-
-      {/* Grading status */}
-      <GradingStatusBanner summary={summary} onPress={onNavigateToQueue} />
-
-      {/* Stats */}
-      {roster.stats && (
-        <StatChips
-          totalStudents={roster.stats.totalStudents}
-          studentsGraded={roster.stats.studentsWithWorksheets}
-          worksheetsGraded={roster.stats.gradedCount}
-          absentCount={roster.stats.absentCount}
-        />
-      )}
-
-      {/* Search */}
-      <View style={styles.searchRow}>
-        <View style={styles.searchContainer}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by name or token #"
-            placeholderTextColor={colors.gray400}
-            value={roster.searchQuery}
-            onChangeText={roster.setSearchQuery}
-            clearButtonMode="while-editing"
-          />
-        </View>
-      </View>
-
-      {/* Error */}
-      {roster.error && (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorText}>{roster.error}</Text>
-        </View>
-      )}
-
-      {/* Student cards */}
+      {/* Everything in one FlatList */}
       {roster.loadingRoster ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -273,6 +206,76 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
           keyExtractor={(item) => item.studentId}
           renderItem={renderStudent}
           contentContainerStyle={styles.listContent}
+          ListHeaderComponent={
+            <>
+              {/* Class selector */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.classChips}
+              >
+                {roster.classes.map((cls) => {
+                  const isActive = cls.id === roster.selectedClassId;
+                  return (
+                    <Pressable
+                      key={cls.id}
+                      onPress={() => roster.setSelectedClassId(cls.id)}
+                    >
+                      <View style={[styles.classChip, isActive && styles.classChipActive]}>
+                        <Text style={[styles.classChipText, isActive && styles.classChipTextActive]}>
+                          {cls.name}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              {/* Offline banner */}
+              {!isOnline && (
+                <View style={styles.offlineBanner}>
+                  <Text style={styles.offlineText}>
+                    You are offline. Upload, AI Grade, and Save are disabled.
+                  </Text>
+                </View>
+              )}
+
+              {/* Grading status */}
+              <GradingStatusBanner summary={summary} onPress={onNavigateToQueue} />
+
+              {/* Stats */}
+              {roster.stats && (
+                <StatChips
+                  totalStudents={roster.stats.totalStudents}
+                  studentsGraded={roster.stats.studentsWithWorksheets}
+                  worksheetsGraded={roster.stats.gradedCount}
+                  absentCount={roster.stats.absentCount}
+                />
+              )}
+
+              {/* Search */}
+              <View style={styles.searchRow}>
+                <View style={styles.searchContainer}>
+                  <Text style={styles.searchIcon}>🔍</Text>
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search by name or token #"
+                    placeholderTextColor={colors.gray400}
+                    value={roster.searchQuery}
+                    onChangeText={roster.setSearchQuery}
+                    clearButtonMode="while-editing"
+                  />
+                </View>
+              </View>
+
+              {/* Error */}
+              {roster.error && (
+                <View style={styles.errorBanner}>
+                  <Text style={styles.errorText}>{roster.error}</Text>
+                </View>
+              )}
+            </>
+          }
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Text style={styles.emptyText}>
