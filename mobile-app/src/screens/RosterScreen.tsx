@@ -188,12 +188,13 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
           return (
             <Pressable
               key={cls.id}
-              style={[styles.classChip, isActive && styles.classChipActive]}
               onPress={() => roster.setSelectedClassId(cls.id)}
             >
-              <Text style={[styles.classChipText, isActive && styles.classChipTextActive]}>
-                {cls.name}
-              </Text>
+              <View style={[styles.classChip, isActive && styles.classChipActive]}>
+                <Text style={[styles.classChipText, isActive && styles.classChipTextActive]}>
+                  {cls.name}
+                </Text>
+              </View>
             </Pressable>
           );
         })}
