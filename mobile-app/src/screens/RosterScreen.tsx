@@ -11,6 +11,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import { Ionicons } from '@expo/vector-icons';
 
 import { DatePicker } from '../components/DatePicker';
 import { GradingDetailsModal } from '../components/GradingDetailsModal';
@@ -20,7 +22,7 @@ import { StudentCard } from '../components/StudentCard';
 import { useDocumentScanner } from '../hooks/useDocumentScanner';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { useRoster, RosterStudent } from '../hooks/useRoster';
-import { colors, fontSize, spacing, borderRadius } from '../theme';
+import { colors, fontSize, spacing, borderRadius, androidRipple } from '../theme';
 import { GradingDetails, User } from '../types';
 
 interface RosterScreenProps {
@@ -162,8 +164,15 @@ export function RosterScreen({ user }: RosterScreenProps) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* ---- Sticky header section ---- */}
-      <View style={styles.stickyHeader}>
-        {/* Date + menu */}
+      <View style={[styles.stickyHeader, Platform.OS === 'android' && styles.stickyHeaderAndroid]}>
+        {Platform.OS === 'ios' && (
+          <BlurView
+            intensity={80}
+            tint="systemChromeMaterial"
+            style={StyleSheet.absoluteFill}
+          />
+        )}
+        {/* Date + menu — existing content stays exactly the same */}
         <View style={styles.headerRow}>
           <DatePicker value={roster.submittedOn} onChange={roster.setSubmittedOn} />
           <Pressable
@@ -171,7 +180,7 @@ export function RosterScreen({ user }: RosterScreenProps) {
             style={({ pressed }) => [styles.menuButton, pressed && { opacity: 0.5 }]}
             hitSlop={12}
           >
-            <Text style={styles.menuDots}>...</Text>
+            <Ionicons name="ellipsis-horizontal" size={18} color={colors.gray600} />
           </Pressable>
         </View>
 
@@ -220,7 +229,7 @@ export function RosterScreen({ user }: RosterScreenProps) {
         {/* Search */}
         <View style={styles.searchRow}>
           <View style={styles.searchContainer}>
-            <Text style={styles.searchIcon}>🔍</Text>
+            <Ionicons name="search" size={16} color={colors.gray400} style={{ marginRight: spacing.sm }} />
             <TextInput
               style={styles.searchInput}
               placeholder="Search by name or token #"
@@ -271,6 +280,11 @@ export function RosterScreen({ user }: RosterScreenProps) {
           }
           ListEmptyComponent={
             <View style={styles.emptyState}>
+              <Ionicons
+                name={roster.searchQuery ? 'search-outline' : 'document-text-outline'}
+                size={64}
+                color={colors.gray300}
+              />
               <Text style={styles.emptyText}>
                 {roster.searchQuery ? 'No students match your search.' : 'Select a class to see students.'}
               </Text>
@@ -282,16 +296,25 @@ export function RosterScreen({ user }: RosterScreenProps) {
       {/* Bottom bar */}
       {roster.selectedClassId && (
         <View style={styles.bottomBar}>
+          {Platform.OS === 'ios' && (
+            <BlurView
+              intensity={80}
+              tint="systemChromeMaterial"
+              style={StyleSheet.absoluteFill}
+            />
+          )}
           <Pressable
             style={({ pressed }) => [
               styles.bottomBtn,
               styles.gradeAllBtn,
               (!isOnline || eligibleUploadCount === 0) && styles.disabled,
-              pressed && { transform: [{ scale: 0.97 }] },
+              Platform.OS === 'ios' && pressed && styles.pressed,
             ]}
             onPress={() => roster.aiGradeAll()}
             disabled={!isOnline || eligibleUploadCount === 0}
+            android_ripple={{ color: 'rgba(255,255,255,0.2)' }}
           >
+            <Ionicons name="flash-outline" size={16} color={colors.white} style={{ marginRight: spacing.xs }} />
             <Text style={styles.bottomBtnText}>
               AI Grade{eligibleUploadCount > 0 ? ` (${eligibleUploadCount})` : ''}
             </Text>
@@ -301,10 +324,11 @@ export function RosterScreen({ user }: RosterScreenProps) {
               styles.bottomBtn,
               styles.saveAllBtn,
               !isOnline && styles.disabled,
-              pressed && { transform: [{ scale: 0.97 }] },
+              Platform.OS === 'ios' && pressed && styles.pressed,
             ]}
             onPress={() => roster.saveAll()}
             disabled={!isOnline}
+            android_ripple={androidRipple}
           >
             <Text style={[styles.bottomBtnText, styles.saveAllBtnText]}>Save All</Text>
           </Pressable>
@@ -341,10 +365,15 @@ const styles = StyleSheet.create({
 
   // Sticky header
   stickyHeader: {
-    backgroundColor: colors.white,
+    backgroundColor: Platform.select({ ios: 'transparent', android: colors.white }),
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.gray200,
     paddingBottom: spacing.sm,
+    overflow: 'hidden',
+  },
+  stickyHeaderAndroid: {
+    backgroundColor: colors.white,
+    elevation: 2,
   },
   headerRow: {
     flexDirection: 'row',
@@ -362,14 +391,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  menuDots: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.gray600,
-    letterSpacing: 1,
-    marginTop: -6,
-  },
-
   // Menu
   menuBackdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -466,10 +487,6 @@ const styles = StyleSheet.create({
     borderRadius: Platform.select({ ios: 10, android: borderRadius.md }),
     paddingHorizontal: spacing.md,
   },
-  searchIcon: {
-    fontSize: 14,
-    marginRight: spacing.sm,
-  },
   searchInput: {
     flex: 1,
     fontSize: fontSize.md,
@@ -502,6 +519,7 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     paddingVertical: spacing.xxl * 3,
+    gap: spacing.md,
   },
   emptyText: {
     fontSize: fontSize.md,
@@ -516,19 +534,24 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     gap: spacing.md,
-    backgroundColor: colors.white,
+    backgroundColor: Platform.select({ ios: 'transparent', android: colors.white }),
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.gray200,
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.sm,
     paddingBottom: Platform.select({ ios: spacing.xxl + 4, android: spacing.md }),
+    overflow: 'hidden',
   },
   bottomBtn: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 20,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: borderRadius.xxl,
+  },
+  pressed: {
+    transform: [{ scale: 0.98 }],
   },
   gradeAllBtn: {
     backgroundColor: colors.primary,
