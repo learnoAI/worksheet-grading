@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as SQLite from 'expo-sqlite';
 
 import {
@@ -86,14 +87,62 @@ async function ensureQueueDirectory(localId: string): Promise<string> {
   return directory;
 }
 
+const COMPRESS_MAX_LONG_EDGE = 1800;
+const COMPRESS_MIN_BYTES = 750 * 1024; // 750KB
+const COMPRESS_JPEG_QUALITY = 0.80;
+
+async function compressImage(uri: string): Promise<{ uri: string; width: number; height: number }> {
+  // Check file size — skip if already small
+  const info = await FileSystem.getInfoAsync(uri);
+  const size = info.exists && 'size' in info ? info.size : 0;
+  if (size > 0 && size < COMPRESS_MIN_BYTES) {
+    // Still get dimensions via a no-op manipulate
+    const probe = await manipulateAsync(uri, [], { format: SaveFormat.JPEG });
+    return { uri, width: probe.width, height: probe.height };
+  }
+
+  // Resize long edge to max 1800px and compress to JPEG 80%
+  const probe = await manipulateAsync(uri, [], { format: SaveFormat.JPEG });
+  const longEdge = Math.max(probe.width, probe.height);
+  const needsResize = longEdge > COMPRESS_MAX_LONG_EDGE;
+
+  const result = await manipulateAsync(
+    uri,
+    needsResize
+      ? [{ resize: probe.width >= probe.height
+            ? { width: COMPRESS_MAX_LONG_EDGE }
+            : { height: COMPRESS_MAX_LONG_EDGE } }]
+      : [],
+    { compress: COMPRESS_JPEG_QUALITY, format: SaveFormat.JPEG },
+  );
+
+  return { uri: result.uri, width: result.width, height: result.height };
+}
+
 async function copyPageFile(localId: string, page: QueueWorksheetInput['pages'][number]): Promise<QueuePage> {
   const directory = await ensureQueueDirectory(localId);
-  const extension = extensionFor(page.fileName, page.mimeType, page.uri);
-  const fileName = `page-${page.pageNumber}${extension}`;
+
+  // Compress before copying to queue
+  let sourceUri = page.uri;
+  let width = page.width ?? null;
+  let height = page.height ?? null;
+  let mimeType = page.mimeType;
+
+  try {
+    const compressed = await compressImage(page.uri);
+    sourceUri = compressed.uri;
+    width = compressed.width;
+    height = compressed.height;
+    mimeType = 'image/jpeg';
+  } catch {
+    // Compression failed — use original
+  }
+
+  const fileName = `page-${page.pageNumber}.jpg`;
   const localUri = `${directory}${fileName}`;
 
   await FileSystem.copyAsync({
-    from: page.uri,
+    from: sourceUri,
     to: localUri,
   });
 
@@ -105,11 +154,11 @@ async function copyPageFile(localId: string, page: QueueWorksheetInput['pages'][
     worksheetLocalId: localId,
     pageNumber: page.pageNumber,
     localUri,
-    mimeType: page.mimeType,
+    mimeType,
     fileName,
     fileSize,
-    width: page.width ?? null,
-    height: page.height ?? null,
+    width,
+    height,
     uploadStatus: 'local',
   };
 }
