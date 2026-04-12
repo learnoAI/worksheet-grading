@@ -433,7 +433,7 @@ const styles = StyleSheet.create({
   classChip: {
     paddingHorizontal: spacing.xl,
     paddingVertical: 10,
-    borderRadius: borderRadius.full,
+    borderRadius: 20,
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.gray300,
