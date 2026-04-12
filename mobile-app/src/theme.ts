@@ -1,43 +1,43 @@
 import { Platform } from 'react-native';
 
 export const colors = {
-  // Primary — warm indigo
-  primary: '#6366F1',
-  primaryLight: '#EEF2FF',
-  primaryDark: '#4F46E5',
+  // Primary — deep teal
+  primary: '#0D9488',
+  primaryLight: '#CCFBF1',
+  primaryDark: '#115E59',
 
-  // Accent — soft coral
-  accent: '#F97066',
-  accentLight: '#FEF2F2',
+  // Accent — deep rose (destructive actions)
+  accent: '#E11D48',
+  accentLight: '#FFF1F2',
 
-  // Semantic
-  amber: '#E8A317',
+  // Semantic (desaturated)
+  amber: '#CA8A04',
   amberLight: '#FEF9C3',
-  green: '#22C55E',
+  green: '#16A34A',
   greenLight: '#DCFCE7',
-  blue: '#818CF8',
-  blueLight: '#E0E7FF',
-  red: '#EF4444',
-  redLight: '#FEF2F2',
-  orange: '#F59E0B',
-  orangeLight: '#FEF3C7',
+  blue: '#2563EB',
+  blueLight: '#DBEAFE',
+  red: '#DC2626',
+  redLight: '#FEE2E2',
+  orange: '#EA580C',
+  orangeLight: '#FFEDD5',
 
-  // Neutrals — warm grays
+  // Neutrals — cool slate
   white: '#FFFFFF',
-  gray50: '#FAFAF9',
-  gray100: '#F5F5F4',
-  gray200: '#E7E5E4',
-  gray300: '#D6D3D1',
-  gray400: '#A8A29E',
-  gray500: '#78716C',
-  gray600: '#57534E',
-  gray700: '#44403C',
-  gray800: '#292524',
-  gray900: '#1C1917',
-  black: '#000000',
+  gray50: '#F8FAFC',
+  gray100: '#F1F5F9',
+  gray200: '#E2E8F0',
+  gray300: '#CBD5E1',
+  gray400: '#94A3B8',
+  gray500: '#64748B',
+  gray600: '#475569',
+  gray700: '#334155',
+  gray800: '#1E293B',
+  gray900: '#0F172A',
+  black: '#020617',
 
   // Special
-  loginBg: '#F5F3FF',
+  loginBg: '#F0FDFA',
 } as const;
 
 export const spacing = {
@@ -69,25 +69,12 @@ export const borderRadius = {
   full: 9999,
 } as const;
 
-/** Platform-aware card shadow */
+/** Subtle card shadow — tinted to slate, barely there */
 export const cardShadow = Platform.select({
   ios: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.10,
-    shadowRadius: 12,
-  },
-  android: {
-    elevation: 3,
-  },
-}) as object;
-
-/** Lighter shadow for smaller elements */
-export const softShadow = Platform.select({
-  ios: {
-    shadowColor: '#000000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.05,
     shadowRadius: 4,
   },
   android: {
@@ -95,5 +82,18 @@ export const softShadow = Platform.select({
   },
 }) as object;
 
+/** Even lighter shadow for small elements */
+export const softShadow = Platform.select({
+  ios: {
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+  },
+  android: {
+    elevation: 1,
+  },
+}) as object;
+
 /** Ripple config for Android Pressable buttons */
-export const androidRipple = { color: 'rgba(0,0,0,0.08)' };
+export const androidRipple = { color: 'rgba(0,0,0,0.06)' };
