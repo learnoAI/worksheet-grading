@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 export const colors = {
   // Primary — warm indigo
   primary: '#6366F1',
@@ -33,6 +35,9 @@ export const colors = {
   gray800: '#292524',
   gray900: '#1C1917',
   black: '#000000',
+
+  // Special
+  loginBg: '#F5F3FF',
 } as const;
 
 export const spacing = {
@@ -45,6 +50,7 @@ export const spacing = {
 } as const;
 
 export const fontSize = {
+  caption: 10,
   xs: 11,
   sm: 13,
   md: 15,
@@ -59,5 +65,35 @@ export const borderRadius = {
   md: 8,
   lg: 12,
   xl: 16,
+  xxl: 20,
   full: 9999,
 } as const;
+
+/** Platform-aware card shadow */
+export const cardShadow = Platform.select({
+  ios: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.10,
+    shadowRadius: 12,
+  },
+  android: {
+    elevation: 3,
+  },
+}) as object;
+
+/** Lighter shadow for smaller elements */
+export const softShadow = Platform.select({
+  ios: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+  },
+  android: {
+    elevation: 1,
+  },
+}) as object;
+
+/** Ripple config for Android Pressable buttons */
+export const androidRipple = { color: 'rgba(0,0,0,0.08)' };
