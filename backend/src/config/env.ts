@@ -72,7 +72,8 @@ export default {
     },
     posthog: {
         apiKey: process.env.POSTHOG_API_KEY || process.env.NEXT_PUBLIC_POSTHOG_KEY || '',
-        host: process.env.POSTHOG_HOST || process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
+        host: process.env.POSTHOG_HOST || process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
+        exceptionsEnabled: parseBoolean(process.env.POSTHOG_EXCEPTIONS_ENABLED, false)
     },
     diagnostics: {
         enabled: parseBoolean(process.env.REQUEST_DIAGNOSTICS_ENABLED, true),

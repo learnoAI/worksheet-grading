@@ -2,7 +2,7 @@ import { GradingJobStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 import config from '../config/env';
 import { aiGradingLogger } from '../services/logger';
-import { captureGradingPipelineEvent } from '../services/posthogService';
+import { captureGradingPipelineEvent, capturePosthogException } from '../services/posthogService';
 import {
     createGradingQueueMessage,
     getGradingQueueClient
@@ -125,6 +125,7 @@ async function dispatchPendingJobs(): Promise<void> {
                 jobId: job.id,
                 error: dispatchError
             });
+            capturePosthogException(error, { distinctId: job.id, stage: 'dispatch_loop_retry_failed', extra: { jobId: job.id } });
         }
     }
 }
@@ -157,6 +158,7 @@ export function startGradingDispatchLoop(): void {
                 errorName: error instanceof Error ? error.name : 'UnknownError',
                 errorMessage: error instanceof Error ? error.message : String(error)
             });
+            capturePosthogException(error, { distinctId: 'dispatch-loop', stage: 'dispatch_loop_crashed' });
         } finally {
             running = false;
         }

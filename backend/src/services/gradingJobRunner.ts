@@ -8,7 +8,7 @@ import {
 } from './gradingJobLifecycleService';
 import { logError } from './errorLogService';
 import { aiGradingLogger } from './logger';
-import { captureGradingPipelineEvent } from './posthogService';
+import { captureGradingPipelineEvent, capturePosthogException } from './posthogService';
 
 export interface RunGradingJobResult {
     status: 'completed' | 'failed' | 'skipped';
@@ -107,6 +107,7 @@ export async function runGradingJob(jobId: string): Promise<RunGradingJobResult>
             leaseId,
             error: message
         });
+        capturePosthogException(error, { distinctId: jobId, stage: 'runner_failed', extra: { jobId, leaseId } });
 
         return {
             status: 'failed',

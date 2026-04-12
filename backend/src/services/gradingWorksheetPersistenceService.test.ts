@@ -26,6 +26,7 @@ const loggerMocks = vi.hoisted(() => ({
 
 const posthogMocks = vi.hoisted(() => ({
   captureGradingPipelineEvent: vi.fn(),
+  capturePosthogException: vi.fn(),
 }));
 
 vi.mock('../utils/prisma', () => ({

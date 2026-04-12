@@ -5,7 +5,7 @@ import { withRetry } from '../utils/retry';
 import { summarizeError, summarizeGradingJobContext, summarizeGradingResponse } from './gradingDiagnostics';
 import { GradingApiResponse } from './gradingTypes';
 import { aiGradingLogger } from './logger';
-import { captureGradingPipelineEvent } from './posthogService';
+import { captureGradingPipelineEvent, capturePosthogException } from './posthogService';
 
 export interface PersistWorksheetResult {
     worksheetId: string;
@@ -256,6 +256,7 @@ export async function persistWorksheetForGradingJob(
                 error instanceof Error ? error : new Error(String(error))
             );
             captureGradingPipelineEvent('worksheet_persist_failed', distinctId, errorDiagnostics);
+            capturePosthogException(error, { distinctId, stage: 'worksheet_persist_failed', extra: { jobId: diagnostics.jobId } });
             throw error;
         }
     }

@@ -7,7 +7,7 @@ import { scheduleGrading } from './gradingLimiter';
 import { aiGradingLogger } from './logger';
 import { GradingApiResponse } from './gradingTypes';
 import { persistWorksheetForGradingJob } from './gradingWorksheetPersistenceService';
-import { captureGradingPipelineEvent } from './posthogService';
+import { captureGradingPipelineEvent, capturePosthogException } from './posthogService';
 
 interface ExecuteGradingJobResult {
     worksheetId: string;
@@ -170,6 +170,7 @@ async function callPythonApi(
                     attempt,
                     error: msg
                 });
+                capturePosthogException(lastError, { distinctId: jobId, stage: 'python_call_non_retryable_failed', extra: { jobId, attempt } });
                 throw lastError;
             }
 
@@ -196,6 +197,7 @@ async function callPythonApi(
         maxRetries,
         error: lastError?.message || 'Unknown error'
     });
+    capturePosthogException(lastError || new Error('Unknown error'), { distinctId: jobId, stage: 'python_call_retry_exhausted', extra: { jobId, maxRetries } });
 
     throw lastError;
 }
@@ -270,6 +272,7 @@ export async function executeGradingJob(
                 errorName: downloadErr instanceof Error ? downloadErr.name : 'UnknownError',
                 errorMessage: downloadErr instanceof Error ? downloadErr.message : String(downloadErr)
             });
+            capturePosthogException(downloadErr, { distinctId: jobId, stage: 'image_download_failed', extra: { jobId, s3Key: image.s3Key, storageProvider: image.storageProvider } });
             throw downloadErr;
         }
     }

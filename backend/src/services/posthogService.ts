@@ -253,6 +253,9 @@ export function capturePosthogException(
     error: unknown,
     ctx: PosthogExceptionContext
 ): void {
+    if (!config.posthog.exceptionsEnabled) {
+        return;
+    }
     void capturePosthogEvent('$exception', ctx.distinctId, buildExceptionProperties(error, ctx));
 }
 

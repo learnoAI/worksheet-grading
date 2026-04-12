@@ -12,7 +12,7 @@ import { persistWorksheetForGradingJobId } from '../services/gradingWorksheetPer
 import { GradingApiResponse } from '../services/gradingTypes';
 import { logError } from '../services/errorLogService';
 import { aiGradingLogger } from '../services/logger';
-import { captureGradingPipelineEvent } from '../services/posthogService';
+import { captureGradingPipelineEvent, capturePosthogException } from '../services/posthogService';
 import { GradingJobStatus } from '@prisma/client';
 
 // Gap between consecutive heartbeats beyond which we suspect a GC pause or
@@ -146,6 +146,7 @@ export async function acquireJob(req: Request, res: Response): Promise<Response>
             jobId,
             error: error instanceof Error ? error.message : 'Acquire failed'
         });
+        capturePosthogException(error, { distinctId: jobId, stage: 'worker_acquire_failed', extra: { jobId } });
 
         return res.status(500).json({ success: false, error: 'Failed to acquire job' });
     }
@@ -225,6 +226,7 @@ export async function heartbeat(req: Request, res: Response): Promise<Response> 
             phase,
             error: error instanceof Error ? error.message : 'Heartbeat failed'
         });
+        capturePosthogException(error, { distinctId: jobId, stage: 'worker_heartbeat_failed', extra: { jobId, leaseId, phase } });
         return res.status(500).json({ success: false, error: 'Failed to update heartbeat' });
     }
 }
@@ -374,6 +376,7 @@ export async function complete(req: Request, res: Response): Promise<Response> {
             errorSummary,
             gradingResponseSummary
         });
+        capturePosthogException(error, { distinctId: jobId, stage: 'worker_complete_failed', extra: { jobId, leaseId } });
 
         // Important: do NOT mark the job FAILED here.
         // This endpoint is called from an at-least-once queue consumer; persistence failures can be transient.
@@ -427,6 +430,7 @@ export async function fail(req: Request, res: Response): Promise<Response> {
             leaseId,
             error: error instanceof Error ? error.message : 'Fail handler failed'
         });
+        capturePosthogException(error, { distinctId: jobId, stage: 'worker_fail_failed', extra: { jobId, leaseId } });
 
         return res.status(500).json({ success: false, error: 'Failed to mark job failed' });
     }
@@ -475,6 +479,7 @@ export async function requeue(req: Request, res: Response): Promise<Response> {
             leaseId,
             error: error instanceof Error ? error.message : 'Requeue failed'
         });
+        capturePosthogException(error, { distinctId: jobId, stage: 'worker_requeue_failed', extra: { jobId, leaseId } });
         return res.status(500).json({ success: false, error: 'Failed to requeue job' });
     }
 }
