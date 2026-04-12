@@ -194,9 +194,14 @@ export function useRoster(user: User) {
                   (ws.id && sw.id === ws.id) ||
                   (!ws.id && sw.worksheetNumber === ws.worksheetNumber),
               );
-              // Lock card if student has active queue items
+              // Lock card if student has active queue items and no grading result yet
               if (!match && isQueued) return { ...ws, isUploading: true };
-              if (!match) return ws;
+              if (!match) return { ...ws, isUploading: false };
+
+              // If server has grading details, grading is done — unlock
+              // regardless of local queue status
+              const gradingDone = !!match.gradingDetails;
+              const stillProcessing = isQueued && !gradingDone;
 
               // Only update fields that come from grading — don't touch
               // local edits like page URIs, manual grade changes, etc.
@@ -204,13 +209,13 @@ export function useRoster(user: User) {
                 match.gradingDetails &&
                 (!ws.gradingDetails || JSON.stringify(match.gradingDetails) !== JSON.stringify(ws.gradingDetails));
 
-              if (!hasNewGrade && ws.existing && !isQueued) return ws;
+              if (!hasNewGrade && ws.existing && !stillProcessing && !ws.isUploading) return ws;
 
               return {
                 ...ws,
                 id: match.id ?? ws.id,
                 existing: true,
-                isUploading: isQueued,
+                isUploading: stillProcessing,
                 // Only overwrite grade/details if server has grading data
                 // and local doesn't (or server has newer data)
                 ...(match.gradingDetails
