@@ -50,6 +50,9 @@ export function GradingDetailsModal({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.container}>
+        <View style={styles.dragHandleBar}>
+          <View style={styles.dragHandle} />
+        </View>
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>Grading Details</Text>
@@ -148,6 +151,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.white,
   },
+  dragHandleBar: {
+    alignItems: 'center',
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.gray300,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -191,11 +205,11 @@ const styles = StyleSheet.create({
   summaryCard: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
+    paddingVertical: spacing.lg,
+    borderRadius: borderRadius.lg,
   },
   summaryValue: {
-    fontSize: fontSize.xl,
+    fontSize: fontSize.xxl,
     fontWeight: '800',
   },
   summaryLabel: {
@@ -211,6 +225,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.gray800,
     marginBottom: spacing.sm,
+    letterSpacing: -0.3,
   },
   questionRow: {
     flexDirection: 'row',
