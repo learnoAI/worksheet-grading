@@ -1,14 +1,14 @@
+import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
-import { colors, fontSize, spacing, borderRadius } from '../theme';
+import { colors, fontSize, spacing, borderRadius, softShadow } from '../theme';
 import { GradingJobSummary } from '../types';
 
 interface GradingStatusBannerProps {
@@ -31,9 +31,9 @@ export function GradingStatusBanner({
       {isActive ? (
         <ActivityIndicator size="small" color={colors.primary} />
       ) : hasJobs ? (
-        <Text style={styles.icon}>✓</Text>
+        <Ionicons name="checkmark-circle" size={20} color={colors.green} />
       ) : (
-        <Text style={styles.icon}>📤</Text>
+        <Ionicons name="cloud-upload-outline" size={20} color={colors.gray400} />
       )}
       <View style={styles.content}>
         {hasJobs ? (
@@ -51,7 +51,7 @@ export function GradingStatusBanner({
           <Text style={styles.emptyText}>No grading jobs today</Text>
         )}
       </View>
-      <Text style={styles.arrow}>›</Text>
+      <Ionicons name="chevron-forward" size={18} color={colors.gray300} />
     </Pressable>
   );
 }
@@ -67,19 +67,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     gap: spacing.md,
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.black,
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-      },
-      android: { elevation: 1 },
-    }),
-  },
-  icon: {
-    fontSize: fontSize.md,
-    color: colors.green,
+    ...softShadow,
   },
   content: {
     flex: 1,
@@ -92,10 +80,5 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: fontSize.sm,
     color: colors.gray400,
-  },
-  arrow: {
-    fontSize: 20,
-    fontWeight: '300',
-    color: colors.gray300,
   },
 });
