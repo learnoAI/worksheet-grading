@@ -180,8 +180,8 @@ export function WorksheetSlot({
           <Switch
             value={data.isIncorrectGrade}
             onValueChange={(val) => onFieldChange('isIncorrectGrade', val)}
-            trackColor={{ true: '#EF4444', false: colors.gray200 }}
-            thumbColor={Platform.select({ android: data.isIncorrectGrade ? '#DC2626' : colors.gray100 })}
+            trackColor={{ true: colors.red, false: colors.gray200 }}
+            thumbColor={Platform.select({ android: data.isIncorrectGrade ? colors.red : colors.gray100 })}
             disabled={disabled}
           />
           <Text style={styles.toggleLabel}>Incorrect Grade</Text>
