@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, AppState, AppStateStatus } from 'react-native';
 
 import { apiClient } from '../api/client';
 import { WorksheetSlotData } from '../components/WorksheetSlot';
@@ -156,6 +156,85 @@ export function useRoster(user: User) {
   useEffect(() => {
     loadRoster();
   }, [loadRoster]);
+
+  // Background sync: merge grading results into existing state without
+  // wiping local edits (unsaved grades, page URIs, etc.)
+  const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const syncGradingResults = useCallback(async () => {
+    if (!selectedClassId) return;
+    try {
+      const data = await apiClient.getClassWorksheetsForDate(selectedClassId, submittedOn);
+      setStats(data.stats);
+
+      setStudents((prev) =>
+        prev.map((student) => {
+          const serverWorksheets = data.worksheetsByStudent[student.studentId] || [];
+          if (serverWorksheets.length === 0) return student;
+
+          return {
+            ...student,
+            worksheets: student.worksheets.map((ws) => {
+              // Find matching server worksheet by ID or worksheet number
+              const match = serverWorksheets.find(
+                (sw) =>
+                  (ws.id && sw.id === ws.id) ||
+                  (!ws.id && sw.worksheetNumber === ws.worksheetNumber),
+              );
+              if (!match) return ws;
+
+              // Only update fields that come from grading — don't touch
+              // local edits like page URIs, manual grade changes, etc.
+              const hasNewGrade =
+                match.gradingDetails &&
+                (!ws.gradingDetails || JSON.stringify(match.gradingDetails) !== JSON.stringify(ws.gradingDetails));
+
+              if (!hasNewGrade && ws.existing) return ws;
+
+              return {
+                ...ws,
+                id: match.id ?? ws.id,
+                existing: true,
+                // Only overwrite grade/details if server has grading data
+                // and local doesn't (or server has newer data)
+                ...(match.gradingDetails
+                  ? {
+                      grade: match.grade != null ? String(match.grade) : ws.grade,
+                      gradingDetails: match.gradingDetails,
+                      wrongQuestionNumbers: match.wrongQuestionNumbers ?? ws.wrongQuestionNumbers,
+                    }
+                  : {}),
+                // Preserve local page URIs — only pick up server URLs
+                page1Url: match.images?.find((img) => img.pageNumber === 1)?.imageUrl ?? ws.page1Url,
+                page2Url: match.images?.find((img) => img.pageNumber === 2)?.imageUrl ?? ws.page2Url,
+                isAbsent: match.isAbsent ?? ws.isAbsent,
+                isRepeated: match.isRepeated ?? ws.isRepeated,
+              };
+            }),
+          };
+        }),
+      );
+    } catch {
+      // Silent — this is background sync
+    }
+  }, [selectedClassId, submittedOn]);
+
+  useEffect(() => {
+    if (!selectedClassId) return;
+    // Poll every 10 seconds for grading updates
+    syncIntervalRef.current = setInterval(syncGradingResults, 10_000);
+
+    const subscription = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        syncGradingResults();
+      }
+    });
+
+    return () => {
+      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
+      subscription.remove();
+    };
+  }, [selectedClassId, syncGradingResults]);
 
   // Filtered students
   const filteredStudents = useMemo(() => {
