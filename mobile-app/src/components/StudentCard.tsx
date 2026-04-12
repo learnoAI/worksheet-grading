@@ -2,7 +2,6 @@ import React, { useRef, useState } from 'react';
 import {
   Dimensions,
   FlatList,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -10,11 +9,12 @@ import {
   ViewToken,
 } from 'react-native';
 
+import { Ionicons } from '@expo/vector-icons';
 import { WorksheetSlot, WorksheetSlotData } from './WorksheetSlot';
-import { colors, fontSize, spacing, borderRadius } from '../theme';
+import { colors, fontSize, spacing, borderRadius, cardShadow, androidRipple } from '../theme';
 
 const CARD_HORIZONTAL_MARGIN = spacing.lg;
-const CARD_PADDING = spacing.lg;
+const CARD_PADDING = spacing.xl;
 
 interface StudentCardProps {
   studentId: string;
@@ -122,7 +122,7 @@ export function StudentCard({
           onPress={onAddWorksheet}
           hitSlop={8}
         >
-          <Text style={styles.addButtonText}>+</Text>
+          <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
         </Pressable>
       </View>
 
@@ -130,7 +130,11 @@ export function StudentCard({
       {worksheets.length > 1 && (
         <View style={styles.carouselNav}>
           <Pressable onPress={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} hitSlop={12}>
-            <Text style={[styles.chevron, activeIndex === 0 && styles.chevronDisabled]}>‹</Text>
+            <Ionicons
+              name="chevron-back"
+              size={22}
+              color={activeIndex === 0 ? colors.gray300 : colors.primary}
+            />
           </Pressable>
           <Text style={styles.carouselLabel}>
             Worksheet {activeIndex + 1} of {worksheets.length}
@@ -148,7 +152,11 @@ export function StudentCard({
             disabled={activeIndex === worksheets.length - 1}
             hitSlop={12}
           >
-            <Text style={[styles.chevron, activeIndex === worksheets.length - 1 && styles.chevronDisabled]}>›</Text>
+            <Ionicons
+              name="chevron-forward"
+              size={22}
+              color={activeIndex === worksheets.length - 1 ? colors.gray300 : colors.primary}
+            />
           </Pressable>
         </View>
       )}
@@ -192,21 +200,11 @@ export function StudentCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.white,
-    borderRadius: borderRadius.xl,
+    borderRadius: borderRadius.xxl,
     marginHorizontal: CARD_HORIZONTAL_MARGIN,
     marginBottom: spacing.md,
     padding: CARD_PADDING,
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.black,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
+    ...cardShadow,
   },
   header: {
     flexDirection: 'row',
@@ -215,9 +213,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -259,18 +257,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   addButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.gray50,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primaryLight,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  addButtonText: {
-    fontSize: 20,
-    fontWeight: '400',
-    color: colors.gray500,
-    lineHeight: 22,
   },
   carouselNav: {
     flexDirection: 'row',
@@ -280,15 +272,6 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.gray200,
-  },
-  chevron: {
-    fontSize: 28,
-    fontWeight: '300',
-    color: colors.primary,
-    paddingHorizontal: spacing.xs,
-  },
-  chevronDisabled: {
-    color: colors.gray300,
   },
   carouselLabel: {
     fontSize: fontSize.sm,
