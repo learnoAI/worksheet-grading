@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Alert,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -9,8 +8,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { colors, fontSize, spacing, borderRadius } from '../theme';
+import { colors, fontSize, spacing, borderRadius, cardShadow } from '../theme';
 import { User } from '../types';
+
+function avatarColor(name: string): string {
+  const hues = ['#0D9488', '#3B82F6', '#D54B43', '#D97706', '#059669', '#EA580C'];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return hues[Math.abs(hash) % hues.length];
+}
 
 interface SettingsScreenProps {
   user: User;
@@ -29,10 +37,11 @@ export function SettingsScreen({ user, onLogout }: SettingsScreenProps) {
     <SafeAreaView style={styles.container} edges={['top']}>
       <Text style={styles.title}>Settings</Text>
 
+      <Text style={styles.sectionHeader}>Account</Text>
       <View style={styles.section}>
         <View style={styles.card}>
           <View style={styles.profileRow}>
-            <View style={styles.avatar}>
+            <View style={[styles.avatar, { backgroundColor: avatarColor(user.name || user.username) }]}>
               <Text style={styles.avatarText}>
                 {(user.name || user.username).charAt(0).toUpperCase()}
               </Text>
@@ -55,6 +64,8 @@ export function SettingsScreen({ user, onLogout }: SettingsScreenProps) {
           </Pressable>
         </View>
       </View>
+
+      <Text style={styles.versionText}>Teacher Capture v1.0.0</Text>
     </SafeAreaView>
   );
 }
@@ -70,7 +81,7 @@ const styles = StyleSheet.create({
     color: colors.gray900,
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.xl,
+    paddingBottom: spacing.sm,
     letterSpacing: -0.5,
   },
   section: {
@@ -81,15 +92,7 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.lg,
     borderRadius: borderRadius.xl,
     overflow: 'hidden',
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.black,
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 4,
-      },
-      android: { elevation: 1 },
-    }),
+    ...cardShadow,
   },
   profileRow: {
     flexDirection: 'row',
@@ -98,15 +101,14 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.primary,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarText: {
-    fontSize: fontSize.lg,
+    fontSize: fontSize.xl,
     fontWeight: '700',
     color: colors.white,
   },
@@ -134,5 +136,21 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: colors.red,
     fontWeight: '500',
+  },
+  sectionHeader: {
+    fontSize: fontSize.xs,
+    fontWeight: '600',
+    color: colors.gray400,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  versionText: {
+    fontSize: fontSize.caption,
+    color: colors.gray400,
+    textAlign: 'center',
+    marginTop: spacing.xxl * 2,
   },
 });
