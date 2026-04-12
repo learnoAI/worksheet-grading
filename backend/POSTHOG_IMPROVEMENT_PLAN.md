@@ -262,7 +262,7 @@ heartbeats and acquires remain resilient.
 
 ---
 
-## Phase 4 — Dual-write `$exception` alongside `*_failed` events [PENDING]
+## Phase 4 — Dual-write `$exception` alongside `*_failed` events [COMPLETED]
 
 **Goal:** Activate PostHog Error Tracking without removing any existing event.
 
