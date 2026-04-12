@@ -1,11 +1,16 @@
 import DateTimePicker, {
   DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { LayoutAnimation, Platform, Pressable, StyleSheet, Text, UIManager, View } from 'react-native';
 
 import { colors, fontSize, spacing, borderRadius } from '../theme';
 import { toDateInputValue } from '../utils/date';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 interface DatePickerProps {
   value: string; // YYYY-MM-DD
@@ -39,6 +44,11 @@ export function DatePicker({ value, onChange }: DatePickerProps) {
   const [show, setShow] = useState(false);
   const dateObj = new Date(`${value}T00:00:00`);
 
+  const toggleShow = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShow(!show);
+  };
+
   const handleChange = (_event: DateTimePickerEvent, selected?: Date) => {
     if (Platform.OS === 'android') {
       setShow(false);
@@ -50,9 +60,13 @@ export function DatePicker({ value, onChange }: DatePickerProps) {
 
   return (
     <View>
-      <Pressable style={styles.touchable} onPress={() => setShow(!show)}>
+      <Pressable style={styles.touchable} onPress={toggleShow}>
         <Text style={styles.dateText}>{formatDateDisplay(value)}</Text>
-        <Text style={styles.chevron}>{show ? '▲' : '▼'}</Text>
+        <Ionicons
+          name={show ? 'chevron-up' : 'chevron-down'}
+          size={14}
+          color={colors.gray400}
+        />
       </Pressable>
       {show && (
         <View style={styles.pickerContainer}>
@@ -84,10 +98,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.lg,
     fontWeight: '600',
     color: colors.gray800,
-  },
-  chevron: {
-    fontSize: 10,
-    color: colors.gray400,
   },
   pickerContainer: {
     marginTop: spacing.sm,
