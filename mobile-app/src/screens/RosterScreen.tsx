@@ -4,6 +4,7 @@ import {
   FlatList,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -22,7 +23,7 @@ import { useGradingJobs } from '../hooks/useGradingJobs';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { useRoster, RosterStudent } from '../hooks/useRoster';
 import { colors, fontSize, spacing, borderRadius } from '../theme';
-import { GradingDetails, TeacherClass, User } from '../types';
+import { GradingDetails, User } from '../types';
 
 interface RosterScreenProps {
   user: User;
@@ -145,23 +146,6 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
     ],
   );
 
-  const renderClassChip = useCallback(
-    ({ item }: { item: TeacherClass }) => {
-      const isActive = item.id === roster.selectedClassId;
-      return (
-        <Pressable
-          style={[styles.classChip, isActive && styles.classChipActive]}
-          onPress={() => roster.setSelectedClassId(item.id)}
-        >
-          <Text style={[styles.classChipText, isActive && styles.classChipTextActive]}>
-            {item.name}
-          </Text>
-        </Pressable>
-      );
-    },
-    [roster],
-  );
-
   const eligibleUploadCount = roster.students.reduce(
     (count, s) =>
       count +
@@ -194,14 +178,26 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
       </View>
 
       {/* Class selector — right below header */}
-      <FlatList
+      <ScrollView
         horizontal
-        data={roster.classes}
-        keyExtractor={(item) => item.id}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.classChips}
-        renderItem={renderClassChip}
-      />
+      >
+        {roster.classes.map((cls) => {
+          const isActive = cls.id === roster.selectedClassId;
+          return (
+            <Pressable
+              key={cls.id}
+              style={[styles.classChip, isActive && styles.classChipActive]}
+              onPress={() => roster.setSelectedClassId(cls.id)}
+            >
+              <Text style={[styles.classChipText, isActive && styles.classChipTextActive]}>
+                {cls.name}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
       {/* Overflow menu */}
       {menuVisible && (
