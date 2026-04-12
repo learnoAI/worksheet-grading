@@ -259,3 +259,56 @@ export function capturePosthogException(
     void capturePosthogEvent('$exception', ctx.distinctId, buildExceptionProperties(error, ctx));
 }
 
+// ---------------------------------------------------------------------------
+// Controller-level error capture — drop-in replacement for bare
+// `console.error('Some error:', error)` catch blocks. Logs to console (same
+// as before) AND sends a structured $exception to PostHog so the error is
+// visible in Error Tracking dashboards without per-controller wiring.
+//
+// Usage:
+//   catch (error) {
+//       captureControllerError('worksheetController', error, req);
+//       return res.status(500).json({ message: 'Server error' });
+//   }
+// ---------------------------------------------------------------------------
+
+interface ControllerErrorRequest {
+    method?: string;
+    originalUrl?: string;
+    url?: string;
+    params?: Record<string, string>;
+    get?: (header: string) => string | undefined;
+    user?: { userId?: string; role?: string };
+}
+
+export function captureControllerError(
+    source: string,
+    error: unknown,
+    req?: ControllerErrorRequest,
+    extra?: PosthogProperties
+): void {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[${source}]`, message, error);
+
+    const requestId = req?.get?.('x-request-id') || 'unknown';
+    capturePosthogException(error, {
+        distinctId: requestId,
+        stage: source,
+        extra: {
+            path: req?.originalUrl || req?.url,
+            method: req?.method,
+            userId: req?.user?.userId,
+            ...extra
+        }
+    });
+
+    captureGradingPipelineEvent('controller_error', requestId, {
+        source,
+        error: message,
+        path: req?.originalUrl || req?.url,
+        method: req?.method,
+        userId: req?.user?.userId,
+        ...extra
+    });
+}
+
