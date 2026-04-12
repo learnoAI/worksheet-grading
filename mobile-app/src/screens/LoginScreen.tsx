@@ -8,15 +8,13 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ApiError, apiClient } from '../api/client';
 import { saveAuthToken } from '../auth/session';
 import { API_BASE_URL, isSupportedTeacherRole } from '../config';
-import { Ionicons } from '@expo/vector-icons';
-import { colors, fontSize, spacing, borderRadius, cardShadow } from '../theme';
+import { colors, fontSize, spacing, borderRadius } from '../theme';
 import { User } from '../types';
 
 interface LoginScreenProps {
@@ -64,11 +62,6 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.inner}
       >
-        <View style={styles.iconContainer}>
-          <View style={styles.appIcon}>
-            <Ionicons name="school" size={36} color={colors.white} />
-          </View>
-        </View>
         <Text style={styles.title}>Teacher Capture</Text>
         <Text style={styles.subtitle}>Sign in to get started</Text>
 
@@ -120,35 +113,21 @@ const styles = StyleSheet.create({
   },
   inner: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     paddingHorizontal: spacing.xxl,
-  },
-  iconContainer: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  appIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: borderRadius.xxl,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...cardShadow,
+    paddingBottom: 80,
   },
   title: {
     fontSize: fontSize.title,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.gray900,
-    textAlign: 'center',
     marginBottom: spacing.xs,
     letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: fontSize.md,
     color: colors.gray500,
-    textAlign: 'center',
-    marginBottom: spacing.xxl,
+    marginBottom: spacing.xxl * 1.5,
   },
   input: {
     borderWidth: 1,
@@ -163,11 +142,10 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: colors.primary,
-    borderRadius: 14,
+    borderRadius: borderRadius.lg,
     paddingVertical: 16,
     alignItems: 'center',
-    marginTop: spacing.sm,
-    ...cardShadow,
+    marginTop: spacing.lg,
   },
   buttonDisabled: {
     opacity: 0.6,
