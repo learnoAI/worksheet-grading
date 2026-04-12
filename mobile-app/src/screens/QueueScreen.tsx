@@ -1,10 +1,12 @@
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,8 +15,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { apiClient } from '../api/client';
+import { DatePicker } from '../components/DatePicker';
+import { useGradingJobs } from '../hooks/useGradingJobs';
 import { colors, fontSize, spacing, borderRadius } from '../theme';
-import { QueueWorksheet } from '../types';
+import { QueueWorksheet, TeacherClass, User } from '../types';
+import { toDateInputValue } from '../utils/date';
 import {
   initializeQueueDatabase,
   listQueueItems,
@@ -27,38 +32,51 @@ import {
 } from '../queue/uploader';
 
 interface QueueScreenProps {
+  user: User;
   onNavigateToStudent?: (studentId: string, classId: string, submittedOn: string) => void;
 }
 
 const STATUS_DISPLAY: Record<string, { label: string; color: string; bg: string }> = {
   queued: { label: 'Queued', color: colors.amber, bg: colors.amberLight },
-  uploading: { label: 'Uploading', color: colors.blue, bg: colors.blueLight },
-  uploaded: { label: 'Uploaded', color: colors.blue, bg: colors.blueLight },
-  grading_queued: { label: 'Grading', color: colors.blue, bg: colors.blueLight },
-  processing: { label: 'Processing', color: colors.blue, bg: colors.blueLight },
+  uploading: { label: 'Uploading', color: colors.primary, bg: colors.primaryLight },
+  uploaded: { label: 'Uploaded', color: colors.primary, bg: colors.primaryLight },
+  grading_queued: { label: 'Grading', color: colors.primary, bg: colors.primaryLight },
+  processing: { label: 'Processing', color: colors.primary, bg: colors.primaryLight },
   completed: { label: 'Done', color: colors.green, bg: colors.greenLight },
   failed: { label: 'Failed', color: colors.red, bg: colors.redLight },
 };
 
-export function QueueScreen({ onNavigateToStudent }: QueueScreenProps) {
+export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
   const [items, setItems] = useState<QueueWorksheet[]>([]);
-  const [filter, setFilter] = useState('');
+  const [textFilter, setTextFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState(toDateInputValue());
+  const [classes, setClasses] = useState<TeacherClass[]>([]);
+  const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState(false);
+  const { summary } = useGradingJobs();
+
+  // Load classes for filter
+  useEffect(() => {
+    apiClient.getTeacherClasses(user).then(setClasses).catch(() => undefined);
+  }, [user]);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
     try {
       await initializeQueueDatabase();
       await refreshGradingStatuses(apiClient).catch(() => undefined);
-      const all = await listQueueItems();
+      const filters: { submittedOn?: string; classIds?: string[] } = {};
+      if (dateFilter) filters.submittedOn = dateFilter;
+      if (selectedClassIds.size > 0) filters.classIds = Array.from(selectedClassIds);
+      const all = await listQueueItems(filters);
       setItems(all);
     } catch {
       // Silently fail
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dateFilter, selectedClassIds]);
 
   useFocusEffect(
     useCallback(() => {
@@ -104,21 +122,40 @@ export function QueueScreen({ onNavigateToStudent }: QueueScreenProps) {
     [loadItems],
   );
 
-  const filtered = filter.trim()
+  const toggleClass = useCallback((classId: string) => {
+    setSelectedClassIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(classId)) {
+        next.delete(classId);
+      } else {
+        next.add(classId);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearClassFilter = useCallback(() => {
+    setSelectedClassIds(new Set());
+  }, []);
+
+  const filtered = textFilter.trim()
     ? items.filter(
         (item) =>
-          item.studentName.toLowerCase().includes(filter.toLowerCase()) ||
-          item.tokenNumber.toLowerCase().includes(filter.toLowerCase()) ||
-          item.status.includes(filter.toLowerCase()),
+          item.studentName.toLowerCase().includes(textFilter.toLowerCase()) ||
+          item.tokenNumber.toLowerCase().includes(textFilter.toLowerCase()) ||
+          item.status.includes(textFilter.toLowerCase()),
       )
     : items;
 
+  const hasActiveJobs = summary && (summary.queued > 0 || summary.processing > 0);
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Upload Queue</Text>
+        <Text style={styles.title}>Queue</Text>
         <Pressable
-          style={[styles.processButton, working && styles.disabled]}
+          style={({ pressed }) => [styles.processButton, working && styles.disabled, pressed && { opacity: 0.7 }]}
           onPress={handleProcessQueue}
           disabled={working}
         >
@@ -130,14 +167,88 @@ export function QueueScreen({ onNavigateToStudent }: QueueScreenProps) {
         </Pressable>
       </View>
 
-      <View style={styles.filterRow}>
-        <TextInput
-          style={styles.filterInput}
-          placeholder="Filter by name, token, or status"
-          placeholderTextColor={colors.gray400}
-          value={filter}
-          onChangeText={setFilter}
-        />
+      {/* Grading jobs summary */}
+      <View style={styles.jobsSummary}>
+        {hasActiveJobs && <ActivityIndicator size="small" color={colors.primary} />}
+        <View style={styles.jobsRow}>
+          {summary && summary.processing > 0 && (
+            <View style={[styles.jobsPill, { backgroundColor: colors.primaryLight }]}>
+              <Text style={[styles.jobsPillText, { color: colors.primary }]}>
+                {summary.processing} grading
+              </Text>
+            </View>
+          )}
+          {summary && summary.queued > 0 && (
+            <View style={[styles.jobsPill, { backgroundColor: colors.amberLight }]}>
+              <Text style={[styles.jobsPillText, { color: colors.amber }]}>
+                {summary.queued} queued
+              </Text>
+            </View>
+          )}
+          {summary && summary.completed > 0 && (
+            <View style={[styles.jobsPill, { backgroundColor: colors.greenLight }]}>
+              <Text style={[styles.jobsPillText, { color: colors.green }]}>
+                {summary.completed} done
+              </Text>
+            </View>
+          )}
+          {summary && summary.failed > 0 && (
+            <View style={[styles.jobsPill, { backgroundColor: colors.redLight }]}>
+              <Text style={[styles.jobsPillText, { color: colors.red }]}>
+                {summary.failed} failed
+              </Text>
+            </View>
+          )}
+          {(!summary || summary.total === 0) && (
+            <Text style={styles.jobsEmpty}>No grading jobs today</Text>
+          )}
+        </View>
+      </View>
+
+      {/* Filters */}
+      <View style={styles.filtersSection}>
+        {/* Date */}
+        <DatePicker value={dateFilter} onChange={setDateFilter} />
+
+        {/* Class filter chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.classFilterRow}
+        >
+          <Pressable onPress={clearClassFilter}>
+            <View style={[styles.classFilterChip, selectedClassIds.size === 0 && styles.classFilterChipActive]}>
+              <Text style={[styles.classFilterText, selectedClassIds.size === 0 && styles.classFilterTextActive]}>
+                All
+              </Text>
+            </View>
+          </Pressable>
+          {classes.map((cls) => {
+            const isActive = selectedClassIds.has(cls.id);
+            return (
+              <Pressable key={cls.id} onPress={() => toggleClass(cls.id)}>
+                <View style={[styles.classFilterChip, isActive && styles.classFilterChipActive]}>
+                  <Text style={[styles.classFilterText, isActive && styles.classFilterTextActive]}>
+                    {cls.name}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {/* Text filter */}
+        <View style={styles.filterContainer}>
+          <Text style={styles.filterIcon}>🔍</Text>
+          <TextInput
+            style={styles.filterInput}
+            placeholder="Search name or token"
+            placeholderTextColor={colors.gray400}
+            value={textFilter}
+            onChangeText={setTextFilter}
+            clearButtonMode="while-editing"
+          />
+        </View>
       </View>
 
       {loading ? (
@@ -151,14 +262,14 @@ export function QueueScreen({ onNavigateToStudent }: QueueScreenProps) {
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>Queue is empty.</Text>
+              <Text style={styles.emptyText}>No items for this date.</Text>
             </View>
           }
           renderItem={({ item }) => {
             const statusInfo = STATUS_DISPLAY[item.status] || STATUS_DISPLAY.queued;
             return (
               <Pressable
-                style={styles.card}
+                style={({ pressed }) => [styles.card, pressed && { opacity: 0.9 }]}
                 onPress={() => onNavigateToStudent?.(item.studentId, item.classId, item.submittedOn)}
               >
                 <View style={styles.cardHeader}>
@@ -167,7 +278,8 @@ export function QueueScreen({ onNavigateToStudent }: QueueScreenProps) {
                       {item.studentName}
                     </Text>
                     <Text style={styles.cardMeta}>
-                      #{item.tokenNumber} · WS #{item.worksheetNumber} · {item.submittedOn}
+                      #{item.tokenNumber} · WS #{item.worksheetNumber}
+                      {item.className ? ` · ${item.className}` : ''}
                     </Text>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
@@ -187,7 +299,6 @@ export function QueueScreen({ onNavigateToStudent }: QueueScreenProps) {
                   <Text style={styles.jobId}>Job: {item.jobId.slice(0, 8)}</Text>
                 )}
 
-                {/* Page upload status */}
                 <View style={styles.pagesRow}>
                   {item.pages.map((page) => (
                     <Text
@@ -203,7 +314,6 @@ export function QueueScreen({ onNavigateToStudent }: QueueScreenProps) {
                   ))}
                 </View>
 
-                {/* Actions */}
                 <View style={styles.cardActions}>
                   {item.status === 'failed' && (
                     <Pressable style={styles.retryButton} onPress={() => handleRetry(item.localId)}>
@@ -237,53 +347,131 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
+    backgroundColor: colors.white,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.gray200,
   },
   title: {
     fontSize: fontSize.xxl,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.gray900,
+    letterSpacing: -0.3,
   },
   processButton: {
     backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.xl,
     paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
+    borderRadius: 20,
   },
   processButtonText: {
     fontSize: fontSize.sm,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.white,
   },
-  filterRow: {
+
+  // Grading jobs
+  jobsSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.white,
+    gap: spacing.sm,
+  },
+  jobsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  jobsPill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: 12,
+  },
+  jobsPillText: {
+    fontSize: fontSize.xs,
+    fontWeight: '600',
+  },
+  jobsEmpty: {
+    fontSize: fontSize.sm,
+    color: colors.gray400,
+  },
+
+  // Filters
+  filtersSection: {
+    backgroundColor: colors.white,
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.gray200,
+    gap: spacing.sm,
+  },
+  classFilterRow: {
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  classFilterChip: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: colors.gray100,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+  },
+  classFilterChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  classFilterText: {
+    fontSize: fontSize.sm,
+    fontWeight: '500',
+    color: colors.gray600,
+  },
+  classFilterTextActive: {
+    color: colors.white,
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Platform.select({
+      ios: colors.gray200,
+      android: colors.gray100,
+    }),
+    borderRadius: Platform.select({ ios: 10, android: borderRadius.md }),
+    paddingHorizontal: spacing.md,
+  },
+  filterIcon: {
+    fontSize: 14,
+    marginRight: spacing.sm,
   },
   filterInput: {
-    borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    flex: 1,
     fontSize: fontSize.md,
     color: colors.gray900,
-    backgroundColor: colors.white,
+    paddingVertical: Platform.select({ ios: 8, android: 10 }),
   },
+
   listContent: {
+    paddingTop: spacing.sm,
     paddingBottom: spacing.xxl,
   },
   card: {
     backgroundColor: colors.white,
     marginHorizontal: spacing.lg,
     marginBottom: spacing.sm,
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.xl,
     padding: spacing.lg,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 1,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 3,
+      },
+      android: { elevation: 1 },
+    }),
   },
   cardHeader: {
     flexDirection: 'row',
@@ -296,7 +484,7 @@ const styles = StyleSheet.create({
   },
   cardName: {
     fontSize: fontSize.md,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.gray900,
   },
   cardMeta: {
@@ -306,8 +494,8 @@ const styles = StyleSheet.create({
   },
   statusBadge: {
     paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: borderRadius.full,
+    paddingVertical: 3,
+    borderRadius: borderRadius.sm,
   },
   statusText: {
     fontSize: fontSize.xs,
@@ -367,7 +555,7 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: spacing.xxl * 2,
+    paddingVertical: spacing.xxl * 3,
   },
   emptyText: {
     fontSize: fontSize.md,

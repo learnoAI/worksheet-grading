@@ -1,7 +1,7 @@
-import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -13,6 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { apiClient } from './src/api/client';
 import { isSupportedTeacherRole } from './src/config';
 import { clearAuthToken, getAuthToken } from './src/auth/session';
+import { useGradingJobs } from './src/hooks/useGradingJobs';
 import { initializeQueueDatabase, listQueueItems } from './src/queue/storage';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { RosterScreen } from './src/screens/RosterScreen';
@@ -29,11 +30,87 @@ type TabParamList = {
 
 const Tab = createBottomTabNavigator<TabParamList>();
 
+function MainTabs({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const [queueBadge, setQueueBadge] = useState(0);
+  const { activeCount } = useGradingJobs();
+
+  useEffect(() => {
+    const updateBadge = async () => {
+      try {
+        const items = await listQueueItems();
+        const active = items.filter(
+          (i) => i.status !== 'completed' && i.status !== 'failed',
+        ).length;
+        setQueueBadge(active);
+      } catch {
+        // ignore
+      }
+    };
+    updateBadge();
+    const interval = setInterval(updateBadge, 10_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const badgeCount = queueBadge + activeCount;
+
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.gray400,
+        tabBarStyle: {
+          borderTopColor: colors.gray200,
+          borderTopWidth: StyleSheet.hairlineWidth,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '500',
+        },
+      }}
+    >
+      <Tab.Screen
+        name="Roster"
+        options={{
+          tabBarLabel: 'Worksheets',
+          tabBarIcon: ({ color }) => (
+            <Text style={{ fontSize: 20, color }}>📋</Text>
+          ),
+        }}
+      >
+        {() => <RosterScreen user={user} />}
+      </Tab.Screen>
+      <Tab.Screen
+        name="Queue"
+        options={{
+          tabBarLabel: 'Queue',
+          tabBarIcon: ({ color }) => (
+            <Text style={{ fontSize: 20, color }}>📤</Text>
+          ),
+          tabBarBadge: badgeCount > 0 ? badgeCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.primary },
+        }}
+      >
+        {() => <QueueScreen user={user} />}
+      </Tab.Screen>
+      <Tab.Screen
+        name="Settings"
+        options={{
+          tabBarLabel: 'Settings',
+          tabBarIcon: ({ color }) => (
+            <Text style={{ fontSize: 20, color }}>⚙️</Text>
+          ),
+        }}
+      >
+        {() => <SettingsScreen user={user} onLogout={onLogout} />}
+      </Tab.Screen>
+    </Tab.Navigator>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [restoring, setRestoring] = useState(true);
-  const [queueBadge, setQueueBadge] = useState(0);
-  const navigationRef = useRef<NavigationContainerRef<TabParamList>>(null);
 
   useEffect(() => {
     (async () => {
@@ -58,24 +135,6 @@ export default function App() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!user) return;
-    const updateBadge = async () => {
-      try {
-        const items = await listQueueItems();
-        const active = items.filter(
-          (i) => i.status !== 'completed' && i.status !== 'failed',
-        ).length;
-        setQueueBadge(active);
-      } catch {
-        // ignore
-      }
-    };
-    updateBadge();
-    const interval = setInterval(updateBadge, 10_000);
-    return () => clearInterval(interval);
-  }, [user]);
-
   const handleLogout = useCallback(async () => {
     await clearAuthToken();
     apiClient.setToken(null);
@@ -84,10 +143,6 @@ export default function App() {
 
   const handleLogin = useCallback((loggedInUser: User) => {
     setUser(loggedInUser);
-  }, []);
-
-  const handleNavigateToQueue = useCallback(() => {
-    navigationRef.current?.navigate('Queue');
   }, []);
 
   if (restoring) {
@@ -112,63 +167,8 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer ref={navigationRef}>
-        <Tab.Navigator
-          screenOptions={{
-            headerShown: false,
-            tabBarActiveTintColor: colors.primary,
-            tabBarInactiveTintColor: colors.gray400,
-            tabBarStyle: {
-              borderTopColor: colors.gray200,
-              borderTopWidth: StyleSheet.hairlineWidth,
-            },
-            tabBarLabelStyle: {
-              fontSize: 11,
-              fontWeight: '500',
-            },
-          }}
-        >
-          <Tab.Screen
-            name="Roster"
-            options={{
-              tabBarLabel: 'Worksheets',
-              tabBarIcon: ({ color }) => (
-                <Text style={{ fontSize: 20, color }}>📋</Text>
-              ),
-            }}
-          >
-            {() => (
-              <RosterScreen
-                user={user}
-                onNavigateToQueue={handleNavigateToQueue}
-              />
-            )}
-          </Tab.Screen>
-          <Tab.Screen
-            name="Queue"
-            options={{
-              tabBarLabel: 'Queue',
-              tabBarIcon: ({ color }) => (
-                <Text style={{ fontSize: 20, color }}>📤</Text>
-              ),
-              tabBarBadge: queueBadge > 0 ? queueBadge : undefined,
-              tabBarBadgeStyle: { backgroundColor: colors.primary },
-            }}
-          >
-            {() => <QueueScreen />}
-          </Tab.Screen>
-          <Tab.Screen
-            name="Settings"
-            options={{
-              tabBarLabel: 'Settings',
-              tabBarIcon: ({ color }) => (
-                <Text style={{ fontSize: 20, color }}>⚙️</Text>
-              ),
-            }}
-          >
-            {() => <SettingsScreen user={user} onLogout={handleLogout} />}
-          </Tab.Screen>
-        </Tab.Navigator>
+      <NavigationContainer>
+        <MainTabs user={user} onLogout={handleLogout} />
       </NavigationContainer>
       <StatusBar style="auto" />
     </SafeAreaProvider>

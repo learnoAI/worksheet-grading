@@ -14,12 +14,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DatePicker } from '../components/DatePicker';
 import { GradingDetailsModal } from '../components/GradingDetailsModal';
-import { GradingStatusBanner } from '../components/GradingStatusBanner';
 import { ImagePreviewModal } from '../components/ImagePreviewModal';
 import { StatChips } from '../components/StatChips';
 import { StudentCard } from '../components/StudentCard';
 import { useDocumentScanner } from '../hooks/useDocumentScanner';
-import { useGradingJobs } from '../hooks/useGradingJobs';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { useRoster, RosterStudent } from '../hooks/useRoster';
 import { colors, fontSize, spacing, borderRadius } from '../theme';
@@ -27,13 +25,11 @@ import { GradingDetails, User } from '../types';
 
 interface RosterScreenProps {
   user: User;
-  onNavigateToQueue: () => void;
 }
 
-export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
+export function RosterScreen({ user }: RosterScreenProps) {
   const isOnline = useNetworkStatus();
   const roster = useRoster(user);
-  const { summary } = useGradingJobs();
   const { scanPages, scanSinglePage, pickFromGallery } = useDocumentScanner();
 
   const [detailsModal, setDetailsModal] = useState<{
@@ -165,16 +161,76 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header: date + menu */}
-      <View style={styles.header}>
-        <DatePicker value={roster.submittedOn} onChange={roster.setSubmittedOn} />
-        <Pressable
-          onPress={() => setMenuVisible(!menuVisible)}
-          style={({ pressed }) => [styles.menuButton, pressed && { opacity: 0.5 }]}
-          hitSlop={12}
+      {/* ---- Sticky header section ---- */}
+      <View style={styles.stickyHeader}>
+        {/* Date + menu */}
+        <View style={styles.headerRow}>
+          <DatePicker value={roster.submittedOn} onChange={roster.setSubmittedOn} />
+          <Pressable
+            onPress={() => setMenuVisible(!menuVisible)}
+            style={({ pressed }) => [styles.menuButton, pressed && { opacity: 0.5 }]}
+            hitSlop={12}
+          >
+            <Text style={styles.menuDots}>...</Text>
+          </Pressable>
+        </View>
+
+        {/* Class selector */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.classChips}
         >
-          <Text style={styles.menuDots}>...</Text>
-        </Pressable>
+          {roster.classes.map((cls) => {
+            const isActive = cls.id === roster.selectedClassId;
+            return (
+              <Pressable
+                key={cls.id}
+                onPress={() => roster.setSelectedClassId(cls.id)}
+              >
+                <View style={[styles.classChip, isActive && styles.classChipActive]}>
+                  <Text style={[styles.classChipText, isActive && styles.classChipTextActive]}>
+                    {cls.name}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {/* Offline banner */}
+        {!isOnline && (
+          <View style={styles.offlineBanner}>
+            <Text style={styles.offlineText}>
+              Offline — uploads and saves disabled
+            </Text>
+          </View>
+        )}
+
+        {/* Stats */}
+        {roster.stats && (
+          <StatChips
+            totalStudents={roster.stats.totalStudents}
+            studentsGraded={roster.stats.studentsWithWorksheets}
+            worksheetsGraded={roster.stats.gradedCount}
+            absentCount={roster.stats.absentCount}
+          />
+        )}
+
+        {/* Search */}
+        <View style={styles.searchRow}>
+          <View style={styles.searchContainer}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search by name or token #"
+              placeholderTextColor={colors.gray400}
+              value={roster.searchQuery}
+              onChangeText={roster.setSearchQuery}
+              clearButtonMode="while-editing"
+            />
+          </View>
+        </View>
       </View>
 
       {/* Overflow menu */}
@@ -195,7 +251,7 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
         </>
       )}
 
-      {/* Everything in one FlatList */}
+      {/* ---- Scrollable student cards ---- */}
       {roster.loadingRoster ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -207,74 +263,11 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
           renderItem={renderStudent}
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={
-            <>
-              {/* Class selector */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.classChips}
-              >
-                {roster.classes.map((cls) => {
-                  const isActive = cls.id === roster.selectedClassId;
-                  return (
-                    <Pressable
-                      key={cls.id}
-                      onPress={() => roster.setSelectedClassId(cls.id)}
-                    >
-                      <View style={[styles.classChip, isActive && styles.classChipActive]}>
-                        <Text style={[styles.classChipText, isActive && styles.classChipTextActive]}>
-                          {cls.name}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-
-              {/* Offline banner */}
-              {!isOnline && (
-                <View style={styles.offlineBanner}>
-                  <Text style={styles.offlineText}>
-                    You are offline. Upload, AI Grade, and Save are disabled.
-                  </Text>
-                </View>
-              )}
-
-              {/* Grading status */}
-              <GradingStatusBanner summary={summary} onPress={onNavigateToQueue} />
-
-              {/* Stats */}
-              {roster.stats && (
-                <StatChips
-                  totalStudents={roster.stats.totalStudents}
-                  studentsGraded={roster.stats.studentsWithWorksheets}
-                  worksheetsGraded={roster.stats.gradedCount}
-                  absentCount={roster.stats.absentCount}
-                />
-              )}
-
-              {/* Search */}
-              <View style={styles.searchRow}>
-                <View style={styles.searchContainer}>
-                  <Text style={styles.searchIcon}>🔍</Text>
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search by name or token #"
-                    placeholderTextColor={colors.gray400}
-                    value={roster.searchQuery}
-                    onChangeText={roster.setSearchQuery}
-                    clearButtonMode="while-editing"
-                  />
-                </View>
+            roster.error ? (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorText}>{roster.error}</Text>
               </View>
-
-              {/* Error */}
-              {roster.error && (
-                <View style={styles.errorBanner}>
-                  <Text style={styles.errorText}>{roster.error}</Text>
-                </View>
-              )}
-            </>
+            ) : null
           }
           ListEmptyComponent={
             <View style={styles.emptyState}>
@@ -346,17 +339,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  // Header
-  header: {
+  // Sticky header
+  stickyHeader: {
+    backgroundColor: colors.white,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.gray200,
+    paddingBottom: spacing.sm,
+  },
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-    backgroundColor: colors.white,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.gray200,
+    paddingBottom: spacing.xs,
   },
   menuButton: {
     width: 36,
@@ -415,10 +411,10 @@ const styles = StyleSheet.create({
   offlineBanner: {
     backgroundColor: colors.accentLight,
     marginHorizontal: spacing.lg,
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: '#FECACA',
   },
@@ -438,7 +434,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: colors.white,
+    backgroundColor: colors.gray50,
     borderWidth: 1,
     borderColor: colors.gray300,
   },
@@ -458,20 +454,17 @@ const styles = StyleSheet.create({
   // Search
   searchRow: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.xs,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Platform.select({
       ios: colors.gray200,
-      android: colors.white,
+      android: colors.gray100,
     }),
     borderRadius: Platform.select({ ios: 10, android: borderRadius.md }),
     paddingHorizontal: spacing.md,
-    ...Platform.select({
-      android: { elevation: 1 },
-    }),
   },
   searchIcon: {
     fontSize: 14,
@@ -488,7 +481,7 @@ const styles = StyleSheet.create({
   errorBanner: {
     backgroundColor: colors.accentLight,
     marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     borderRadius: borderRadius.lg,
@@ -503,7 +496,7 @@ const styles = StyleSheet.create({
 
   // List
   listContent: {
-    paddingTop: spacing.xs,
+    paddingTop: spacing.sm,
     paddingBottom: 80,
   },
   emptyState: {
@@ -515,7 +508,7 @@ const styles = StyleSheet.create({
     color: colors.gray400,
   },
 
-  // Bottom bar — compact
+  // Bottom bar
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -533,7 +526,7 @@ const styles = StyleSheet.create({
   bottomBtn: {
     flex: 1,
     paddingVertical: 10,
-    borderRadius: borderRadius.full,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
