@@ -4,7 +4,7 @@ import { Alert, AppState, AppStateStatus } from 'react-native';
 
 import { apiClient } from '../api/client';
 import { WorksheetSlotData } from '../components/WorksheetSlot';
-import { queueCapturedWorksheet } from '../queue/storage';
+import { listQueueItems, queueCapturedWorksheet } from '../queue/storage';
 import { processUploadQueue } from '../queue/uploader';
 import {
   CapturePageDraft,
@@ -165,13 +165,25 @@ export function useRoster(user: User) {
   const syncGradingResults = useCallback(async () => {
     if (!selectedClassId) return;
     try {
-      const data = await apiClient.getClassWorksheetsForDate(selectedClassId, submittedOn);
+      const [data, queueItems] = await Promise.all([
+        apiClient.getClassWorksheetsForDate(selectedClassId, submittedOn),
+        listQueueItems({ submittedOn, classIds: [selectedClassId] }),
+      ]);
       setStats(data.stats);
+
+      // Build a set of student IDs that have active queue items
+      const activeQueueStudents = new Set(
+        queueItems
+          .filter((qi) => qi.status !== 'completed' && qi.status !== 'failed')
+          .map((qi) => qi.studentId),
+      );
 
       setStudents((prev) =>
         prev.map((student) => {
           const serverWorksheets = data.worksheetsByStudent[student.studentId] || [];
-          if (serverWorksheets.length === 0) return student;
+          const isQueued = activeQueueStudents.has(student.studentId);
+
+          if (serverWorksheets.length === 0 && !isQueued) return student;
 
           return {
             ...student,
@@ -182,6 +194,8 @@ export function useRoster(user: User) {
                   (ws.id && sw.id === ws.id) ||
                   (!ws.id && sw.worksheetNumber === ws.worksheetNumber),
               );
+              // Lock card if student has active queue items
+              if (!match && isQueued) return { ...ws, isUploading: true };
               if (!match) return ws;
 
               // Only update fields that come from grading — don't touch
@@ -190,12 +204,13 @@ export function useRoster(user: User) {
                 match.gradingDetails &&
                 (!ws.gradingDetails || JSON.stringify(match.gradingDetails) !== JSON.stringify(ws.gradingDetails));
 
-              if (!hasNewGrade && ws.existing) return ws;
+              if (!hasNewGrade && ws.existing && !isQueued) return ws;
 
               return {
                 ...ws,
                 id: match.id ?? ws.id,
                 existing: true,
+                isUploading: isQueued,
                 // Only overwrite grade/details if server has grading data
                 // and local doesn't (or server has newer data)
                 ...(match.gradingDetails

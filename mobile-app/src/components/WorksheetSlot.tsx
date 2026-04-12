@@ -61,7 +61,7 @@ export function WorksheetSlot({
   onSave,
   onShowDetails,
 }: WorksheetSlotProps) {
-  const isDisabled = disabled || data.isAbsent;
+  const isDisabled = disabled || data.isAbsent || data.isUploading;
   const hasPages = !!(data.page1Uri || data.page1Url || data.page2Uri || data.page2Url);
   const canGrade = !isOffline && !data.isUploading && data.worksheetNumber > 0 && hasPages;
   const canSave = !isOffline && !data.isUploading;
