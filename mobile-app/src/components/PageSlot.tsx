@@ -1,12 +1,15 @@
 import React from 'react';
 import {
+  Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
-import { colors, fontSize, spacing, borderRadius } from '../theme';
+import { colors, fontSize, spacing, borderRadius, androidRipple } from '../theme';
 
 interface PageSlotProps {
   pageNumber: number;
@@ -28,32 +31,50 @@ export function PageSlot({
   onPreview,
 }: PageSlotProps) {
   const hasImage = !!(imageUri || imageUrl);
+  const displayUri = imageUri || imageUrl;
 
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <Text style={styles.label}>P{pageNumber}</Text>
-        {hasImage && (
+        {hasImage && displayUri && (
           <Pressable onPress={onPreview} hitSlop={8}>
-            <View style={styles.tick}>
-              <Text style={styles.tickText}>✓</Text>
-            </View>
+            <Image source={{ uri: displayUri }} style={styles.thumbnail} />
           </Pressable>
+        )}
+        {hasImage && !displayUri && (
+          <View style={styles.tick}>
+            <Ionicons name="checkmark-circle" size={20} color={colors.green} />
+          </View>
         )}
       </View>
       <View style={styles.buttons}>
         <Pressable
-          style={({ pressed }) => [styles.button, styles.scanBtn, disabled && styles.disabled, pressed && { opacity: 0.7 }]}
+          style={({ pressed }) => [
+            styles.button,
+            styles.scanBtn,
+            disabled && styles.disabled,
+            Platform.OS === 'ios' && pressed && styles.pressed,
+          ]}
           onPress={onScan}
           disabled={disabled}
+          android_ripple={androidRipple}
         >
+          <Ionicons name="camera-outline" size={14} color={colors.white} />
           <Text style={styles.scanBtnText}>Scan</Text>
         </Pressable>
         <Pressable
-          style={({ pressed }) => [styles.button, styles.galleryBtn, disabled && styles.disabled, pressed && { opacity: 0.7 }]}
+          style={({ pressed }) => [
+            styles.button,
+            styles.galleryBtn,
+            disabled && styles.disabled,
+            Platform.OS === 'ios' && pressed && styles.pressed,
+          ]}
           onPress={onPickGallery}
           disabled={disabled}
+          android_ripple={androidRipple}
         >
+          <Ionicons name="image-outline" size={14} color={colors.gray700} />
           <Text style={styles.galleryBtnText}>Gallery</Text>
         </Pressable>
       </View>
@@ -76,20 +97,19 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.gray500,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
+  },
+  thumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.gray100,
   },
   tick: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: colors.greenLight,
+    width: 24,
+    height: 24,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  tickText: {
-    fontSize: 13,
-    color: colors.green,
-    fontWeight: '700',
   },
   buttons: {
     flexDirection: 'row',
@@ -97,9 +117,13 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
     paddingVertical: 8,
     borderRadius: borderRadius.md,
-    alignItems: 'center',
+    overflow: 'hidden',
   },
   scanBtn: {
     backgroundColor: colors.primaryDark,
@@ -121,5 +145,8 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.4,
+  },
+  pressed: {
+    transform: [{ scale: 0.98 }],
   },
 });
