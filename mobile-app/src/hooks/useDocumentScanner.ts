@@ -12,35 +12,46 @@ export interface ScannedPage {
   fileSize?: number;
 }
 
+function isCancellation(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message?.toLowerCase() || '';
+  return msg.includes('cancel') || msg.includes('user') || msg.includes('dismissed');
+}
+
+async function scanOne(pageLabel: string): Promise<ScannedPage | null> {
+  const result = await DocumentScanner.scanDocument({
+    maxNumDocuments: 1,
+  });
+
+  if (!result.scannedImages || result.scannedImages.length === 0) {
+    return null;
+  }
+
+  return {
+    uri: result.scannedImages[0],
+    mimeType: 'image/jpeg',
+    fileName: `scan-${pageLabel}.jpg`,
+  };
+}
+
 export function useDocumentScanner() {
+  // Scan both pages sequentially — opens scanner for page 1, then page 2
   const scanPages = useCallback(async (): Promise<ScannedPage[]> => {
     try {
-      const result = await DocumentScanner.scanDocument({
-        maxNumDocuments: 2,
-      });
+      // Page 1
+      const page1 = await scanOne('page-1');
+      if (!page1) return [];
 
-      if (!result.scannedImages || result.scannedImages.length === 0) {
-        return [];
-      }
+      // Brief pause so the scanner UI can fully dismiss before reopening
+      await new Promise((r) => setTimeout(r, 500));
 
-      const pages: ScannedPage[] = result.scannedImages.map((uri, index) => ({
-        uri: Platform.OS === 'android' ? uri : uri,
-        mimeType: 'image/jpeg',
-        fileName: `scan-page-${index + 1}.jpg`,
-      }));
+      // Page 2
+      const page2 = await scanOne('page-2');
+      if (!page2) return [page1]; // User cancelled page 2, keep page 1
 
-      if (pages.length > 2) {
-        Alert.alert(
-          'Extra pages',
-          `${pages.length} pages scanned, using first 2.`,
-        );
-      }
-
-      return pages.slice(0, 2);
+      return [page1, page2];
     } catch (error) {
-      if (error instanceof Error && error.message?.includes('cancel')) {
-        return [];
-      }
+      if (isCancellation(error)) return [];
       Alert.alert('Scanner Error', 'Unable to open document scanner.');
       return [];
     }
@@ -48,23 +59,9 @@ export function useDocumentScanner() {
 
   const scanSinglePage = useCallback(async (): Promise<ScannedPage | null> => {
     try {
-      const result = await DocumentScanner.scanDocument({
-        maxNumDocuments: 1,
-      });
-
-      if (!result.scannedImages || result.scannedImages.length === 0) {
-        return null;
-      }
-
-      return {
-        uri: result.scannedImages[0],
-        mimeType: 'image/jpeg',
-        fileName: 'scan-page.jpg',
-      };
+      return await scanOne('page');
     } catch (error) {
-      if (error instanceof Error && error.message?.includes('cancel')) {
-        return null;
-      }
+      if (isCancellation(error)) return null;
       Alert.alert('Scanner Error', 'Unable to open document scanner.');
       return null;
     }
