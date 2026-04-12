@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { colors, fontSize, spacing, borderRadius, cardShadow } from '../theme';
+import { colors, fontSize, spacing, borderRadius } from '../theme';
 import { User } from '../types';
 
 function avatarColor(name: string): string {
@@ -92,7 +92,8 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.lg,
     borderRadius: borderRadius.xl,
     overflow: 'hidden',
-    ...cardShadow,
+    borderWidth: 1,
+    borderColor: colors.gray200,
   },
   profileRow: {
     flexDirection: 'row',

@@ -11,7 +11,7 @@ import {
 
 import { Ionicons } from '@expo/vector-icons';
 import { WorksheetSlot, WorksheetSlotData } from './WorksheetSlot';
-import { colors, fontSize, spacing, borderRadius, cardShadow, androidRipple } from '../theme';
+import { colors, fontSize, spacing, borderRadius, androidRipple } from '../theme';
 
 const CARD_HORIZONTAL_MARGIN = spacing.lg;
 const CARD_PADDING = spacing.xl;
@@ -204,7 +204,8 @@ const styles = StyleSheet.create({
     marginHorizontal: CARD_HORIZONTAL_MARGIN,
     marginBottom: spacing.md,
     padding: CARD_PADDING,
-    ...cardShadow,
+    borderWidth: 1,
+    borderColor: colors.gray200,
   },
   header: {
     flexDirection: 'row',

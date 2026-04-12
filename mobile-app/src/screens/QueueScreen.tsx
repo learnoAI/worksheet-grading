@@ -19,7 +19,7 @@ import { apiClient } from '../api/client';
 import { DatePicker } from '../components/DatePicker';
 import { GradingDetailsModal } from '../components/GradingDetailsModal';
 import { useGradingJobs } from '../hooks/useGradingJobs';
-import { colors, fontSize, spacing, borderRadius, cardShadow, androidRipple } from '../theme';
+import { colors, fontSize, spacing, borderRadius, androidRipple } from '../theme';
 import { GradingDetails, QueueWorksheet, TeacherClass, User, WorksheetRecord } from '../types';
 import { toDateInputValue } from '../utils/date';
 import {
@@ -563,7 +563,8 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.xl,
     padding: spacing.lg,
     overflow: 'hidden',
-    ...cardShadow,
+    borderWidth: 1,
+    borderColor: colors.gray200,
   },
   cardHeader: {
     flexDirection: 'row',
