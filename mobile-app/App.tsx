@@ -1,11 +1,12 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -77,6 +78,10 @@ function MainTabs({ user, onLogout }: { user: User; onLogout: () => void }) {
         tabBarStyle: {
           borderTopColor: colors.gray200,
           borderTopWidth: StyleSheet.hairlineWidth,
+          ...Platform.select({
+            android: { height: 64, paddingBottom: 8, paddingTop: 4 },
+            ios: {},
+          }),
         },
         tabBarLabelStyle: {
           fontSize: 11,
@@ -88,9 +93,7 @@ function MainTabs({ user, onLogout }: { user: User; onLogout: () => void }) {
         name="Roster"
         options={{
           tabBarLabel: 'Worksheets',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ fontSize: 20, color }}>📋</Text>
-          ),
+          tabBarIcon: ({ color, size }) => (<Ionicons name="document-text-outline" size={size} color={color} />),
         }}
       >
         {() => <RosterScreen user={user} />}
@@ -99,9 +102,7 @@ function MainTabs({ user, onLogout }: { user: User; onLogout: () => void }) {
         name="Queue"
         options={{
           tabBarLabel: 'Queue',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ fontSize: 20, color }}>📤</Text>
-          ),
+          tabBarIcon: ({ color, size }) => (<Ionicons name="cloud-upload-outline" size={size} color={color} />),
           tabBarBadge: badgeCount > 0 ? badgeCount : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.primary },
         }}
@@ -112,9 +113,7 @@ function MainTabs({ user, onLogout }: { user: User; onLogout: () => void }) {
         name="Settings"
         options={{
           tabBarLabel: 'Settings',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ fontSize: 20, color }}>⚙️</Text>
-          ),
+          tabBarIcon: ({ color, size }) => (<Ionicons name="settings-outline" size={size} color={color} />),
         }}
       >
         {() => <SettingsScreen user={user} onLogout={onLogout} />}
