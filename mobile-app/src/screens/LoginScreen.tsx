@@ -15,7 +15,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, apiClient } from '../api/client';
 import { saveAuthToken } from '../auth/session';
 import { API_BASE_URL, isSupportedTeacherRole } from '../config';
-import { colors, fontSize, spacing, borderRadius } from '../theme';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, fontSize, spacing, borderRadius, cardShadow } from '../theme';
 import { User } from '../types';
 
 interface LoginScreenProps {
@@ -63,6 +64,11 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.inner}
       >
+        <View style={styles.iconContainer}>
+          <View style={styles.appIcon}>
+            <Ionicons name="school" size={36} color={colors.white} />
+          </View>
+        </View>
         <Text style={styles.title}>Teacher Capture</Text>
         <Text style={styles.subtitle}>Sign in to get started</Text>
 
@@ -110,19 +116,33 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: colors.loginBg,
   },
   inner: {
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: spacing.xxl,
   },
+  iconContainer: {
+    alignItems: 'center',
+    marginBottom: spacing.xl,
+  },
+  appIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: borderRadius.xxl,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...cardShadow,
+  },
   title: {
     fontSize: fontSize.title,
     fontWeight: '800',
-    color: colors.primary,
+    color: colors.gray900,
     textAlign: 'center',
     marginBottom: spacing.xs,
+    letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: fontSize.md,
@@ -132,20 +152,22 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: borderRadius.md,
+    borderColor: colors.gray200,
+    borderRadius: borderRadius.lg,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: 14,
     fontSize: fontSize.md,
     color: colors.gray900,
     marginBottom: spacing.md,
+    backgroundColor: colors.white,
   },
   button: {
     backgroundColor: colors.primary,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.lg,
+    borderRadius: 14,
+    paddingVertical: 16,
     alignItems: 'center',
     marginTop: spacing.sm,
+    ...cardShadow,
   },
   buttonDisabled: {
     opacity: 0.6,
