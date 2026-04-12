@@ -17,9 +17,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { apiClient } from '../api/client';
 import { DatePicker } from '../components/DatePicker';
+import { GradingDetailsModal } from '../components/GradingDetailsModal';
 import { useGradingJobs } from '../hooks/useGradingJobs';
 import { colors, fontSize, spacing, borderRadius, cardShadow, androidRipple } from '../theme';
-import { QueueWorksheet, TeacherClass, User } from '../types';
+import { GradingDetails, QueueWorksheet, TeacherClass, User, WorksheetRecord } from '../types';
 import { toDateInputValue } from '../utils/date';
 import {
   initializeQueueDatabase,
@@ -57,14 +58,23 @@ const STATUS_ACCENT: Record<string, string> = {
   failed: colors.red,
 };
 
+// Grading data keyed by "studentId:worksheetNumber"
+type GradingDataMap = Record<string, { gradingDetails?: GradingDetails | null; wrongQuestionNumbers?: string | null; grade?: number | null }>;
+
 export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
   const [items, setItems] = useState<QueueWorksheet[]>([]);
+  const [gradingData, setGradingData] = useState<GradingDataMap>({});
   const [textFilter, setTextFilter] = useState('');
   const [dateFilter, setDateFilter] = useState(toDateInputValue());
   const [classes, setClasses] = useState<TeacherClass[]>([]);
   const [selectedClassIds, setSelectedClassIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState(false);
+  const [detailsModal, setDetailsModal] = useState<{
+    visible: boolean;
+    details: GradingDetails | null;
+    studentName: string;
+  }>({ visible: false, details: null, studentName: '' });
   const { summary } = useGradingJobs();
 
   // Load classes for filter
@@ -81,6 +91,30 @@ export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
       if (dateFilter) filters.submittedOn = dateFilter;
       if (selectedClassIds.size > 0) filters.classIds = Array.from(selectedClassIds);
       const all = await listQueueItems(filters);
+
+      // Fetch server worksheet data to get grading details for completed items
+      const classIds = [...new Set(all.map((item) => item.classId))];
+      const newGradingData: GradingDataMap = {};
+      for (const classId of classIds) {
+        try {
+          const serverData = await apiClient.getClassWorksheetsForDate(classId, dateFilter);
+          for (const [studentId, worksheets] of Object.entries(serverData.worksheetsByStudent)) {
+            for (const ws of worksheets as WorksheetRecord[]) {
+              if (ws.gradingDetails || ws.wrongQuestionNumbers) {
+                const key = `${studentId}:${ws.worksheetNumber}`;
+                newGradingData[key] = {
+                  gradingDetails: ws.gradingDetails,
+                  wrongQuestionNumbers: ws.wrongQuestionNumbers,
+                  grade: ws.grade,
+                };
+              }
+            }
+          }
+        } catch {
+          // Silent — enrichment is best-effort
+        }
+      }
+      setGradingData(newGradingData);
       setItems(all);
     } catch {
       // Silently fail
@@ -279,6 +313,8 @@ export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
           renderItem={({ item }) => {
             const statusInfo = STATUS_DISPLAY[item.status] || STATUS_DISPLAY.queued;
             const accentColor = STATUS_ACCENT[item.status] || colors.amber;
+            const gKey = `${item.studentId}:${item.worksheetNumber}`;
+            const gData = gradingData[gKey];
             return (
               <Pressable
                 style={({ pressed }) => [
@@ -297,6 +333,7 @@ export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
                     <Text style={styles.cardMeta}>
                       #{item.tokenNumber} · WS #{item.worksheetNumber}
                       {item.className ? ` · ${item.className}` : ''}
+                      {gData?.grade != null ? ` · Grade: ${gData.grade}` : ''}
                     </Text>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
@@ -312,7 +349,29 @@ export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
                   </Text>
                 )}
 
-                {item.jobId && (
+                {/* Wrong questions + details */}
+                {gData?.wrongQuestionNumbers ? (
+                  <Text style={styles.wrongQuestions}>
+                    Wrong: {gData.wrongQuestionNumbers}
+                  </Text>
+                ) : null}
+
+                {gData?.gradingDetails ? (
+                  <Pressable
+                    style={({ pressed }) => [styles.detailsButton, pressed && { opacity: 0.7 }]}
+                    onPress={() =>
+                      setDetailsModal({
+                        visible: true,
+                        details: gData.gradingDetails!,
+                        studentName: item.studentName,
+                      })
+                    }
+                  >
+                    <Text style={styles.detailsButtonText}>View Details</Text>
+                  </Pressable>
+                ) : null}
+
+                {item.jobId && !gData?.gradingDetails && (
                   <Text style={styles.jobId}>Job: {item.jobId.slice(0, 8)}</Text>
                 )}
 
@@ -367,6 +426,12 @@ export function QueueScreen({ user, onNavigateToStudent }: QueueScreenProps) {
           }}
         />
       )}
+      <GradingDetailsModal
+        visible={detailsModal.visible}
+        details={detailsModal.details}
+        studentName={detailsModal.studentName}
+        onClose={() => setDetailsModal({ visible: false, details: null, studentName: '' })}
+      />
     </SafeAreaView>
   );
 }
@@ -590,6 +655,25 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: '600',
     color: colors.gray500,
+  },
+  wrongQuestions: {
+    fontSize: fontSize.sm,
+    color: colors.red,
+    fontWeight: '500',
+    marginTop: spacing.xs,
+  },
+  detailsButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.primaryLight,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.xs,
+  },
+  detailsButtonText: {
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+    color: colors.primary,
   },
   emptyState: {
     alignItems: 'center',
