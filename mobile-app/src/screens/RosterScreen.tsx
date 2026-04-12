@@ -193,6 +193,16 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
         </Pressable>
       </View>
 
+      {/* Class selector — right below header */}
+      <FlatList
+        horizontal
+        data={roster.classes}
+        keyExtractor={(item) => item.id}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.classChips}
+        renderItem={renderClassChip}
+      />
+
       {/* Overflow menu */}
       {menuVisible && (
         <>
@@ -222,16 +232,6 @@ export function RosterScreen({ user, onNavigateToQueue }: RosterScreenProps) {
 
       {/* Grading status */}
       <GradingStatusBanner summary={summary} onPress={onNavigateToQueue} />
-
-      {/* Class selector */}
-      <FlatList
-        horizontal
-        data={roster.classes}
-        keyExtractor={(item) => item.id}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.classChips}
-        renderItem={renderClassChip}
-      />
 
       {/* Stats */}
       {roster.stats && (
@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
   // Class chips
   classChips: {
     paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     gap: spacing.sm,
   },
   classChip: {
@@ -439,32 +439,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: borderRadius.full,
     backgroundColor: colors.white,
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.black,
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-      },
-      android: { elevation: 1 },
-    }),
+    borderWidth: 1,
+    borderColor: colors.gray300,
   },
   classChipActive: {
     backgroundColor: colors.primary,
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.primary,
-        shadowOpacity: 0.25,
-        shadowRadius: 6,
-        shadowOffset: { width: 0, height: 2 },
-      },
-      android: { elevation: 3 },
-    }),
+    borderColor: colors.primary,
   },
   classChipText: {
     fontSize: fontSize.md,
     fontWeight: '600',
-    color: colors.gray600,
+    color: colors.gray800,
   },
   classChipTextActive: {
     color: colors.white,
