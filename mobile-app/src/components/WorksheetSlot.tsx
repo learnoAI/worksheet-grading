@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Switch,
@@ -26,7 +27,7 @@ export interface WorksheetSlotData {
   page2Url?: string | null;
   gradingDetails?: GradingDetails | null;
   wrongQuestionNumbers?: string | null;
-  id?: string | null; // database ID
+  id?: string | null;
   existing?: boolean;
   jobId?: string | null;
   jobStatus?: string | null;
@@ -70,9 +71,9 @@ export function WorksheetSlot({
 
   return (
     <View style={styles.container}>
-      {/* Worksheet # and Grade row */}
-      <View style={styles.row}>
-        <View style={styles.fieldSmall}>
+      {/* Worksheet # and Grade */}
+      <View style={styles.fieldsRow}>
+        <View style={styles.fieldGroup}>
           <Text style={styles.fieldLabel}>Worksheet #</Text>
           <TextInput
             style={[styles.input, isDisabled && styles.inputDisabled]}
@@ -87,7 +88,7 @@ export function WorksheetSlot({
             placeholderTextColor={colors.gray400}
           />
         </View>
-        <View style={styles.fieldSmall}>
+        <View style={styles.fieldGroup}>
           <Text style={styles.fieldLabel}>Grade</Text>
           <TextInput
             style={[styles.input, isDisabled && styles.inputDisabled]}
@@ -100,11 +101,11 @@ export function WorksheetSlot({
           />
         </View>
         {data.gradingDetails && (
-          <Pressable style={styles.infoButton} onPress={onShowDetails}>
-            <Text style={styles.infoButtonText}>ℹ</Text>
+          <Pressable style={styles.detailsButton} onPress={onShowDetails} hitSlop={8}>
+            <Text style={styles.detailsButtonText}>Details</Text>
             {wrongCount > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{wrongCount}</Text>
+              <View style={styles.wrongBadge}>
+                <Text style={styles.wrongBadgeText}>{wrongCount}</Text>
               </View>
             )}
           </Pressable>
@@ -112,7 +113,7 @@ export function WorksheetSlot({
       </View>
 
       {/* Wrong questions */}
-      <View style={styles.field}>
+      <View>
         <Text style={styles.fieldLabel}>Wrong Questions</Text>
         <TextInput
           style={[styles.input, isDisabled && styles.inputDisabled]}
@@ -124,7 +125,7 @@ export function WorksheetSlot({
         />
       </View>
 
-      {/* Page slots */}
+      {/* Pages */}
       <View style={styles.pagesRow}>
         <PageSlot
           pageNumber={1}
@@ -146,56 +147,72 @@ export function WorksheetSlot({
         />
       </View>
 
-      {/* Scan both pages button */}
+      {/* Scan both */}
       <Pressable
-        style={[styles.scanBothButton, isDisabled && styles.disabled]}
+        style={({ pressed }) => [
+          styles.scanBothButton,
+          isDisabled && styles.disabled,
+          pressed && { opacity: 0.7 },
+        ]}
         onPress={onScanBothPages}
         disabled={isDisabled}
       >
-        <Text style={styles.scanBothText}>Scan Pages</Text>
+        <Text style={styles.scanBothText}>📷  Scan Both Pages</Text>
       </Pressable>
 
-      {/* Checkboxes */}
-      <View style={styles.checkboxRow}>
-        <View style={styles.checkboxItem}>
+      {/* Toggles */}
+      <View style={styles.togglesRow}>
+        <View style={styles.toggleItem}>
           <Switch
             value={data.isAbsent}
             onValueChange={(val) => onFieldChange('isAbsent', val)}
-            trackColor={{ true: colors.gray400, false: colors.gray200 }}
+            trackColor={{ true: colors.gray500, false: colors.gray200 }}
+            thumbColor={Platform.select({ android: data.isAbsent ? colors.gray600 : colors.gray100 })}
             disabled={disabled}
           />
-          <Text style={styles.checkboxLabel}>Absent</Text>
+          <Text style={styles.toggleLabel}>Absent</Text>
         </View>
-        <View style={styles.checkboxItem}>
+        <View style={styles.toggleItem}>
           <Switch
             value={data.isIncorrectGrade}
             onValueChange={(val) => onFieldChange('isIncorrectGrade', val)}
-            trackColor={{ true: colors.red, false: colors.gray200 }}
+            trackColor={{ true: '#EF4444', false: colors.gray200 }}
+            thumbColor={Platform.select({ android: data.isIncorrectGrade ? '#DC2626' : colors.gray100 })}
             disabled={disabled}
           />
-          <Text style={styles.checkboxLabel}>Incorrect Grade</Text>
+          <Text style={styles.toggleLabel}>Incorrect Grade</Text>
         </View>
       </View>
 
-      {/* Action buttons */}
+      {/* Actions */}
       <View style={styles.actionsRow}>
         <Pressable
-          style={[styles.gradeButton, (!canGrade || data.isAbsent) && styles.disabled]}
+          style={({ pressed }) => [
+            styles.actionButton,
+            styles.aiGradeButton,
+            (!canGrade || data.isAbsent) && styles.disabled,
+            pressed && { opacity: 0.8 },
+          ]}
           onPress={onAiGrade}
           disabled={!canGrade || data.isAbsent}
         >
           {data.isUploading ? (
             <ActivityIndicator size="small" color={colors.white} />
           ) : (
-            <Text style={styles.gradeButtonText}>AI Grade</Text>
+            <Text style={styles.aiGradeText}>AI Grade</Text>
           )}
         </Pressable>
         <Pressable
-          style={[styles.saveButton, !canSave && styles.disabled]}
+          style={({ pressed }) => [
+            styles.actionButton,
+            styles.saveButton,
+            !canSave && styles.disabled,
+            pressed && { opacity: 0.8 },
+          ]}
           onPress={onSave}
           disabled={!canSave}
         >
-          <Text style={styles.saveButtonText}>Save</Text>
+          <Text style={styles.saveText}>Save</Text>
         </Pressable>
       </View>
     </View>
@@ -204,123 +221,126 @@ export function WorksheetSlot({
 
 const styles = StyleSheet.create({
   container: {
-    gap: spacing.md,
+    gap: spacing.lg,
   },
-  row: {
+  fieldsRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.md,
     alignItems: 'flex-end',
   },
-  fieldSmall: {
+  fieldGroup: {
     flex: 1,
   },
-  field: {},
   fieldLabel: {
     fontSize: fontSize.xs,
-    fontWeight: '600',
-    color: colors.gray600,
+    fontWeight: '500',
+    color: colors.gray500,
     marginBottom: spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   input: {
-    borderWidth: 1,
-    borderColor: colors.gray300,
+    backgroundColor: colors.gray50,
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: Platform.select({ ios: 12, android: 10 }),
     fontSize: fontSize.md,
     color: colors.gray900,
+    borderWidth: 1,
+    borderColor: colors.gray200,
   },
   inputDisabled: {
     backgroundColor: colors.gray100,
     color: colors.gray400,
+    borderColor: colors.gray100,
+  },
+  detailsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: '#EFF6FF',
+    borderRadius: borderRadius.md,
+  },
+  detailsButtonText: {
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+    color: colors.blue,
+  },
+  wrongBadge: {
+    backgroundColor: colors.red,
+    borderRadius: borderRadius.full,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  wrongBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.white,
   },
   pagesRow: {
     flexDirection: 'row',
     gap: spacing.md,
   },
   scanBothButton: {
-    backgroundColor: colors.primaryLight,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.sm,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.lg,
+    paddingVertical: 14,
     alignItems: 'center',
   },
   scanBothText: {
-    fontSize: fontSize.sm,
-    fontWeight: '700',
-    color: colors.primary,
+    fontSize: fontSize.md,
+    fontWeight: '600',
+    color: colors.white,
   },
-  checkboxRow: {
+  togglesRow: {
     flexDirection: 'row',
-    gap: spacing.xl,
+    gap: spacing.xxl,
   },
-  checkboxItem: {
+  toggleItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
-  checkboxLabel: {
+  toggleLabel: {
     fontSize: fontSize.sm,
     color: colors.gray700,
+    fontWeight: '500',
   },
   actionsRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.md,
   },
-  gradeButton: {
+  actionButton: {
     flex: 1,
-    backgroundColor: colors.blue,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  gradeButtonText: {
-    fontSize: fontSize.sm,
-    fontWeight: '700',
+  aiGradeButton: {
+    backgroundColor: colors.blue,
+  },
+  aiGradeText: {
+    fontSize: fontSize.md,
+    fontWeight: '600',
     color: colors.white,
   },
   saveButton: {
-    flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: colors.gray50,
     borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
+    borderColor: colors.gray200,
   },
-  saveButtonText: {
-    fontSize: fontSize.sm,
-    fontWeight: '700',
+  saveText: {
+    fontSize: fontSize.md,
+    fontWeight: '600',
     color: colors.gray700,
   },
   disabled: {
     opacity: 0.4,
-  },
-  infoButton: {
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  infoButtonText: {
-    fontSize: fontSize.xl,
-  },
-  badge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    backgroundColor: colors.red,
-    borderRadius: borderRadius.full,
-    minWidth: 16,
-    height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 3,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.white,
   },
 });

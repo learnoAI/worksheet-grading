@@ -5,21 +5,42 @@ import React, { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, fontSize, spacing, borderRadius } from '../theme';
-import { formatShortDate, toDateInputValue } from '../utils/date';
+import { toDateInputValue } from '../utils/date';
 
 interface DatePickerProps {
   value: string; // YYYY-MM-DD
   onChange: (date: string) => void;
-  label?: string;
 }
 
-export function DatePicker({ value, onChange, label }: DatePickerProps) {
-  const [show, setShow] = useState(false);
+function formatDateDisplay(value: string): string {
+  const date = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dateOnly = new Date(date);
+  dateOnly.setHours(0, 0, 0, 0);
 
+  const dayName = date.toLocaleDateString(undefined, { weekday: 'long' });
+  const monthDay = date.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+
+  if (dateOnly.getTime() === today.getTime()) {
+    return `Today, ${monthDay}`;
+  }
+
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (dateOnly.getTime() === yesterday.getTime()) {
+    return `Yesterday, ${monthDay}`;
+  }
+
+  return `${dayName}, ${monthDay}`;
+}
+
+export function DatePicker({ value, onChange }: DatePickerProps) {
+  const [show, setShow] = useState(false);
   const dateObj = new Date(`${value}T00:00:00`);
 
   const handleChange = (_event: DateTimePickerEvent, selected?: Date) => {
-    if (Platform.OS !== 'ios') {
+    if (Platform.OS === 'android') {
       setShow(false);
     }
     if (selected) {
@@ -28,61 +49,66 @@ export function DatePicker({ value, onChange, label }: DatePickerProps) {
   };
 
   return (
-    <View style={styles.wrapper}>
-      {label && <Text style={styles.label}>{label}</Text>}
-      <Pressable style={styles.button} onPress={() => setShow(true)}>
-        <Text style={styles.dateIcon}>📅</Text>
-        <Text style={styles.buttonText}>{formatShortDate(value)}</Text>
+    <View>
+      <Pressable style={styles.touchable} onPress={() => setShow(!show)}>
+        <Text style={styles.dateText}>{formatDateDisplay(value)}</Text>
+        <Text style={styles.chevron}>{show ? '▲' : '▼'}</Text>
       </Pressable>
       {show && (
-        <DateTimePicker
-          value={dateObj}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'inline' : 'default'}
-          onChange={handleChange}
-        />
-      )}
-      {show && Platform.OS === 'ios' && (
-        <Pressable style={styles.doneButton} onPress={() => setShow(false)}>
-          <Text style={styles.doneText}>Done</Text>
-        </Pressable>
+        <View style={styles.pickerContainer}>
+          <DateTimePicker
+            value={dateObj}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'inline' : 'default'}
+            onChange={handleChange}
+            accentColor={colors.primary}
+          />
+          {Platform.OS === 'ios' && (
+            <Pressable style={styles.doneButton} onPress={() => setShow(false)}>
+              <Text style={styles.doneText}>Done</Text>
+            </Pressable>
+          )}
+        </View>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: {},
-  label: {
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    color: colors.gray700,
-    marginBottom: spacing.xs,
-  },
-  button: {
+  touchable: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.white,
     gap: spacing.sm,
   },
-  dateIcon: {
-    fontSize: fontSize.md,
-  },
-  buttonText: {
-    fontSize: fontSize.md,
+  dateText: {
+    fontSize: fontSize.lg,
     fontWeight: '600',
     color: colors.gray800,
   },
+  chevron: {
+    fontSize: 10,
+    color: colors.gray400,
+  },
+  pickerContainer: {
+    marginTop: spacing.sm,
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.lg,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
   doneButton: {
     alignSelf: 'flex-end',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    marginTop: spacing.xs,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
   },
   doneText: {
     fontSize: fontSize.md,

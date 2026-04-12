@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -12,7 +13,7 @@ import { colors, fontSize, spacing, borderRadius } from '../theme';
 interface PageSlotProps {
   pageNumber: number;
   imageUri?: string | null;
-  imageUrl?: string | null; // remote URL from database
+  imageUrl?: string | null;
   disabled?: boolean;
   onScan: () => void;
   onPickGallery: () => void;
@@ -39,30 +40,33 @@ export function PageSlot({
       {hasImage ? (
         <Pressable onPress={onPreview} style={styles.previewContainer}>
           <Image source={{ uri: displayUri! }} style={styles.thumbnail} resizeMode="cover" />
-          <Text style={styles.statusText}>
-            {isSaved ? 'Saved' : 'Ready'}
-          </Text>
+          <View style={[styles.statusTag, isSaved ? styles.savedTag : styles.readyTag]}>
+            <Text style={[styles.statusTagText, isSaved ? styles.savedTagText : styles.readyTagText]}>
+              {isSaved ? 'Saved' : 'Ready'}
+            </Text>
+          </View>
         </Pressable>
       ) : (
         <View style={styles.emptySlot}>
+          <Text style={styles.emptyIcon}>📄</Text>
           <Text style={styles.emptyText}>No image</Text>
         </View>
       )}
 
       <View style={styles.buttons}>
         <Pressable
-          style={[styles.actionButton, styles.scanButton, disabled && styles.disabled]}
+          style={({ pressed }) => [styles.button, styles.scanBtn, disabled && styles.disabled, pressed && { opacity: 0.7 }]}
           onPress={onScan}
           disabled={disabled}
         >
-          <Text style={styles.scanButtonText}>Scan</Text>
+          <Text style={styles.scanBtnText}>Scan</Text>
         </Pressable>
         <Pressable
-          style={[styles.actionButton, styles.galleryButton, disabled && styles.disabled]}
+          style={({ pressed }) => [styles.button, styles.galleryBtn, disabled && styles.disabled, pressed && { opacity: 0.7 }]}
           onPress={onPickGallery}
           disabled={disabled}
         >
-          <Text style={styles.galleryButtonText}>Gallery</Text>
+          <Text style={styles.galleryBtnText}>Gallery</Text>
         </Pressable>
       </View>
     </View>
@@ -75,33 +79,58 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: fontSize.xs,
-    fontWeight: '600',
-    color: colors.gray600,
+    fontWeight: '500',
+    color: colors.gray500,
     marginBottom: spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   previewContainer: {
-    alignItems: 'center',
+    position: 'relative',
   },
   thumbnail: {
     width: '100%',
-    height: 80,
+    height: 90,
     borderRadius: borderRadius.md,
     backgroundColor: colors.gray100,
   },
-  statusText: {
-    fontSize: fontSize.xs,
-    color: colors.green,
+  statusTag: {
+    position: 'absolute',
+    bottom: spacing.xs,
+    right: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+  },
+  savedTag: {
+    backgroundColor: '#DCFCE7',
+  },
+  readyTag: {
+    backgroundColor: '#DBEAFE',
+  },
+  savedTagText: {
+    color: '#166534',
+  },
+  readyTagText: {
+    color: '#1E40AF',
+  },
+  statusTagText: {
+    fontSize: 10,
     fontWeight: '600',
-    marginTop: 2,
   },
   emptySlot: {
-    height: 80,
-    borderWidth: 2,
+    height: 90,
+    borderWidth: 1.5,
     borderStyle: 'dashed',
     borderColor: colors.gray300,
     borderRadius: borderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: colors.gray50,
+  },
+  emptyIcon: {
+    fontSize: 20,
+    marginBottom: 2,
   },
   emptyText: {
     fontSize: fontSize.xs,
@@ -110,29 +139,29 @@ const styles = StyleSheet.create({
   buttons: {
     flexDirection: 'row',
     gap: spacing.xs,
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
   },
-  actionButton: {
+  button: {
     flex: 1,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
+    paddingVertical: 8,
+    borderRadius: borderRadius.md,
     alignItems: 'center',
   },
-  scanButton: {
+  scanBtn: {
     backgroundColor: colors.primary,
   },
-  scanButtonText: {
-    fontSize: fontSize.xs,
+  scanBtnText: {
+    fontSize: fontSize.sm,
     fontWeight: '600',
     color: colors.white,
   },
-  galleryButton: {
-    backgroundColor: colors.gray100,
+  galleryBtn: {
+    backgroundColor: colors.gray50,
     borderWidth: 1,
-    borderColor: colors.gray300,
+    borderColor: colors.gray200,
   },
-  galleryButtonText: {
-    fontSize: fontSize.xs,
+  galleryBtnText: {
+    fontSize: fontSize.sm,
     fontWeight: '600',
     color: colors.gray700,
   },

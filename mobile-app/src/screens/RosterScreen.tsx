@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -35,7 +36,6 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
   const { summary } = useGradingJobs();
   const { scanPages, scanSinglePage, pickFromGallery } = useDocumentScanner();
 
-  // Modal state
   const [detailsModal, setDetailsModal] = useState<{
     visible: boolean;
     details: GradingDetails | null;
@@ -50,7 +50,6 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
 
   const [menuVisible, setMenuVisible] = useState(false);
 
-  // Handlers
   const handlePageScan = useCallback(
     async (worksheetEntryId: string, pageNumber: number) => {
       const result = await scanSinglePage();
@@ -148,24 +147,19 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
   );
 
   const renderClassChip = useCallback(
-    ({ item }: { item: TeacherClass }) => (
-      <Pressable
-        style={[
-          styles.classChip,
-          item.id === roster.selectedClassId && styles.classChipActive,
-        ]}
-        onPress={() => roster.setSelectedClassId(item.id)}
-      >
-        <Text
-          style={[
-            styles.classChipText,
-            item.id === roster.selectedClassId && styles.classChipTextActive,
-          ]}
+    ({ item }: { item: TeacherClass }) => {
+      const isActive = item.id === roster.selectedClassId;
+      return (
+        <Pressable
+          style={[styles.classChip, isActive && styles.classChipActive]}
+          onPress={() => roster.setSelectedClassId(item.id)}
         >
-          {item.name}
-        </Text>
-      </Pressable>
-    ),
+          <Text style={[styles.classChipText, isActive && styles.classChipTextActive]}>
+            {item.name}
+          </Text>
+        </Pressable>
+      );
+    },
     [roster],
   );
 
@@ -190,30 +184,40 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Worksheets</Text>
+        <View>
+          <Text style={styles.headerTitle}>Worksheets</Text>
+          <DatePicker value={roster.submittedOn} onChange={roster.setSubmittedOn} />
+        </View>
         <View style={styles.headerActions}>
-          <Pressable onPress={() => setMenuVisible(!menuVisible)} style={styles.menuButton}>
-            <Text style={styles.menuDots}>⋯</Text>
+          <Pressable
+            onPress={() => setMenuVisible(!menuVisible)}
+            style={styles.headerButton}
+            hitSlop={8}
+          >
+            <Text style={styles.moreIcon}>...</Text>
           </Pressable>
-          <Pressable onPress={onLogout} style={styles.logoutButton}>
-            <Text style={styles.logoutText}>Logout</Text>
+          <Pressable onPress={onLogout} style={styles.headerButton} hitSlop={8}>
+            <Text style={styles.logoutText}>Sign Out</Text>
           </Pressable>
         </View>
       </View>
 
       {/* Overflow menu */}
       {menuVisible && (
-        <View style={styles.overflowMenu}>
-          <Pressable
-            style={styles.menuItem}
-            onPress={() => {
-              setMenuVisible(false);
-              roster.markUngradedAbsent();
-            }}
-          >
-            <Text style={styles.menuItemText}>Mark Ungraded as Absent</Text>
-          </Pressable>
-        </View>
+        <>
+          <Pressable style={styles.menuBackdrop} onPress={() => setMenuVisible(false)} />
+          <View style={styles.overflowMenu}>
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => {
+                setMenuVisible(false);
+                roster.markUngradedAbsent();
+              }}
+            >
+              <Text style={styles.menuItemText}>Mark Ungraded as Absent</Text>
+            </Pressable>
+          </View>
+        </>
       )}
 
       {/* Offline banner */}
@@ -228,7 +232,7 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
       {/* Grading status banner */}
       <GradingStatusBanner summary={summary} onPress={onNavigateToQueue} />
 
-      {/* Class chips */}
+      {/* Class selector */}
       <FlatList
         horizontal
         data={roster.classes}
@@ -237,11 +241,6 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
         contentContainerStyle={styles.classChips}
         renderItem={renderClassChip}
       />
-
-      {/* Date picker */}
-      <View style={styles.dateRow}>
-        <DatePicker value={roster.submittedOn} onChange={roster.setSubmittedOn} label="Date" />
-      </View>
 
       {/* Stats */}
       {roster.stats && (
@@ -255,13 +254,17 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
 
       {/* Search */}
       <View style={styles.searchRow}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search by name or token #"
-          placeholderTextColor={colors.gray400}
-          value={roster.searchQuery}
-          onChangeText={roster.setSearchQuery}
-        />
+        <View style={styles.searchContainer}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by name or token #"
+            placeholderTextColor={colors.gray400}
+            value={roster.searchQuery}
+            onChangeText={roster.setSearchQuery}
+            clearButtonMode="while-editing"
+          />
+        </View>
       </View>
 
       {/* Error */}
@@ -296,7 +299,12 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
       {roster.selectedClassId && (
         <View style={styles.bottomBar}>
           <Pressable
-            style={[styles.bottomButton, styles.gradeAllButton, (!isOnline || eligibleUploadCount === 0) && styles.disabled]}
+            style={({ pressed }) => [
+              styles.bottomButton,
+              styles.gradeAllButton,
+              (!isOnline || eligibleUploadCount === 0) && styles.disabled,
+              pressed && styles.buttonPressed,
+            ]}
             onPress={() => roster.aiGradeAll()}
             disabled={!isOnline || eligibleUploadCount === 0}
           >
@@ -305,7 +313,12 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
             </Text>
           </Pressable>
           <Pressable
-            style={[styles.bottomButton, styles.saveAllButton, !isOnline && styles.disabled]}
+            style={({ pressed }) => [
+              styles.bottomButton,
+              styles.saveAllButton,
+              !isOnline && styles.disabled,
+              pressed && styles.buttonPressed,
+            ]}
             onPress={() => roster.saveAll()}
             disabled={!isOnline}
           >
@@ -334,97 +347,141 @@ export function RosterScreen({ user, onLogout, onNavigateToQueue }: RosterScreen
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.gray50,
+    backgroundColor: Platform.select({
+      ios: colors.gray50,
+      android: colors.gray100,
+    }),
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.gray50,
   },
+
+  // Header
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    alignItems: 'flex-start',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.white,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.gray200,
   },
-  title: {
-    fontSize: fontSize.xxl,
-    fontWeight: '800',
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '700',
     color: colors.gray900,
+    letterSpacing: -0.5,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.lg,
+    paddingTop: spacing.xs,
   },
-  menuButton: {
-    padding: spacing.sm,
+  headerButton: {
+    paddingVertical: spacing.xs,
   },
-  menuDots: {
-    fontSize: fontSize.xl,
-    fontWeight: '700',
-    color: colors.gray600,
-  },
-  logoutButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+  moreIcon: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.gray500,
+    letterSpacing: 2,
   },
   logoutText: {
     fontSize: fontSize.sm,
     color: colors.accent,
-    fontWeight: '600',
+    fontWeight: '500',
+  },
+
+  // Overflow menu
+  menuBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 99,
   },
   overflowMenu: {
     position: 'absolute',
-    top: 60,
-    right: spacing.lg,
+    top: 80,
+    right: spacing.xl,
     backgroundColor: colors.white,
-    borderRadius: borderRadius.md,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
+    borderRadius: borderRadius.lg,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.12,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
     zIndex: 100,
+    minWidth: 220,
   },
   menuItem: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
   },
   menuItemText: {
     fontSize: fontSize.md,
     color: colors.gray800,
   },
+
+  // Banners
   offlineBanner: {
-    backgroundColor: colors.redLight,
+    backgroundColor: '#FEF2F2',
     marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
   offlineText: {
     fontSize: fontSize.sm,
-    color: colors.red,
+    color: '#991B1B',
+    fontWeight: '500',
   },
+
+  // Class chips
   classChips: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
     gap: spacing.sm,
   },
   classChip: {
     paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
+    paddingVertical: 10,
     borderRadius: borderRadius.full,
-    backgroundColor: colors.gray100,
-    borderWidth: 1,
-    borderColor: colors.gray200,
+    backgroundColor: colors.white,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
   },
   classChipActive: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    ...Platform.select({
+      ios: {
+        shadowOpacity: 0.15,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
   classChipText: {
     fontSize: fontSize.md,
@@ -434,73 +491,115 @@ const styles = StyleSheet.create({
   classChipTextActive: {
     color: colors.white,
   },
-  dateRow: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
+
+  // Search
   searchRow: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.sm,
   },
-  searchInput: {
-    borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: borderRadius.md,
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Platform.select({
+      ios: '#E8E8ED',
+      android: colors.white,
+    }),
+    borderRadius: Platform.select({
+      ios: 10,
+      android: borderRadius.md,
+    }),
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    ...Platform.select({
+      android: {
+        elevation: 1,
+        borderWidth: 0,
+      },
+    }),
+  },
+  searchIcon: {
+    fontSize: 14,
+    marginRight: spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
     fontSize: fontSize.md,
     color: colors.gray900,
-    backgroundColor: colors.white,
+    paddingVertical: Platform.select({ ios: 10, android: 12 }),
   },
+
+  // Error
   errorBanner: {
-    backgroundColor: colors.redLight,
+    backgroundColor: '#FEF2F2',
     marginHorizontal: spacing.lg,
     marginBottom: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
   errorText: {
     fontSize: fontSize.sm,
-    color: colors.red,
+    color: '#991B1B',
+    fontWeight: '500',
   },
+
+  // List
   listContent: {
-    paddingBottom: 100, // Space for bottom bar
+    paddingTop: spacing.xs,
+    paddingBottom: 100,
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: spacing.xxl * 2,
+    paddingVertical: spacing.xxl * 3,
   },
   emptyText: {
     fontSize: fontSize.md,
     color: colors.gray400,
   },
+
+  // Bottom bar
   bottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.md,
     backgroundColor: colors.white,
-    borderTopWidth: 1,
-    borderTopColor: colors.gray100,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    paddingBottom: spacing.xxl,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.gray200,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: Platform.select({ ios: spacing.xxl + 8, android: spacing.lg }),
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 6,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
   },
   bottomButton: {
     flex: 1,
-    paddingVertical: spacing.lg,
-    borderRadius: borderRadius.md,
+    paddingVertical: 14,
+    borderRadius: borderRadius.lg,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonPressed: {
+    opacity: 0.8,
   },
   gradeAllButton: {
     backgroundColor: colors.blue,
   },
   gradeAllText: {
     fontSize: fontSize.md,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.white,
   },
   saveAllButton: {
@@ -508,7 +607,7 @@ const styles = StyleSheet.create({
   },
   saveAllText: {
     fontSize: fontSize.md,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.white,
   },
   disabled: {

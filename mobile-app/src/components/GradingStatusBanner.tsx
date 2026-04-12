@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -26,31 +27,25 @@ export function GradingStatusBanner({
   const isActive = summary.queued > 0 || summary.processing > 0;
 
   return (
-    <Pressable style={styles.banner} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [styles.banner, pressed && { opacity: 0.8 }]}
+      onPress={onPress}
+    >
       {isActive && <ActivityIndicator size="small" color={colors.blue} />}
       {!isActive && <Text style={styles.checkmark}>✓</Text>}
-      <View style={styles.pills}>
-        {summary.processing > 0 && (
-          <Text style={[styles.pill, styles.processingPill]}>
-            {summary.processing} grading
-          </Text>
-        )}
-        {summary.queued > 0 && (
-          <Text style={[styles.pill, styles.queuedPill]}>
-            {summary.queued} queued
-          </Text>
-        )}
-        {summary.completed > 0 && (
-          <Text style={[styles.pill, styles.completedPill]}>
-            {summary.completed} done
-          </Text>
-        )}
-        {summary.failed > 0 && (
-          <Text style={[styles.pill, styles.failedPill]}>
-            {summary.failed} failed
-          </Text>
-        )}
+      <View style={styles.content}>
+        <Text style={styles.summaryText}>
+          {[
+            summary.processing > 0 && `${summary.processing} grading`,
+            summary.queued > 0 && `${summary.queued} queued`,
+            summary.completed > 0 && `${summary.completed} done`,
+            summary.failed > 0 && `${summary.failed} failed`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </Text>
       </View>
+      <Text style={styles.arrow}>›</Text>
     </Pressable>
   );
 }
@@ -59,45 +54,41 @@ const styles = StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.gray50,
-    borderRadius: borderRadius.md,
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.lg,
     marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    gap: spacing.sm,
+    marginVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    gap: spacing.md,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
   },
   checkmark: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.lg,
     color: colors.green,
-  },
-  pills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-  },
-  pill: {
-    fontSize: fontSize.xs,
     fontWeight: '600',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: borderRadius.full,
-    overflow: 'hidden',
   },
-  processingPill: {
-    backgroundColor: colors.blueLight,
-    color: colors.blue,
+  content: {
+    flex: 1,
   },
-  queuedPill: {
-    backgroundColor: colors.amberLight,
-    color: colors.amber,
+  summaryText: {
+    fontSize: fontSize.sm,
+    fontWeight: '500',
+    color: colors.gray700,
   },
-  completedPill: {
-    backgroundColor: colors.greenLight,
-    color: colors.green,
-  },
-  failedPill: {
-    backgroundColor: colors.redLight,
-    color: colors.red,
+  arrow: {
+    fontSize: 20,
+    fontWeight: '300',
+    color: colors.gray400,
   },
 });

@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import {
   Dimensions,
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -12,7 +13,8 @@ import {
 import { WorksheetSlot, WorksheetSlotData } from './WorksheetSlot';
 import { colors, fontSize, spacing, borderRadius } from '../theme';
 
-const CARD_HORIZONTAL_PADDING = spacing.lg;
+const CARD_HORIZONTAL_MARGIN = spacing.lg;
+const CARD_PADDING = spacing.lg;
 
 interface StudentCardProps {
   studentId: string;
@@ -33,7 +35,7 @@ interface StudentCardProps {
 }
 
 function avatarColor(name: string): string {
-  const hues = [colors.primary, colors.blue, colors.accent, colors.amber, colors.green, colors.orange];
+  const hues = ['#0D9488', '#3B82F6', '#D54B43', '#D97706', '#059669', '#EA580C'];
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -70,7 +72,7 @@ export function StudentCard({
   const [activeIndex, setActiveIndex] = useState(0);
   const flatListRef = useRef<FlatList<WorksheetSlotData>>(null);
   const screenWidth = Dimensions.get('window').width;
-  const cardContentWidth = screenWidth - CARD_HORIZONTAL_PADDING * 2 - spacing.lg * 2;
+  const cardContentWidth = screenWidth - CARD_HORIZONTAL_MARGIN * 2 - CARD_PADDING * 2;
 
   const activeWorksheet = worksheets[activeIndex];
   const hasSavedBadge = activeWorksheet?.existing;
@@ -100,24 +102,26 @@ export function StudentCard({
           <Text style={styles.avatarText}>{initials(studentName)}</Text>
         </View>
         <View style={styles.headerInfo}>
-          <Text style={styles.studentName} numberOfLines={1}>
-            {studentName}
-          </Text>
+          <Text style={styles.studentName} numberOfLines={1}>{studentName}</Text>
           <Text style={styles.tokenNumber}>#{tokenNumber}</Text>
         </View>
         <View style={styles.badges}>
           {hasSavedBadge && (
-            <View style={[styles.badge, { backgroundColor: colors.blueLight }]}>
+            <View style={[styles.badge, styles.savedBadge]}>
               <Text style={[styles.badgeText, { color: colors.blue }]}>Saved</Text>
             </View>
           )}
           {hasRepeatBadge && (
-            <View style={[styles.badge, { backgroundColor: colors.orangeLight }]}>
-              <Text style={[styles.badgeText, { color: colors.orange }]}>Repeat</Text>
+            <View style={[styles.badge, styles.repeatBadge]}>
+              <Text style={[styles.badgeText, { color: '#9A3412' }]}>Repeat</Text>
             </View>
           )}
         </View>
-        <Pressable style={styles.addButton} onPress={onAddWorksheet}>
+        <Pressable
+          style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.6 }]}
+          onPress={onAddWorksheet}
+          hitSlop={8}
+        >
           <Text style={styles.addButtonText}>+</Text>
         </Pressable>
       </View>
@@ -125,12 +129,8 @@ export function StudentCard({
       {/* Carousel nav */}
       {worksheets.length > 1 && (
         <View style={styles.carouselNav}>
-          <Pressable
-            onPress={() => goTo(activeIndex - 1)}
-            disabled={activeIndex === 0}
-            style={[styles.chevron, activeIndex === 0 && styles.disabled]}
-          >
-            <Text style={styles.chevronText}>‹</Text>
+          <Pressable onPress={() => goTo(activeIndex - 1)} disabled={activeIndex === 0} hitSlop={12}>
+            <Text style={[styles.chevron, activeIndex === 0 && styles.chevronDisabled]}>‹</Text>
           </Pressable>
           <Text style={styles.carouselLabel}>
             Worksheet {activeIndex + 1} of {worksheets.length}
@@ -138,17 +138,17 @@ export function StudentCard({
           {worksheets.length > 1 && (
             <Pressable
               onPress={() => onRemoveWorksheet(worksheets[activeIndex].worksheetEntryId)}
-              style={styles.trashButton}
+              hitSlop={8}
             >
-              <Text style={styles.trashText}>🗑</Text>
+              <Text style={styles.trashText}>Remove</Text>
             </Pressable>
           )}
           <Pressable
             onPress={() => goTo(activeIndex + 1)}
             disabled={activeIndex === worksheets.length - 1}
-            style={[styles.chevron, activeIndex === worksheets.length - 1 && styles.disabled]}
+            hitSlop={12}
           >
-            <Text style={styles.chevronText}>›</Text>
+            <Text style={[styles.chevron, activeIndex === worksheets.length - 1 && styles.chevronDisabled]}>›</Text>
           </Pressable>
         </View>
       )}
@@ -192,31 +192,37 @@ export function StudentCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.white,
-    borderRadius: borderRadius.lg,
-    marginHorizontal: spacing.lg,
+    borderRadius: borderRadius.xl,
+    marginHorizontal: CARD_HORIZONTAL_MARGIN,
     marginBottom: spacing.md,
-    padding: spacing.lg,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    padding: CARD_PADDING,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.md,
-    gap: spacing.sm,
+    marginBottom: spacing.lg,
+    gap: spacing.md,
   },
   avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarText: {
-    fontSize: fontSize.sm,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.white,
   },
@@ -225,12 +231,13 @@ const styles = StyleSheet.create({
   },
   studentName: {
     fontSize: fontSize.md,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.gray900,
   },
   tokenNumber: {
-    fontSize: fontSize.xs,
+    fontSize: fontSize.sm,
     color: colors.gray500,
+    marginTop: 1,
   },
   badges: {
     flexDirection: 'row',
@@ -238,57 +245,59 @@ const styles = StyleSheet.create({
   },
   badge: {
     paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: borderRadius.full,
+    paddingVertical: 3,
+    borderRadius: borderRadius.sm,
+  },
+  savedBadge: {
+    backgroundColor: '#EFF6FF',
+  },
+  repeatBadge: {
+    backgroundColor: '#FFF7ED',
   },
   badgeText: {
-    fontSize: fontSize.xs,
+    fontSize: 11,
     fontWeight: '600',
   },
   addButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.gray300,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.gray50,
     justifyContent: 'center',
     alignItems: 'center',
   },
   addButtonText: {
-    fontSize: fontSize.lg,
+    fontSize: 20,
+    fontWeight: '400',
     color: colors.gray500,
-    lineHeight: fontSize.lg + 2,
+    lineHeight: 22,
   },
   carouselNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.md,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray100,
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+    paddingBottom: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.gray200,
   },
   chevron: {
-    padding: spacing.xs,
-  },
-  chevronText: {
-    fontSize: fontSize.xxl,
+    fontSize: 28,
     fontWeight: '300',
-    color: colors.gray600,
+    color: colors.primary,
+    paddingHorizontal: spacing.xs,
+  },
+  chevronDisabled: {
+    color: colors.gray300,
   },
   carouselLabel: {
     fontSize: fontSize.sm,
     color: colors.gray600,
-    fontWeight: '600',
-  },
-  trashButton: {
-    padding: spacing.xs,
+    fontWeight: '500',
   },
   trashText: {
-    fontSize: fontSize.sm,
-  },
-  disabled: {
-    opacity: 0.3,
+    fontSize: fontSize.xs,
+    color: colors.red,
+    fontWeight: '500',
   },
 });

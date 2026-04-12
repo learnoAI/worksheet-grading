@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { colors, fontSize, spacing, borderRadius } from '../theme';
 
@@ -8,6 +8,15 @@ interface StatChipsProps {
   studentsGraded: number;
   worksheetsGraded: number;
   absentCount: number;
+}
+
+function StatItem({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <View style={styles.item}>
+      <Text style={[styles.value, { color }]}>{value}</Text>
+      <Text style={styles.label}>{label}</Text>
+    </View>
+  );
 }
 
 export function StatChips({
@@ -20,49 +29,53 @@ export function StatChips({
     totalStudents > 0 ? Math.round((studentsGraded / totalStudents) * 100) : 0;
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.row}
-    >
-      <View style={[styles.chip, { backgroundColor: colors.blueLight }]}>
-        <Text style={[styles.chipText, { color: colors.blue }]}>
-          Graded {studentsGraded}/{totalStudents}
-        </Text>
-      </View>
-      <View style={[styles.chip, { backgroundColor: colors.greenLight }]}>
-        <Text style={[styles.chipText, { color: colors.green }]}>
-          Worksheets {worksheetsGraded}
-        </Text>
-      </View>
-      <View style={[styles.chip, { backgroundColor: colors.orangeLight }]}>
-        <Text style={[styles.chipText, { color: colors.orange }]}>
-          Absent {absentCount}
-        </Text>
-      </View>
-      <View style={[styles.chip, { backgroundColor: colors.primaryLight }]}>
-        <Text style={[styles.chipText, { color: colors.primary }]}>
-          {completion}%
-        </Text>
-      </View>
-    </ScrollView>
+    <View style={styles.container}>
+      <StatItem label="Graded" value={`${studentsGraded}/${totalStudents}`} color={colors.blue} />
+      <View style={styles.divider} />
+      <StatItem label="Worksheets" value={String(worksheetsGraded)} color={colors.green} />
+      <View style={styles.divider} />
+      <StatItem label="Absent" value={String(absentCount)} color={colors.orange} />
+      <View style={styles.divider} />
+      <StatItem label="Complete" value={`${completion}%`} color={colors.primary} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
+  container: {
     flexDirection: 'row',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    marginHorizontal: spacing.lg,
+    marginVertical: spacing.sm,
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.lg,
+    paddingVertical: spacing.md,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.black,
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
   },
-  chip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.full,
+  item: {
+    flex: 1,
+    alignItems: 'center',
   },
-  chipText: {
-    fontSize: fontSize.sm,
+  value: {
+    fontSize: fontSize.lg,
     fontWeight: '700',
+  },
+  label: {
+    fontSize: fontSize.xs,
+    color: colors.gray500,
+    marginTop: 2,
+  },
+  divider: {
+    width: 1,
+    backgroundColor: colors.gray200,
   },
 });
