@@ -27,6 +27,9 @@ export function ImagePreviewModal({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.container}>
+        <View style={styles.dragHandleBar}>
+          <View style={styles.dragHandle} />
+        </View>
         <View style={styles.header}>
           <Text style={styles.title}>{title || 'Image Preview'}</Text>
           <Pressable onPress={onClose} style={styles.closeButton}>
@@ -73,5 +76,16 @@ const styles = StyleSheet.create({
   },
   image: {
     flex: 1,
+  },
+  dragHandleBar: {
+    alignItems: 'center',
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.gray600,
   },
 });
