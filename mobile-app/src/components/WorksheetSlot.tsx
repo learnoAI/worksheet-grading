@@ -10,8 +10,10 @@ import {
   View,
 } from 'react-native';
 
+import { Ionicons } from '@expo/vector-icons';
+
 import { PageSlot } from './PageSlot';
-import { colors, fontSize, spacing, borderRadius } from '../theme';
+import { colors, fontSize, spacing, borderRadius, androidRipple } from '../theme';
 import { GradingDetails } from '../types';
 
 export interface WorksheetSlotData {
@@ -152,12 +154,14 @@ export function WorksheetSlot({
         style={({ pressed }) => [
           styles.scanBothButton,
           isDisabled && styles.disabled,
-          pressed && { opacity: 0.7 },
+          Platform.OS === 'ios' && pressed && styles.pressed,
         ]}
         onPress={onScanBothPages}
         disabled={isDisabled}
+        android_ripple={androidRipple}
       >
-        <Text style={styles.scanBothText}>📷  Scan Both Pages</Text>
+        <Ionicons name="camera-outline" size={18} color={colors.primary} style={{ marginRight: spacing.sm }} />
+        <Text style={styles.scanBothText}>Scan Both Pages</Text>
       </Pressable>
 
       {/* Toggles */}
@@ -191,15 +195,19 @@ export function WorksheetSlot({
             styles.actionButton,
             styles.aiGradeButton,
             (!canGrade || data.isAbsent) && styles.disabled,
-            pressed && { opacity: 0.8 },
+            Platform.OS === 'ios' && pressed && styles.pressed,
           ]}
           onPress={onAiGrade}
           disabled={!canGrade || data.isAbsent}
+          android_ripple={{ color: 'rgba(255,255,255,0.2)' }}
         >
           {data.isUploading ? (
             <ActivityIndicator size="small" color={colors.white} />
           ) : (
-            <Text style={styles.aiGradeText}>AI Grade</Text>
+            <View style={styles.aiGradeContent}>
+              <Ionicons name="flash-outline" size={16} color={colors.white} />
+              <Text style={styles.aiGradeText}>AI Grade</Text>
+            </View>
           )}
         </Pressable>
         <Pressable
@@ -207,10 +215,11 @@ export function WorksheetSlot({
             styles.actionButton,
             styles.saveButton,
             !canSave && styles.disabled,
-            pressed && { opacity: 0.8 },
+            Platform.OS === 'ios' && pressed && styles.pressed,
           ]}
           onPress={onSave}
           disabled={!canSave}
+          android_ripple={androidRipple}
         >
           <Text style={styles.saveText}>Save</Text>
         </Pressable>
@@ -237,7 +246,7 @@ const styles = StyleSheet.create({
     color: colors.gray500,
     marginBottom: spacing.xs,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   input: {
     backgroundColor: colors.gray50,
@@ -290,9 +299,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryLight,
     borderRadius: borderRadius.lg,
     paddingVertical: 14,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.blueLight,
+    overflow: 'hidden',
   },
   scanBothText: {
     fontSize: fontSize.md,
@@ -323,9 +335,15 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   aiGradeButton: {
     backgroundColor: colors.primary,
+  },
+  aiGradeContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   aiGradeText: {
     fontSize: fontSize.md,
@@ -344,5 +362,8 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.4,
+  },
+  pressed: {
+    transform: [{ scale: 0.98 }],
   },
 });
