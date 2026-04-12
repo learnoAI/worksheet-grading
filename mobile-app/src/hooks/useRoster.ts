@@ -5,6 +5,7 @@ import { Alert, AppState, AppStateStatus } from 'react-native';
 import { apiClient } from '../api/client';
 import { WorksheetSlotData } from '../components/WorksheetSlot';
 import { queueCapturedWorksheet } from '../queue/storage';
+import { processUploadQueue } from '../queue/uploader';
 import {
   CapturePageDraft,
   ClassDateResponse,
@@ -528,6 +529,9 @@ export function useRoster(user: User) {
         );
 
         Alert.alert('Queued', `${student.studentName} queued for AI grading.`);
+
+        // Auto-process the queue
+        processUploadQueue(apiClient).catch(() => undefined);
       } catch (err) {
         setStudents((prev) =>
           prev.map((s) => ({

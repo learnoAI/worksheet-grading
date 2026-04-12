@@ -15,6 +15,7 @@ import { isSupportedTeacherRole } from './src/config';
 import { clearAuthToken, getAuthToken } from './src/auth/session';
 import { useGradingJobs } from './src/hooks/useGradingJobs';
 import { initializeQueueDatabase, listQueueItems } from './src/queue/storage';
+import { processUploadQueue } from './src/queue/uploader';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { RosterScreen } from './src/screens/RosterScreen';
 import { QueueScreen } from './src/screens/QueueScreen';
@@ -34,20 +35,34 @@ function MainTabs({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [queueBadge, setQueueBadge] = useState(0);
   const { activeCount } = useGradingJobs();
 
+  // Badge count + auto-process queue every 15 seconds
   useEffect(() => {
-    const updateBadge = async () => {
+    const tick = async () => {
       try {
         const items = await listQueueItems();
         const active = items.filter(
           (i) => i.status !== 'completed' && i.status !== 'failed',
         ).length;
         setQueueBadge(active);
+
+        // Auto-process if there are queued/failed items
+        const needsProcessing = items.some(
+          (i) => i.status === 'queued' || i.status === 'uploading' || i.status === 'uploaded',
+        );
+        if (needsProcessing) {
+          await processUploadQueue(apiClient).catch(() => undefined);
+          // Re-check badge after processing
+          const updated = await listQueueItems();
+          setQueueBadge(
+            updated.filter((i) => i.status !== 'completed' && i.status !== 'failed').length,
+          );
+        }
       } catch {
         // ignore
       }
     };
-    updateBadge();
-    const interval = setInterval(updateBadge, 10_000);
+    tick();
+    const interval = setInterval(tick, 15_000);
     return () => clearInterval(interval);
   }, []);
 
