@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { GradingJobStatus } from '@prisma/client';
 import config from '../config/env';
+import { captureControllerError } from '../services/posthogService';
 
 const PROCESSING_STALE_MS = config.grading.staleProcessingMs;
 const VERY_STALE_JOB_MS = 24 * 60 * 60 * 1000;
@@ -250,7 +251,7 @@ export const getTeacherJobsToday = async (req: Request, res: Response) => {
             jobs
         });
     } catch (error) {
-        console.error('Error getting teacher jobs:', error);
+        captureControllerError('gradingJobController.getTeacherJobsToday', error, req);
         return res.status(500).json({ message: 'Server error' });
     }
 };
@@ -295,7 +296,7 @@ export const getJobsByClass = async (req: Request, res: Response) => {
             jobs: updatedJobs
         });
     } catch (error) {
-        console.error('Error getting jobs by class:', error);
+        captureControllerError('gradingJobController.getJobsByClass', error, req);
         return res.status(500).json({ message: 'Server error' });
     }
 };
@@ -325,7 +326,7 @@ export const getJobStatus = async (req: Request, res: Response) => {
 
         return res.json({ success: true, job });
     } catch (error) {
-        console.error('Error getting job status:', error);
+        captureControllerError('gradingJobController.getJobStatus', error, req);
         return res.status(500).json({ message: 'Server error' });
     }
 };
@@ -351,7 +352,7 @@ export const getBatchJobStatus = async (req: Request, res: Response) => {
 
         return res.json({ success: true, jobs: recoveredJobs });
     } catch (error) {
-        console.error('Error getting batch job status:', error);
+        captureControllerError('gradingJobController.getBatchJobStatus', error, req);
         return res.status(500).json({ message: 'Server error' });
     }
 };

@@ -7,7 +7,7 @@ import { scheduleGrading } from './gradingLimiter';
 import { aiGradingLogger } from './logger';
 import { GradingApiResponse } from './gradingTypes';
 import { persistWorksheetForGradingJob } from './gradingWorksheetPersistenceService';
-import { captureGradingPipelineEvent } from './posthogService';
+import { captureGradingPipelineEvent, capturePosthogException } from './posthogService';
 import { updateMasteryForWorksheet } from './masteryService';
 
 interface ExecuteGradingJobResult {
@@ -97,9 +97,43 @@ async function callPythonApi(
                 })
             );
 
-            const data = (await response.json()) as GradingApiResponse;
+            let data: GradingApiResponse;
+            try {
+                data = (await response.json()) as GradingApiResponse;
+            } catch (parseErr) {
+                captureGradingPipelineEvent('python_call_invalid_json', jobId, {
+                    jobId,
+                    tokenNo,
+                    worksheetName,
+                    attempt,
+                    status: response.status,
+                    errorName: parseErr instanceof Error ? parseErr.name : 'UnknownError',
+                    errorMessage: parseErr instanceof Error ? parseErr.message : String(parseErr)
+                });
+                throw parseErr;
+            }
 
-            if (response.status >= 500 || response.status === 429) {
+            if (response.status === 429) {
+                const retryAfter = response.headers.get('retry-after');
+                captureGradingPipelineEvent('python_call_rate_limited', jobId, {
+                    jobId,
+                    tokenNo,
+                    worksheetName,
+                    attempt,
+                    status: response.status,
+                    retryAfter: retryAfter || null
+                });
+                throw new Error(`Server error: ${response.status}`);
+            }
+
+            if (response.status >= 500) {
+                captureGradingPipelineEvent('python_call_server_error', jobId, {
+                    jobId,
+                    tokenNo,
+                    worksheetName,
+                    attempt,
+                    status: response.status
+                });
                 throw new Error(`Server error: ${response.status}`);
             }
 
@@ -137,6 +171,7 @@ async function callPythonApi(
                     attempt,
                     error: msg
                 });
+                capturePosthogException(lastError, { distinctId: jobId, stage: 'python_call_non_retryable_failed', extra: { jobId, attempt } });
                 throw lastError;
             }
 
@@ -163,6 +198,7 @@ async function callPythonApi(
         maxRetries,
         error: lastError?.message || 'Unknown error'
     });
+    capturePosthogException(lastError || new Error('Unknown error'), { distinctId: jobId, stage: 'python_call_retry_exhausted', extra: { jobId, maxRetries } });
 
     throw lastError;
 }
@@ -185,14 +221,21 @@ async function loadJobWithImages(jobId: string): Promise<GradingJobWithImages> {
     });
 
     if (!job) {
+        captureGradingPipelineEvent('load_job_not_found', jobId, { jobId });
         throw new Error(`Grading job not found: ${jobId}`);
     }
 
     if (!job.tokenNo || !job.worksheetName) {
+        captureGradingPipelineEvent('load_job_missing_metadata', jobId, {
+            jobId,
+            hasToken: Boolean(job.tokenNo),
+            hasWorksheetName: Boolean(job.worksheetName)
+        });
         throw new Error(`Grading job ${jobId} is missing token or worksheet name`);
     }
 
     if (!job.images.length) {
+        captureGradingPipelineEvent('load_job_no_images', jobId, { jobId });
         throw new Error(`Grading job ${jobId} has no images`);
     }
 
@@ -214,12 +257,25 @@ export async function executeGradingJob(
 
     const files: PythonApiFile[] = [];
     for (const image of job.images) {
-        const buffer = await downloadFromS3(image.s3Key, image.storageProvider === 'R2' ? 'r2' : 's3');
-        files.push({
-            filename: getImageFilename(image.pageNumber, image.mimeType),
-            contentType: image.mimeType,
-            buffer
-        });
+        try {
+            const buffer = await downloadFromS3(image.s3Key, image.storageProvider === 'R2' ? 'r2' : 's3');
+            files.push({
+                filename: getImageFilename(image.pageNumber, image.mimeType),
+                contentType: image.mimeType,
+                buffer
+            });
+        } catch (downloadErr) {
+            captureGradingPipelineEvent('image_download_failed', jobId, {
+                jobId,
+                s3Key: image.s3Key,
+                storageProvider: image.storageProvider,
+                pageNumber: image.pageNumber,
+                errorName: downloadErr instanceof Error ? downloadErr.name : 'UnknownError',
+                errorMessage: downloadErr instanceof Error ? downloadErr.message : String(downloadErr)
+            });
+            capturePosthogException(downloadErr, { distinctId: jobId, stage: 'image_download_failed', extra: { jobId, s3Key: image.s3Key, storageProvider: image.storageProvider } });
+            throw downloadErr;
+        }
     }
 
     const pythonResponse = await callPythonApi(
