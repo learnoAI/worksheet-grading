@@ -2,7 +2,7 @@ import { GradingJobStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 import config from '../config/env';
 import { aiGradingLogger } from '../services/logger';
-import { captureGradingPipelineEvent } from '../services/posthogService';
+import { captureGradingPipelineEvent, capturePosthogException } from '../services/posthogService';
 import {
     createGradingQueueMessage,
     getGradingQueueClient
@@ -125,6 +125,7 @@ async function dispatchPendingJobs(): Promise<void> {
                 jobId: job.id,
                 error: dispatchError
             });
+            capturePosthogException(error, { distinctId: job.id, stage: 'dispatch_loop_retry_failed', extra: { jobId: job.id } });
         }
     }
 }
@@ -150,6 +151,14 @@ export function startGradingDispatchLoop(): void {
                 { error: error instanceof Error ? error.message : 'Unknown error' },
                 error instanceof Error ? error : undefined
             );
+            // A silently-dead dispatch loop is the single worst failure mode in
+            // this queue system — every queued job stalls. Emit an explicit
+            // event so the first crash is alertable, not just a buried log line.
+            captureGradingPipelineEvent('dispatch_loop_crashed', 'dispatch-loop', {
+                errorName: error instanceof Error ? error.name : 'UnknownError',
+                errorMessage: error instanceof Error ? error.message : String(error)
+            });
+            capturePosthogException(error, { distinctId: 'dispatch-loop', stage: 'dispatch_loop_crashed' });
         } finally {
             running = false;
         }

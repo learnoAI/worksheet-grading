@@ -233,7 +233,14 @@ async function assertDirectUploadAccess(req: Request, classId: string, studentId
         throw new ValidationError('Authentication required');
     }
 
+    const requesterId = req.user.userId;
+
     if (req.user.role === UserRole.STUDENT) {
+        captureGradingPipelineEvent('request_rejected_ownership', requesterId, {
+            reason: 'student_role',
+            classId,
+            role: req.user.role
+        });
         throw new ValidationError('Students cannot create grading upload sessions');
     }
 
@@ -241,7 +248,7 @@ async function assertDirectUploadAccess(req: Request, classId: string, studentId
         const teacherClass = await prisma.teacherClass.findUnique({
             where: {
                 teacherId_classId: {
-                    teacherId: req.user.userId,
+                    teacherId: requesterId,
                     classId
                 }
             },
@@ -249,6 +256,11 @@ async function assertDirectUploadAccess(req: Request, classId: string, studentId
         });
 
         if (!teacherClass) {
+            captureGradingPipelineEvent('request_rejected_ownership', requesterId, {
+                reason: 'teacher_not_assigned_to_class',
+                classId,
+                role: req.user.role
+            });
             throw new ValidationError('Teacher is not assigned to this class');
         }
     }
@@ -265,6 +277,12 @@ async function assertDirectUploadAccess(req: Request, classId: string, studentId
     const validStudentIds = new Set(studentClasses.map((studentClass) => studentClass.studentId));
     const missingStudentIds = uniqueStudentIds.filter((studentId) => !validStudentIds.has(studentId));
     if (missingStudentIds.length > 0) {
+        captureGradingPipelineEvent('request_rejected_ownership', requesterId, {
+            reason: 'students_not_in_class',
+            classId,
+            role: req.user.role,
+            missingStudentCount: missingStudentIds.length
+        });
         throw new ValidationError(`Some students are not assigned to this class: ${missingStudentIds.join(', ')}`);
     }
 }
@@ -699,9 +717,28 @@ export const createDirectUploadSession = async (req: Request, res: Response) => 
             filesCount: items.reduce((total, item) => total + item.files.length, 0)
         });
 
+        // serializeUploadBatch → toUploadFileResponse → getPresignedUrl can throw
+        // synchronously if the R2 signing layer fails (missing/invalid creds,
+        // clock skew, bad bucket config). Capture those specifically so a failed
+        // upload before grading even starts is visible in PostHog.
+        let serializedBatch: ReturnType<typeof serializeUploadBatch>;
+        try {
+            serializedBatch = serializeUploadBatch(created);
+        } catch (presignErr) {
+            captureGradingPipelineEvent('direct_upload_presign_failed', created.id, {
+                batchId: created.id,
+                classId,
+                teacherId,
+                keysRequested: items.reduce((total, item) => total + item.files.length, 0),
+                errorName: presignErr instanceof Error ? presignErr.name : 'UnknownError',
+                errorMessage: presignErr instanceof Error ? presignErr.message : String(presignErr)
+            });
+            throw presignErr;
+        }
+
         return res.status(201).json({
             success: true,
-            ...serializeUploadBatch(created)
+            ...serializedBatch
         });
     } catch (error) {
         const statusCode = error instanceof ValidationError ? error.statusCode : 500;

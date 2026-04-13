@@ -5,7 +5,7 @@ import { withRetry } from '../utils/retry';
 import { summarizeError, summarizeGradingJobContext, summarizeGradingResponse } from './gradingDiagnostics';
 import { GradingApiResponse } from './gradingTypes';
 import { aiGradingLogger } from './logger';
-import { captureGradingPipelineEvent } from './posthogService';
+import { captureGradingPipelineEvent, capturePosthogException } from './posthogService';
 
 export interface PersistWorksheetResult {
     worksheetId: string;
@@ -158,10 +158,19 @@ export async function persistWorksheetForGradingJob(
         });
     } catch (error: any) {
         const message = error instanceof Error ? error.message : String(error);
+        // Prisma attaches a machine-readable `code` (e.g. P2002, P2003, P1008,
+        // P2021) plus a `meta` bag on known request errors. Surfacing these on
+        // the persistence event lets PostHog group failures by root cause
+        // (unique-constraint vs. foreign-key vs. connection timeout) instead of
+        // lumping everything into one alert.
+        const prismaErrorFields = error instanceof Prisma.PrismaClientKnownRequestError
+            ? { prismaErrorCode: error.code, prismaMeta: error.meta }
+            : {};
         const errorDiagnostics = {
             ...diagnosticsContext,
             persistenceDurationMs: Date.now() - persistenceStartedAt,
-            ...summarizeError(error)
+            ...summarizeError(error),
+            ...prismaErrorFields
         };
 
         // If the DB is missing the unique index that Prisma uses for upsert ON CONFLICT,
@@ -247,6 +256,7 @@ export async function persistWorksheetForGradingJob(
                 error instanceof Error ? error : new Error(String(error))
             );
             captureGradingPipelineEvent('worksheet_persist_failed', distinctId, errorDiagnostics);
+            capturePosthogException(error, { distinctId, stage: 'worksheet_persist_failed', extra: { jobId: diagnostics.jobId } });
             throw error;
         }
     }
