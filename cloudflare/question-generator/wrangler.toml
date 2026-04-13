@@ -5,7 +5,13 @@ compatibility_date = "2026-02-14"
 # Secrets (set via `wrangler secret put`):
 # - WORKSHEET_CREATION_WORKER_TOKEN
 # - WORKSHEET_CREATION_BACKEND_BASE_URL
-# - GEMINI_API_KEY
+
+[ai]
+binding = "AI"
+
+[vars]
+AI_GATEWAY_ID = "worksheet-generation"
+WORKERS_AI_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 
 [[queues.consumers]]
 queue = "question-generation"
