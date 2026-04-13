@@ -92,13 +92,22 @@ export async function capturePosthogEvent(
     };
 
     try {
-        await fetch(`${host}${POSTHOG_CAPTURE_PATH}`, {
+        const resp = await fetch(`${host}${POSTHOG_CAPTURE_PATH}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(payload)
         });
+
+        if (!resp.ok) {
+            transportErrorCount += 1;
+            apiLogger.warn('posthog_capture_rejected', {
+                event,
+                status: resp.status,
+                transportErrorCount
+            });
+        }
     } catch (err) {
         transportErrorCount += 1;
         // Telemetry is best effort; log but never block grading flow.
