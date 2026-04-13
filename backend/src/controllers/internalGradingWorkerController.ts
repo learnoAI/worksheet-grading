@@ -339,7 +339,7 @@ export async function complete(req: Request, res: Response): Promise<Response> {
         return res.json({ success: true, worksheetId: persisted.worksheetId, action: persisted.action });
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown completion error';
-        const code = (error as any)?.code;
+        const code = error instanceof Error ? (error as Error & { code?: string }).code : undefined;
         const errorSummary = summarizeError(error);
         const gradingResponseSummary = summarizeGradingResponse(gradingResponse);
 
