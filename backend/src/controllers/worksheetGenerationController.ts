@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
-import { generateWorksheets } from '../services/worksheetGenerationService';
-import { renderBatchPdfs } from '../services/worksheetPdfService';
-import { createClassBatch } from '../services/worksheetBatchService';
+import { createClassBatch, createStudentBatch } from '../services/worksheetBatchService';
 
 /**
  * POST /api/worksheet-generation/generate
@@ -24,20 +22,16 @@ export async function generate(req: Request, res: Response): Promise<Response> {
         return res.status(404).json({ success: false, error: 'Student not found' });
     }
 
-    const result = await generateWorksheets(studentId, days, new Date(startDate));
-
-    // Kick off PDF rendering in the background (don't await)
-    if (result.worksheetIds.length > 0) {
-        renderBatchPdfs(result.worksheetIds).catch(err => {
-            console.error('[worksheet-gen] PDF batch render error:', err);
-        });
-    }
+    const result = await createStudentBatch(studentId, days, new Date(startDate));
 
     return res.json({
         success: true,
         data: {
+            batchId: result.batchId,
             worksheetIds: result.worksheetIds,
-            status: result.status,
+            status: result.skillsToGenerate > 0 ? 'GENERATING_QUESTIONS' : 'RENDERING_PDFS',
+            totalWorksheets: result.totalWorksheets,
+            skillsToGenerate: result.skillsToGenerate,
             errors: result.errors
         }
     });

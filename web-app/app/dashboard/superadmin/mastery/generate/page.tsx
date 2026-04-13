@@ -125,11 +125,17 @@ export default function GenerateWorksheetsPage() {
     const handleGenerate = async () => {
         if (!selectedStudentId) { toast.error('Select a student first'); return; }
         setIsGenerating(true);
+        setBatchStatus(null);
         try {
             const res = await worksheetGenerationAPI.generate(selectedStudentId, parseInt(days), startDate);
-            toast.success(`Generated ${res.data.worksheetIds.length} worksheet(s)`);
+            toast.success(`Queued ${res.data.totalWorksheets} worksheet(s), ${res.data.skillsToGenerate} skill(s) to generate`);
             if (res.data.errors.length > 0) {
                 toast.warning(`Warnings: ${res.data.errors.join(', ')}`);
+            }
+            if (res.data.batchId) {
+                const statusRes = await worksheetGenerationAPI.getBatchStatus(res.data.batchId);
+                setBatchStatus(statusRes.data);
+                startPolling(res.data.batchId);
             }
             const updated = await worksheetGenerationAPI.listForStudent(selectedStudentId);
             setWorksheets(updated.data);
@@ -310,8 +316,8 @@ export default function GenerateWorksheetsPage() {
                 </Card>
             )}
 
-            {/* Batch Progress — Class mode */}
-            {mode === 'class' && batchStatus && (
+            {/* Batch Progress */}
+            {batchStatus && (
                 <Card>
                     <CardHeader>
                         <div className="flex items-center justify-between">
