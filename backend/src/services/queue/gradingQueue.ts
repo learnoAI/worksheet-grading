@@ -15,7 +15,7 @@ export interface PulledQueueMessage {
 }
 
 export interface GradingQueueClient {
-    publish(message: GradingQueueMessageV1): Promise<void>;
+    publish(message: object): Promise<void>;
     pull(batchSize: number): Promise<PulledQueueMessage[]>;
     ack(ackTokens: string[]): Promise<void>;
 }

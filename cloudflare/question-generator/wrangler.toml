@@ -1,0 +1,21 @@
+name = "question-generator"
+main = "src/index.ts"
+compatibility_date = "2026-02-14"
+
+# Secrets (set via `wrangler secret put`):
+# - WORKSHEET_CREATION_WORKER_TOKEN
+# - WORKSHEET_CREATION_BACKEND_BASE_URL
+# - GEMINI_API_KEY
+
+[[queues.consumers]]
+queue = "question-generation"
+max_batch_size = 5
+max_batch_timeout = 5
+max_concurrency = 50
+max_retries = 5
+dead_letter_queue = "question-generation-dlq"
+
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true

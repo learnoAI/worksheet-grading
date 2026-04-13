@@ -29,6 +29,8 @@ model User {
   teacherGradingJobs   GradingJob[]           @relation("TeacherGradingJobs")
   teacherUploadBatches WorksheetUploadBatch[] @relation("TeacherUploadBatches")
   studentUploadItems   WorksheetUploadItem[]  @relation("StudentUploadItems")
+  skillMastery         StudentSkillMastery[]
+  generatedWorksheets  GeneratedWorksheet[]
 }
 
 model School {
@@ -54,19 +56,20 @@ model Cluster {
 }
 
 model Class {
-  id             String                 @id @default(uuid())
-  name           String
-  schoolId       String
-  academicYear   String                 @default("25-26")
-  isArchived     Boolean                @default(false)
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
-  school         School                 @relation(fields: [schoolId], references: [id])
-  studentClasses StudentClass[]
-  teacherClasses TeacherClass[]
-  worksheets     Worksheet[]
-  gradingJobs    GradingJob[]
-  uploadBatches  WorksheetUploadBatch[]
+  id               String                 @id @default(uuid())
+  name             String
+  schoolId         String
+  academicYear     String                 @default("25-26")
+  isArchived       Boolean                @default(false)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  school           School                 @relation(fields: [schoolId], references: [id])
+  studentClasses   StudentClass[]
+  teacherClasses   TeacherClass[]
+  worksheets       Worksheet[]
+  gradingJobs      GradingJob[]
+  uploadBatches    WorksheetUploadBatch[]
+  worksheetBatches WorksheetBatch[]
 
   @@unique([name, schoolId, academicYear])
 }
@@ -121,13 +124,42 @@ model StudentSchool {
   @@id([studentId, schoolId])
 }
 
+model MainTopic {
+  id         String      @id @default(uuid())
+  name       String      @unique
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  mathSkills MathSkill[]
+}
+
 model MathSkill {
-  id          String                      @id @default(uuid())
-  name        String
-  description String?
-  createdAt   DateTime                    @default(now())
-  updatedAt   DateTime                    @updatedAt
-  worksheets  WorksheetTemplateQuestion[]
+  id                 String                      @id @default(uuid())
+  name               String
+  description        String?
+  mainTopicId        String?
+  mainTopic          MainTopic?                  @relation(fields: [mainTopicId], references: [id])
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  worksheets         WorksheetTemplateQuestion[]
+  worksheetSkillMaps WorksheetSkillMap[]
+  studentMastery     StudentSkillMastery[]
+  questionBank       QuestionBank[]
+
+  @@unique([name, mainTopicId], name: "math_skill_name_main_topic_unique")
+  @@index([mainTopicId])
+}
+
+model WorksheetSkillMap {
+  id              String    @id @default(uuid())
+  worksheetNumber Int       @unique
+  mathSkillId     String
+  isTest          Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  mathSkill       MathSkill @relation(fields: [mathSkillId], references: [id])
+
+  @@index([mathSkillId])
+  @@index([isTest])
 }
 
 model WorksheetTemplate {
@@ -196,6 +228,7 @@ model Worksheet {
   wrongQuestionNumbers String? // Comma-separated wrong question numbers
   adminComments        String? // Administrative comments for incorrect grading review
   worksheetNumber      Int                 @default(0) // Direct worksheet number storage (0 = absent/unassigned)
+  practiceLog          SkillPracticeLog[]
 
   @@unique([studentId, classId, worksheetNumber, submittedOn], name: "unique_worksheet_per_student_day")
   // Performance indexes for analytics queries
@@ -270,6 +303,14 @@ enum WorksheetUploadItemStatus {
   PENDING
   QUEUED
   FAILED
+}
+
+enum MasteryLevel {
+  NOT_STARTED
+  ATTEMPTED
+  FAMILIAR
+  PROFICIENT
+  MASTERED
 }
 
 model GradingJob {
@@ -379,4 +420,121 @@ model GradingJobImage {
   createdAt       DateTime        @default(now())
 
   @@index([gradingJobId, pageNumber])
+}
+
+model StudentSkillMastery {
+  id             String             @id @default(uuid())
+  studentId      String
+  student        User               @relation(fields: [studentId], references: [id])
+  mathSkillId    String
+  mathSkill      MathSkill          @relation(fields: [mathSkillId], references: [id])
+  masteryLevel   MasteryLevel       @default(NOT_STARTED)
+  stability      Float              @default(1.0)
+  difficulty     Float              @default(5.0)
+  lastPracticeAt DateTime?
+  lastScore      Float?
+  practiceCount  Int                @default(0)
+  testCount      Int                @default(0)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  practiceLogs   SkillPracticeLog[]
+
+  @@unique([studentId, mathSkillId])
+  @@index([studentId, masteryLevel])
+  @@index([mathSkillId])
+  @@index([studentId, lastPracticeAt])
+}
+
+model SkillPracticeLog {
+  id              String              @id @default(uuid())
+  studentId       String
+  mathSkillId     String
+  worksheetId     String
+  worksheet       Worksheet           @relation(fields: [worksheetId], references: [id])
+  worksheetNumber Int
+  isTest          Boolean             @default(false)
+  score           Float
+  rawGrade        Float
+  rawOutOf        Float
+  previousLevel   MasteryLevel
+  newLevel        MasteryLevel
+  stabilityAfter  Float
+  difficultyAfter Float
+  practicedAt     DateTime
+  createdAt       DateTime            @default(now())
+  masteryRecord   StudentSkillMastery @relation(fields: [studentId, mathSkillId], references: [studentId, mathSkillId])
+
+  @@index([studentId, mathSkillId, practicedAt])
+  @@index([worksheetId])
+}
+
+enum WorksheetBatchStatus {
+  PENDING
+  GENERATING_QUESTIONS
+  RENDERING_PDFS
+  COMPLETED
+  FAILED
+}
+
+enum GeneratedWorksheetStatus {
+  PENDING
+  QUESTIONS_READY
+  RENDERING
+  COMPLETED
+  FAILED
+}
+
+model QuestionBank {
+  id          String    @id @default(uuid())
+  mathSkillId String
+  mathSkill   MathSkill @relation(fields: [mathSkillId], references: [id])
+  question    String
+  answer      String
+  instruction String
+  usedCount   Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  @@index([mathSkillId, usedCount])
+}
+
+model WorksheetBatch {
+  id                  String               @id @default(uuid())
+  classId             String
+  class               Class                @relation(fields: [classId], references: [id])
+  days                Int
+  startDate           DateTime
+  status              WorksheetBatchStatus @default(PENDING)
+  totalWorksheets     Int                  @default(0)
+  completedWorksheets Int                  @default(0)
+  failedWorksheets    Int                  @default(0)
+  pendingSkills       Int                  @default(0)
+  completedSkills     Int                  @default(0)
+  errors              Json?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  worksheets          GeneratedWorksheet[]
+
+  @@index([classId])
+  @@index([status])
+}
+
+model GeneratedWorksheet {
+  id             String                   @id @default(uuid())
+  studentId      String
+  student        User                     @relation(fields: [studentId], references: [id])
+  scheduledDate  DateTime
+  pdfUrl         String?
+  status         GeneratedWorksheetStatus @default(PENDING)
+  newSkillId     String
+  reviewSkill1Id String
+  reviewSkill2Id String
+  sectionsJson   Json?
+  batchId        String?
+  batch          WorksheetBatch?          @relation(fields: [batchId], references: [id])
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@index([studentId, scheduledDate])
+  @@index([status])
+  @@index([batchId, status])
 }

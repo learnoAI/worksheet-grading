@@ -346,12 +346,84 @@ export const deleteTemplateQuestion = async (req: Request, res: Response) => {
 };
 
 /**
+ * Get worksheet-to-curriculum mappings
+ * @route GET /api/worksheet-curriculum
+ */
+export const getWorksheetCurriculumMappings = async (req: Request, res: Response) => {
+    try {
+        const worksheetNumbersParam = req.query.worksheetNumbers;
+        let worksheetNumbers: number[] | undefined;
+
+        if (typeof worksheetNumbersParam === 'string' && worksheetNumbersParam.trim().length > 0) {
+            const parsedNumbers = worksheetNumbersParam
+                .split(',')
+                .map((value) => value.trim())
+                .filter((value) => value.length > 0)
+                .map((value) => Number.parseInt(value, 10))
+                .filter((value) => Number.isInteger(value) && value > 0);
+
+            const uniqueNumbers = [...new Set(parsedNumbers)];
+
+            if (uniqueNumbers.length === 0) {
+                return res.status(400).json({ message: 'worksheetNumbers must contain at least one positive integer' });
+            }
+
+            worksheetNumbers = uniqueNumbers;
+        }
+
+        const mappings = await prisma.worksheetSkillMap.findMany({
+            where: worksheetNumbers
+                ? {
+                    worksheetNumber: {
+                        in: worksheetNumbers
+                    }
+                }
+                : undefined,
+            include: {
+                mathSkill: {
+                    include: {
+                        mainTopic: true
+                    }
+                }
+            },
+            orderBy: {
+                worksheetNumber: 'asc'
+            }
+        });
+
+        const response = mappings.map((mapping) => ({
+            worksheetNumber: mapping.worksheetNumber,
+            isTest: mapping.isTest,
+            learningOutcome: {
+                id: mapping.mathSkill.id,
+                name: mapping.mathSkill.name
+            },
+            mainTopic: mapping.mathSkill.mainTopic
+                ? {
+                    id: mapping.mathSkill.mainTopic.id,
+                    name: mapping.mathSkill.mainTopic.name
+                }
+                : null
+        }));
+
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error('Error fetching worksheet curriculum mappings:', error);
+        return res.status(500).json({ message: 'Server error while retrieving worksheet curriculum mappings' });
+    }
+};
+
+/**
  * Get all math skills
  * @route GET /api/math-skills
  */
 export const getAllMathSkills = async (req: Request, res: Response) => {
     try {
-        const skills = await prisma.mathSkill.findMany();
+        const skills = await prisma.mathSkill.findMany({
+            include: {
+                mainTopic: true
+            }
+        });
         return res.status(200).json(skills);
     } catch (error) {
         console.error('Error fetching math skills:', error);
@@ -364,13 +436,14 @@ export const getAllMathSkills = async (req: Request, res: Response) => {
  * @route POST /api/math-skills
  */
 export const createMathSkill = async (req: Request, res: Response) => {
-    const { name, description } = req.body;
+    const { name, description, mainTopicId } = req.body;
 
     try {
         const newSkill = await prisma.mathSkill.create({
             data: {
                 name,
-                description
+                description,
+                mainTopicId
             }
         });
 

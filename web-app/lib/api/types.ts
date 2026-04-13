@@ -94,13 +94,35 @@ export interface AdminSchool {
     school?: School;
 }
 
+export interface MainTopic {
+    id: string;
+    name: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
 export interface MathSkill {
     id: string;
     name: string;
     description?: string;
+    mainTopicId?: string | null;
+    mainTopic?: MainTopic | null;
     createdAt: string;
     updatedAt: string;
     worksheets?: WorksheetTemplateQuestion[];
+}
+
+export interface WorksheetCurriculumMapping {
+    worksheetNumber: number;
+    isTest: boolean;
+    learningOutcome: {
+        id: string;
+        name: string;
+    };
+    mainTopic: {
+        id: string;
+        name: string;
+    } | null;
 }
 
 export interface WorksheetTemplate {

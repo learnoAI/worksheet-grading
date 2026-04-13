@@ -11,3 +11,4 @@ export { classAPI } from './class';
 export { schoolAPI } from './school';
 export { worksheetTemplateAPI } from './worksheetTemplate';
 export { analyticsAPI } from './analytics';
+export { masteryAPI } from './mastery';

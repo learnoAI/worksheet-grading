@@ -12,6 +12,7 @@ import { GradingApiResponse } from '../services/gradingTypes';
 import { logError } from '../services/errorLogService';
 import { aiGradingLogger } from '../services/logger';
 import { captureGradingPipelineEvent } from '../services/posthogService';
+import { updateMasteryForWorksheet } from '../services/masteryService';
 import { GradingJobStatus } from '@prisma/client';
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -256,6 +257,25 @@ export async function complete(req: Request, res: Response): Promise<Response> {
                 leaseId
             });
             return res.status(404).json({ success: false, error: 'Job not found' });
+        }
+
+        try {
+            const job = await prisma.gradingJob.findUnique({
+                where: { id: jobId },
+                select: { studentId: true, worksheetNumber: true, submittedOn: true }
+            });
+            if (job && persisted.worksheetId) {
+                await updateMasteryForWorksheet({
+                    worksheetId: persisted.worksheetId,
+                    studentId: job.studentId,
+                    worksheetNumber: job.worksheetNumber,
+                    grade: gradingResponse.grade ?? 0,
+                    outOf: gradingResponse.total_possible ?? 40,
+                    submittedOn: job.submittedOn
+                });
+            }
+        } catch (err) {
+            console.error('[mastery] update failed (non-fatal):', err);
         }
 
         captureGradingPipelineEvent('worker_complete_succeeded', jobId, {

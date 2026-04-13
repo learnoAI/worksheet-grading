@@ -8,6 +8,7 @@ import { aiGradingLogger } from './logger';
 import { GradingApiResponse } from './gradingTypes';
 import { persistWorksheetForGradingJob } from './gradingWorksheetPersistenceService';
 import { captureGradingPipelineEvent } from './posthogService';
+import { updateMasteryForWorksheet } from './masteryService';
 
 interface ExecuteGradingJobResult {
     worksheetId: string;
@@ -230,6 +231,19 @@ export async function executeGradingJob(
         options.onHeartbeat
     );
     const persisted = await persistWorksheetForGradingJob(job, pythonResponse, prisma, { jobId });
+
+    try {
+        await updateMasteryForWorksheet({
+            worksheetId: persisted.worksheetId,
+            studentId: job.studentId,
+            worksheetNumber: job.worksheetNumber,
+            grade: pythonResponse.grade ?? 0,
+            outOf: pythonResponse.total_possible ?? 40,
+            submittedOn: job.submittedOn
+        });
+    } catch (err) {
+        console.error('[mastery] update failed (non-fatal):', err);
+    }
 
     captureGradingPipelineEvent('execution_persisted', jobId, {
         jobId,
