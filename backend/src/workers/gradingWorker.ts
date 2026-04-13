@@ -6,7 +6,7 @@ import {
     PulledQueueMessage
 } from '../services/queue/gradingQueue';
 import { runGradingJob } from '../services/gradingJobRunner';
-import { captureGradingPipelineEvent } from '../services/posthogService';
+import { captureGradingPipelineEvent, capturePosthogException } from '../services/posthogService';
 
 // Message-level thresholds for new telemetry events.
 // A 60s lag means the queue is absorbing more work than the consumer drains
@@ -189,6 +189,7 @@ export async function startGradingWorker(): Promise<void> {
                 { error: error instanceof Error ? error.message : 'Unknown error' },
                 error instanceof Error ? error : undefined
             );
+            capturePosthogException(error, { distinctId: 'pull-worker', stage: 'pull_worker_consume_loop_crashed' });
         }
 
         await new Promise((resolve) => setTimeout(resolve, config.grading.queuePollIntervalMs));
