@@ -63,10 +63,12 @@ export async function acquireJob(req: Request, res: Response): Promise<Response>
     // acquires are not frequent; a real NTP-synced host is well under a second.
     // A single failed $queryRaw must never prevent the job from acquiring.
     try {
+        // Capture worker time BEFORE the query so the measurement reflects
+        // actual clock disagreement, not DB round-trip latency.
+        const workerNow = new Date();
         const dbNowRows = await prisma.$queryRaw<{ now: Date }[]>`SELECT NOW() AS now`;
         const dbNow = dbNowRows[0]?.now;
         if (dbNow) {
-            const workerNow = new Date();
             const skewMs = Math.abs(workerNow.getTime() - dbNow.getTime());
             if (skewMs > CLOCK_SKEW_THRESHOLD_MS) {
                 captureGradingPipelineEvent('worker_clock_skew', jobId, {
