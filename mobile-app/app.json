@@ -16,7 +16,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.saarthi.teachercapture",
       "infoPlist": {
-        "NSCameraUsageDescription": "Teachers use the camera to capture worksheet pages."
+        "NSCameraUsageDescription": "Teachers use the camera to capture worksheet pages.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

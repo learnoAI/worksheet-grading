@@ -17,3 +17,4 @@ test-data/
 # Misc
 .DS_Store
 prod_backup.dump
+backups/
