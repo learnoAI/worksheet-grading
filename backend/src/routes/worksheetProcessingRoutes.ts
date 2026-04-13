@@ -1,7 +1,6 @@
 import express, { NextFunction, Request, RequestHandler, Response } from 'express';
 import { body, query } from 'express-validator';
-import { auth, authorizeRoles } from '../middleware/utils';
-import { asHandler } from '../middleware/utils';
+import { auth, authorizeRoles, asHandler } from '../middleware/utils';
 import { UserRole } from '@prisma/client';
 import multer, { MulterError } from 'multer';
 import {
