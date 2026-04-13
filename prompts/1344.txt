@@ -1,0 +1,37 @@
+Extract all questions and their corresponding student answers from the worksheet images and return them as a JSON Array.
+
+<JSON Schema>
+Output a flat list of objects. Do not wrap the list in a dictionary.
+Required Keys:
+- "question_number": Integer.
+- "question": String. The full text of the question label and math problem.
+- "student_answer": String. The handwritten value.
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}
+
+<Extraction Rules>
+1. **Question Label Formatting (CRITICAL):**
+   - Every question string MUST start with the letter 'Q', followed immediately by the question number, followed by a dot.
+   - **No spaces** are allowed between 'Q' and the number.
+   - **Correct:** "Q1.", "Q11.", "Q26."
+   - **Incorrect:** "Q 11.", "11.", "Q. 11."
+   - *Correction Logic:* If the image shows "Q 12." or "12.", transcribe it as "Q12.".
+
+2. **Mathematical Spacing:**
+   - The division problem follows the label. You must preserve the specific spacing around the closing parenthesis.
+   - Format: [Label] [space] "2" [space] ")" [space] [Dividend]
+   - Example: "Q26. 2 ) 12"
+
+3. **Content Accuracy:**
+   - **Printed Text:** The question text (e.g., "2 ) 12") is printed. Transcribe it exactly. Do not confuse "12" with "6".
+   - **Handwritten Answer:** The answer is handwritten. If a student writes "3", output "3", even if incorrect.
+   - **Q26 Specific Check:** Ensure Q26 is read as "Q26. 2 ) 12".
+   - Distinguish carefully between single and double-digit dividends (e.g., 6 vs 16 vs 12).
+
+4. **Completeness:** 
+   - Extract all questions (1 through 40). Return them sorted by question number.
+
+5. **Output:** 
+   - Return ONLY the JSON array. No markdown, no code blocks.
+</Extraction Rules>

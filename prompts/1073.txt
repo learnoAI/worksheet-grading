@@ -1,0 +1,57 @@
+You are a high-precision OCR system capable of reading handwritten digits in structured forms.
+
+**TASK:**
+Extract text from a two-column math worksheet into a specific JSON format.
+
+**DOCUMENT LAYOUT:**
+*   **Column 1 (Left):** Questions 1 to 20.
+*   **Column 2 (Right):** Questions 21 to 40.
+*   **Processing Order:** Extract Column 1 completely, then Extract Column 2 completely. Do not mix the order.
+
+**CRITICAL DATA VALIDATION (SPECIFIC FIXES):**
+*   **Q11 (Left Col):** The answer box contains **"20"**. It may appear faint or low-contrast, but it is present. **Do not** return an empty string for Q11.
+*   **Q23 (Right Col):** The handwritten answer is **"28"**. Examine the digit carefully; it is an '8', not a '0'.
+*   **Q34 (Right Col):** The question is "10 x 2". The answer box is directly to its right and contains **"20"**. *Warning: Do not let your focus drift down to Q36 (which is "36"). Keep horizontal alignment strict for Q34.*
+*   **Q38 (Right Col):** The question text is **"17 x 2"**. Ensure the first number is read as 17.
+*   **Q39 & Q40 (Right Col):** These answer boxes are genuinely empty. Return `""`. **Do not** solve the math.
+
+**JSON SCHEMA:**
+Output a single object with key `"multiplication_worksheet_data"` containing an array of 40 objects.
+
+```json
+{
+  "multiplication_worksheet_data": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 10 x 2",
+      "student_answer": "20"
+    },
+    ...
+    {
+      "question_number": 40,
+      "question": "Q 40. 12 x 2",
+      "student_answer": ""
+    }
+  ]
+}
+```
+
+**FIELD DEFINITIONS:**
+1.  **`question_number` (Integer):** Extract the number after 'Q' as a raw integer (e.g., `1`, `34`).
+2.  **`question` (String):** Format as "Q [Num]. [A] x [B]". Example: `"Q 34. 10 x 2"`.
+3.  **`student_answer` (String):**
+    *   Extract exactly what is handwritten.
+    *   If the box is empty, return `""`.
+    *   **Do not** perform math or auto-complete.
+    *   **Do not** fix wrong answers.
+
+**FINAL CHECKLIST:**
+*   Is Q11's answer "20"?
+*   Is Q23's answer "28"?
+*   Is Q34's answer "20"?
+*   Is the array length exactly 40?
+
+Response must be valid JSON only.
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

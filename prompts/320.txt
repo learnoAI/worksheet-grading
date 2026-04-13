@@ -1,0 +1,59 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**WORKSHEET CONTEXT:**
+- This is a number tracing/writing worksheet.
+- Questions are arranged in vertical columns. 
+- The question label (e.g., 'Q 1.', 'Q 2.') is to the left of each column.
+- The top row of each column is the printed example/target number (e.g., '31').
+- The student's task is to write that same number repeatedly in the boxes below it. 
+- A large tick mark indicates the page is graded; ignore it completely.
+
+**TASK:**
+Extract every question and its corresponding student answers from the image provided. Combine the repeated student answers for each column into a single string.
+
+**JSON SCHEMA ENFORCEMENT:**
+You must output a single JSON object with a `"questions"` array. 
+DO NOT output a raw list/array at the top level.
+Follow this exact structure:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 31",
+      "student_answer": "31 31 31 31 31 31 31 31 31"
+    }
+  ]
+}
+```
+
+**EXTRACTION & FORMATTING RULES:**
+
+1. **`question_number` (Integer):**
+   - Must be an exact integer (e.g., `1`, `2`, `3`).
+   - **DO NOT** use strings or decimals (e.g., "Q1", "1.1").
+
+2. **`question` (String):**
+   - MUST be the exact, literal printed text. 
+   - Combine the question label and the target example number from the top row (e.g., `"Q 1. 31"`, `"Q 2. 32"`).
+   - **CRITICAL:** DO NOT hallucinate or add descriptive language like "Write the number 31". Just transcribe the literal text.
+
+3. **`student_answer` (String):**
+   - **CRITICAL - AGGREGATION RULE:** The student repeats an answer multiple times in a vertical column. You MUST combine all repetitions for that specific question into a single, space-separated string (e.g., `"31 31 31 31 31 31 31 31 31"`).
+   - **DO NOT** create separate JSON objects for each repetition (e.g., no "Q1.1", "Q1.2").
+   - Extract exactly what the student wrote. If the column is completely blank, use an empty string `""`.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation. Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- Process and sort the output by `question_number` ascending (1 through 10).
+- Maintain strict JSON syntax. Do not include markdown code blocks around the JSON if it breaks the system parser, but ensure the structure matches the schema perfectly.
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Tracing and writing numbers (repetition).
+*   **Examples Present:** The top row of each column serves as the example/target number.
+*   **Answer Format:** Writing numbers repeatedly in vertical columns of boxes.
+*   **Structural Quirks:** The questions are arranged in vertical columns. The question number (e.g., 'Q 1.', 'Q 2.') is placed to the left of each respective column. The student's answers are a vertical list of the same number written multiple times. A large tick mark is drawn across the page, indicating it has been graded.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

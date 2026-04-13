@@ -1,0 +1,57 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every math problem and its corresponding handwritten student answer from the provided worksheet images. The document spans two pages with two vertical columns per page, containing multiplication problems numbered sequentially from Q1 to Q40.
+
+**JSON SCHEMA ENFORCEMENT:**
+You must output a single JSON object containing a `"questions"` array at the root. 
+DO NOT return a top-level array.
+
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 4 x 3 =",
+      "student_answer": "12"
+    }
+  ]
+}
+```
+
+**EXTRACTION & FORMATTING RULES:**
+
+1. **`question_number` (Integer):**
+   - Extract strictly the integer value.
+   - **STRIP** the "Q" prefix and the period. (e.g., If the text says "Q34.", the value must be strictly the integer `34`).
+
+2. **`question` (String):**
+   - Must include the full printed question label exactly as it appears on the page.
+   - Include the "Q", the number, the period, the mathematical expression, and the equals sign (e.g., `"Q34. 6 x 5 ="`).
+   - Use a lowercase "x" for the multiplication sign.
+   - Flatten vertical text into a single horizontal line. NO newline characters.
+
+3. **`student_answer` (String):**
+   - Extract the handwritten text written after the equals sign.
+   - **CRITICAL - DO NOT CORRECT MATH ERRORS:** Extract exactly what the student wrote based purely on visual stroke evidence. If the student wrote an incorrect answer (e.g., writing "36" for "6 x 5 ="), you **MUST** output `"36"`. Do NOT auto-correct to the mathematically correct answer.
+   - Return the answer strictly as a string.
+   - If the answer slot is completely blank, use an empty string `""`.
+
+**HANDWRITING & LAYOUT GUIDELINES:**
+- Track the question IDs carefully. Read down the columns properly to maintain the sequential order.
+- Sort the final JSON output by `question_number` in ascending order (1 through 40).
+- Look closely at messy digit formations. Distinguish 9 vs 8, 6 vs 0, and 1 vs 7 vs 4 based solely on the ink on the page.
+
+Return ONLY the raw JSON object. Do not include markdown code block formatting (e.g., ```json) and do not include any conversational text.
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is the analysis of the worksheet based on the provided images and target JSON:
+
+*   **Question Type:** Multiplication problems.
+*   **Examples Present:** None.
+*   **Answer Format:** Hand-written answers written directly after the equals sign for each equation.
+*   **Structural Quirks:** The problems are arranged in two distinct vertical columns per page. The questions are sequentially numbered with a 'Q' prefix (e.g., "Q1.", "Q2."). The document spans two pages, with numbering continuing seamlessly from the first page (Q1-Q20) to the second (Q21-Q40). Header information (Name, Token Number, Marks) and a title ("Multiply" with Hindi translation) are present at the top of each page.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

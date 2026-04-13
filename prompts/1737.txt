@@ -1,0 +1,55 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question (including pre-solved examples) and its corresponding student answer from the image provided.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}
+
+**DO NOT** use dynamic keys (like "Q1", "A1", "Q_2", etc.).
+**DO NOT** nest the objects.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+1. **`question_number` Field:**
+   - MUST be an **integer** (e.g., `1`, `2`, `3`).
+   - Extract the numeric value from the question label (e.g., for "Q1.", the `question_number` is `1`).
+   - **DO NOT** include the "Q" prefix or the period.
+
+2. **`question` Field:**
+   - MUST be a string that includes BOTH the full question label (with "Q" and period) AND the flattened math equation.
+   - Example exact format: `"Q1. 290 - 10"`
+   - The problems are presented vertically in the image. You must flatten this vertical arithmetic layout into a single horizontal line string. Use spaces to separate the label, top operand, operator, and bottom operand.
+   - **NO** newline characters in the string.
+
+3. **`student_answer` Field:**
+   - Extract exactly the numeric answer written below the horizontal equation line.
+   - Note: The first two questions (Q1 and Q2) are pre-solved printed examples. Extract their printed answers exactly as you do the handwritten student answers.
+   - Return the answer as a string (e.g., `"280"`).
+   - If the answer slot is entirely blank, use an empty string `""`.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation in the pencil handwriting.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- The worksheet is laid out in a dense four-column grid. Scan carefully to capture every single item.
+- Output the final JSON array strictly sorted by `question_number` in ascending order.
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is the analysis of the worksheet images and target JSON:
+
+*   **Question Type:** Subtraction (vertical arithmetic).
+*   **Examples Present:** Yes, the first two questions (Q1 and Q2) are pre-solved printed examples.
+*   **Answer Format:** Handwritten numeric answers written directly below the horizontal line of each vertical problem.
+*   **Structural Quirks:**
+    *   The problems are laid out in a dense four-column grid.
+    *   The vertical arithmetic layout is flattened into a single-line horizontal string for the JSON `question` field (e.g., the vertical stack of "290", "- 10" becomes "290 - 10").
+    *   Questions follow a specific labeling pattern with a "Q" prefix and period (e.g., "Q1.", "Q2.").
+    *   The top operand ("290") is constant across all problems on the pages.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

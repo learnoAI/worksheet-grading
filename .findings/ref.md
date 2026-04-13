@@ -1,0 +1,1 @@
+this folder files contains the ways different bugs were fixed - take it in reference while working on this codebase.

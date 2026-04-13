@@ -1,5 +1,5 @@
 import { fetchAPI, API_BASE_URL } from './utils';
-import { WorksheetTemplate, WorksheetTemplateImage, WorksheetTemplateQuestion, MathSkill } from './types';
+import { WorksheetTemplate, WorksheetTemplateImage, WorksheetTemplateQuestion, MathSkill, WorksheetCurriculumMapping } from './types';
 
 export const worksheetTemplateAPI = {
     // Template CRUD operations
@@ -90,11 +90,27 @@ export const worksheetTemplateAPI = {
         return fetchAPI<MathSkill[]>('/math-skills');
     },
 
-    createMathSkill: async (data: { name: string; description?: string }): Promise<MathSkill> => {
+    createMathSkill: async (data: { name: string; description?: string; mainTopicId?: string }): Promise<MathSkill> => {
         return fetchAPI<MathSkill>('/math-skills', {
             method: 'POST',
             body: JSON.stringify(data)
         });
+    },
+
+    getWorksheetCurriculumMappings: async (worksheetNumbers?: number[]): Promise<WorksheetCurriculumMapping[]> => {
+        const uniqueWorksheetNumbers = worksheetNumbers
+            ? [...new Set(worksheetNumbers.filter((value) => Number.isInteger(value) && value > 0))]
+            : [];
+
+        const query = new URLSearchParams();
+        if (uniqueWorksheetNumbers.length > 0) {
+            query.set('worksheetNumbers', uniqueWorksheetNumbers.join(','));
+        }
+
+        const queryString = query.toString();
+        return fetchAPI<WorksheetCurriculumMapping[]>(
+            `/worksheet-curriculum${queryString ? `?${queryString}` : ''}`
+        );
     },
 
     // Image upload helper

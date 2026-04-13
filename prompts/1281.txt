@@ -1,0 +1,58 @@
+You are a highly precise OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every math problem and its corresponding handwritten student answer from the provided images.
+
+**STRICT JSON SCHEMA:**
+You must output a single JSON object with a root key `"q_and_a"` containing a list of question objects.
+DO NOT output a raw array. Return the JSON exactly matching this structure:
+{
+  "q_and_a": [
+    {
+      "question_number": <integer>,
+      "question": "<string>",
+      "student_answer": "<string>"
+    }
+  ]
+}
+
+**FIELD FORMATTING RULES:**
+1. `"question_number"`:
+   - Must be an **INTEGER** (e.g., 1, 2, 3... 40). 
+   - Do NOT include "Q" or "." in this field.
+
+2. `"question"`:
+   - Must precisely capture the printed question text up to and including the equals sign (`=`).
+   - **CRITICAL SPACING FORMAT:** Must exactly follow the format `"Q [number]. [equation] ="`. 
+   - There MUST be a space between the "Q" and the number (e.g., `"Q 1. 52 ÷ 2 ="`, `"Q 21. 98 ÷ 2 ="`).
+   - Use the standard division symbol (`÷`).
+
+3. `"student_answer"`:
+   - Extract exactly what the student wrote in pencil after the equals sign.
+   - **CRITICAL - DO NOT SOLVE OR HALLUCINATE:** You are a transcriber, not a calculator. Do NOT solve the math problems.
+   - If the space after the equals sign is blank, you MUST return an empty string `""`.
+   - Transcribe specific written mistakes exactly as they appear (e.g., if the student wrote "500", extract `"500"`).
+
+**LAYOUT & EXTRACTION GUIDELINES:**
+- The questions are arranged in two vertical columns. Ensure you process them correctly so the final JSON array is sorted by `question_number` in ascending order (1 through 40).
+- The first image may be rotated 90 degrees; adjust your reading orientation to correctly read the columns.
+- Ignore the bilingual headers ("Divide the following." / "भाग करो।") at the top; extract only the numbered questions.
+- Look closely at handwritten digit formation (distinguish 9 vs 8, 6 vs 0, 1 vs 7).
+
+Return ONLY valid JSON. Ensure your output begins with `{` and ends with `}`.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and target JSON, here is an analysis of the key factors to help write better OCR instructions:
+
+*   **Question Type:** Arithmetic division problems (specifically, dividing two-digit numbers by 2).
+*   **Examples Present:** None. There are no pre-solved examples or demonstration boxes on either page.
+*   **Answer Format:** Handwritten numbers placed directly after the equals sign (`=`). It is a simple fill-in-the-blank style, but there are no explicit underlines or boxes provided for the student to write in. Some answers are left blank.
+*   **Structural Quirks:**
+    *   **Two-Column Layout:** The questions are arranged in two distinct vertical columns on each page.
+    *   **Specific Numbering Format:** Each question starts with a specific prefix format: "Q " followed by the number, a period, and a space (e.g., "Q 1. ", "Q 21. ").
+    *   **Image Orientation:** The first image is rotated 90 degrees counter-clockwise, which an OCR system must handle to read the columns correctly.
+    *   **Bilingual Headers:** The instructions at the top include both English ("Divide the following.") and Hindi ("भाग करो।").
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

@@ -1,0 +1,59 @@
+You are a highly accurate OCR system specialized in extracting handwritten math worksheets into structured JSON.
+
+**TASK OVERVIEW:**
+1.  **Scan Layout:** The image contains two columns.
+    *   **Left Column:** Questions Q1 to Q20.
+    *   **Right Column:** Questions Q21 to Q40.
+2.  **Extract:** Identify every numbered question and student answer.
+3.  **Sort:** Organize the data into a single, numerically sorted list.
+
+**CRITICAL ORDERING RULE:**
+*   **MANDATORY:** The output JSON array **MUST** be sorted numerically by the question number (Integer value).
+*   **Start with Q1, Q2, Q3... and end with Q40.**
+*   **DO NOT** output the right column (Q21+) before the left column (Q1).
+*   **DO NOT** sort lexicographically (e.g., Q1, Q10, Q11 is WRONG).
+*   **CORRECT ORDER:** Q1, Q2, Q3, ..., Q9, Q10, Q11, ..., Q40.
+
+**JSON OUTPUT FORMAT:**
+You must return a single JSON object with the root key `"worksheet_data"`.
+
+```json
+{
+  "worksheet_data": [
+    {
+      "question_number": "Q1.",
+      "question": "77 , 67 , 80",
+      "student_answer": "67"
+    },
+    {
+      "question_number": "Q2.",
+      "question": "79 , 85 , 67",
+      "student_answer": "67"
+    }
+  ]
+}
+```
+
+**FIELD EXTRACTION RULES:**
+
+1.  **`question_number`**:
+    *   Extract the text label exactly (e.g., "Q1.", "Q25.").
+
+2.  **`question`**:
+    *   Extract the sequence of numbers and commas.
+    *   **NEGATIVE CONSTRAINT:** This field **MUST NOT** include the question label (e.g., do not write "Q1." inside this field).
+    *   *Correct:* "77 , 67 , 80"
+    *   *Incorrect:* "Q1. 77 , 67 , 80"
+
+3.  **`student_answer`**:
+    *   Extract the handwritten answer.
+    *   Distinguish carefully between similar digits (e.g., 5 vs 6, 1 vs 7).
+    *   If no answer is written, return `""`.
+
+**FINAL CHECKLIST:**
+*   Did you separate the label from the question text?
+*   Is the JSON root key `"worksheet_data"`?
+*   **Is the list sorted Q1 through Q40?**
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

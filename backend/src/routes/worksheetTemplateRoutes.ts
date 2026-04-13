@@ -1,5 +1,5 @@
 import express from 'express';
-import { body } from 'express-validator';
+import { body, query } from 'express-validator';
 import {
     getAllWorksheetTemplates,
     getWorksheetTemplateById,
@@ -11,6 +11,7 @@ import {
     addTemplateQuestion,
     updateTemplateQuestion,
     deleteTemplateQuestion,
+    getWorksheetCurriculumMappings,
     getAllMathSkills,
     createMathSkill
 } from '../controllers/worksheetTemplateController';
@@ -22,6 +23,15 @@ const router = express.Router();
 // Worksheet Template routes
 router.get('/worksheet-templates', auth, asHandler(getAllWorksheetTemplates));
 router.get('/worksheet-templates/:id', auth, asHandler(getWorksheetTemplateById));
+router.get(
+    '/worksheet-curriculum',
+    [
+        auth,
+        authorizeRoles([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]),
+        query('worksheetNumbers').optional().isString().withMessage('worksheetNumbers must be a comma-separated string')
+    ],
+    asHandler(getWorksheetCurriculumMappings)
+);
 
 // SUPERADMIN only routes
 router.post(
@@ -110,7 +120,8 @@ router.post(
         auth,
         authorizeRoles([UserRole.SUPERADMIN]),
         body('name').notEmpty().withMessage('Name is required'),
-        body('description').optional()
+        body('description').optional(),
+        body('mainTopicId').optional().isString().withMessage('mainTopicId must be a string')
     ],
     asHandler(createMathSkill)
 );

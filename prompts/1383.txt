@@ -1,0 +1,50 @@
+You are a specialized OCR system designed to extract math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every long division question and synthesize the corresponding final answer from the image provided.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond ONLY with a JSON array of objects, where each object represents one problem.
+Do not use dynamic keys. Do not nest objects.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+
+1. **Question Field (`question`)**
+   - Transcribe the question label, divisor, bracket, and dividend EXACTLY as printed. 
+   - Flatten vertical text into a single horizontal line (e.g., `"Q4. 5 ) 11"`). **NO** newline characters.
+   - **VERBATIM TRANSCRIPTION:** Do NOT auto-correct or normalize labels. If a question is missing the "Q" prefix (e.g., `"22. 5 ) 55"`, `"27. 5 ) 64"`, `"32. 5 ) 69"`, `"37. 5 ) 87"`), transcribe it exactly as it appears without the "Q".
+   - Pay careful attention to the dividend digits (e.g., Q27 is `64`, do not hallucinate `62`).
+
+2. **Student Answer Field (`student_answer`)**
+   - **SYNTHESIZED FORMAT:** Do NOT transcribe the vertical step-by-step arithmetic or use newline characters (`\n`). You must extract only the final result and format it strictly as:
+     `"Quotient: [top number], Remainder: [bottom number]"`
+   - *Quotient* is the final answer written on top of the division bracket.
+   - *Remainder* is the final number written at the very bottom of the working. **Preserve exact digits**, including any leading zeros written by the student (e.g., use `"01"`, `"02"`, `"04"` if written that way).
+   - **MISSING/INCOMPLETE WORK:** If the student's handwritten answer is missing, incomplete, or lacks a clear final quotient/remainder, return an empty string `""`.
+
+3. **Handling Pre-Printed Examples (CRITICAL)**
+   - The first problem in every column is a pre-printed example. Handle them exactly as follows:
+   - **Page 1 Examples (Q1, Q6, Q11, Q16):** Extract the printed quotient and remainder using the strict synthesized format (e.g., `"Quotient: 1, Remainder: 0"`).
+   - **Page 2 Examples (Q21, Q26, Q31, Q36):** STRICTLY output an empty string `""` for the `student_answer`.
+
+**HANDWRITING & EXTRACTION GUIDELINES:**
+- Look closely at digit formation: distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- Process the grid vertically, reading down each column before moving to the next.
+- Ensure the final output is sorted by `question_number` in ascending order (1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and target JSON, here are the key factors to consider for writing better OCR instructions:
+
+*   **Question Type:** Math - Long Division. Specifically, dividing 1- or 2-digit dividends by a single-digit divisor (5) to find the quotient and remainder.
+*   **Examples Present:** Yes. The first problem in every column (e.g., Q1, Q6, Q11, Q16, Q21, Q26, Q31, Q36) is a pre-printed, worked-out example serving as a guide for the rest of the column.
+*   **Answer Format:** Students handwrite the step-by-step division working directly on the page. However, the target JSON does not require transcribing every step; it requires synthesizing the final handwritten parts into a standardized string: `"Quotient: [top number], Remainder: [bottom number]"`.
+*   **Structural Quirks:**
+    *   **Inconsistent Numbering:** Most questions are prefixed with "Q" (e.g., "Q1.", "Q23."), but the second column on the second page drops the "Q" entirely (e.g., "22.", "27.", "32.", "37.").
+    *   **Grid Layout:** The problems are arranged in four distinct vertical columns rather than reading simply left-to-right.
+    *   **Symbol Use:** Uses the classic `divisor ) dividend` long division bracket notation instead of a standard `÷` symbol.
+    *   **Extraction Anomalies:** The target JSON extracts the printed answers for the examples on page 1 (Q1, Q6, etc.) but leaves the `student_answer` blank `""` for the printed examples on page 2 (Q21, Q26, etc.). Instructions will need to clarify how to handle pre-printed examples reliably.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

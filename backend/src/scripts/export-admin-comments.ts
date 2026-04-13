@@ -55,7 +55,7 @@ async function exportAdminComments() {
     const groupedComments: GroupedComments = {};
 
     for (const worksheet of worksheets) {
-      const worksheetNumber = worksheet.template?.worksheetNumber || null;
+      const worksheetNumber = worksheet.worksheetNumber || null;
       
       // If worksheet has images, group by each image/page
       if (worksheet.images && worksheet.images.length > 0) {

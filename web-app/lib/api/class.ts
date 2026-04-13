@@ -6,7 +6,7 @@ export const classAPI = {
         return fetchAPI<Class[]>('/classes');
     },
 
-    createClass: async (data: { name: string; schoolId: string }): Promise<Class> => {
+    createClass: async (data: { name: string; schoolId: string; academicYear: string }): Promise<Class> => {
         return fetchAPI<Class>('/classes', {
             method: 'POST',
             body: JSON.stringify(data)
@@ -44,6 +44,37 @@ export const classAPI = {
     unarchiveClass: async (id: string): Promise<{ message: string; class: Class }> => {
         return fetchAPI<{ message: string; class: Class }>(`/classes/${id}/unarchive`, {
             method: 'POST'
+        });
+    },
+
+    archiveClassesByYear: async (academicYear: string, schoolId?: string): Promise<{ message: string; archivedClassCount: number; archivedStudentCount: number }> => {
+        return fetchAPI<{ message: string; archivedClassCount: number; archivedStudentCount: number }>('/classes/archive-by-year', {
+            method: 'POST',
+            body: JSON.stringify({ academicYear, ...(schoolId && { schoolId }) })
+        });
+    },
+
+    uploadClassTeachersCsv: async (schoolId: string, rows: Array<{
+        className: string;
+        academicYear: string;
+        teacherName: string;
+        teacherUsername: string;
+    }>): Promise<{ message: string; results: { classesCreated: number; teachersAssigned: number; errors: string[] } }> => {
+        return fetchAPI('/classes/upload-class-teachers', {
+            method: 'POST',
+            body: JSON.stringify({ schoolId, rows })
+        });
+    },
+
+    uploadStudentClassesCsv: async (schoolId: string, rows: Array<{
+        tokenNumber: string;
+        studentName: string;
+        className: string;
+        academicYear: string;
+    }>): Promise<{ message: string; results: { studentsAssigned: number; studentsCreated: number; errors: string[] } }> => {
+        return fetchAPI('/classes/upload-student-classes', {
+            method: 'POST',
+            body: JSON.stringify({ schoolId, rows })
         });
     },
 

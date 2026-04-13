@@ -1,0 +1,65 @@
+You are a highly precise OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question (Q1 to Q40) and its corresponding student answer from the provided worksheet image. The worksheet contains horizontal lists of four numbers where the student is supposed to circle the smallest number.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST return a JSON object with a single root key `"questions"` containing an array of objects. DO NOT return a raw array.
+
+Use exactly this structure:
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 31 , 34 , 37 , 32",
+      "student_answer": "31"
+    }
+  ]
+}
+
+**DATA TYPES & FORMATTING RULES:**
+1. **`question_number` (Integer):**
+   - Must be a strict integer (e.g., `1`, `2`, `3`). 
+   - DO NOT include the "Q" prefix in this field (e.g., use `1`, NOT `"Q1"`).
+
+2. **`question` (String):**
+   - Must start with the exact label including the prefix and period (e.g., `"Q1."`, `"Q2."`).
+   - **Crucial Spacing Rule:** Transcribe the numbers exactly as printed, strictly preserving original whitespace around punctuation. You MUST include a space *before* and *after* every comma (e.g., exactly `"31 , 34 , 37 , 32"`, NOT `"31, 34, 37, 32"`).
+   - Flatten the text into a single horizontal string. NO newline characters.
+
+3. **`student_answer` (String):**
+   - Extract exactly the number that the student **circled** in pencil.
+   - **DO NOT SOLVE THE MATH.** Do not guess, infer, or calculate the correct answer. If the student circled the mathematically incorrect number, extract exactly what they circled anyway.
+   - **BLANK ANSWERS:** If a question has NO circled number, or the answer space is blank, missing, or illegible, you MUST output an empty string `""`. Do not attempt to fill in or guess the missing answer (e.g., if Q29, Q30, Q33 are blank, their `student_answer` must be `""`).
+
+**DIGIT VERIFICATION & ANTI-HALLUCINATION (CRITICAL):**
+- **Number Range Context (CRITICAL CLUE):** Every single number to be evaluated on this worksheet falls perfectly between **31 and 50**. There are absolutely **NO** numbers in the 20s. If you think you see a `24`, `26`, `28`, or `29` (especially in Question 2), you are misreading a `34`, `36`, `38`, or `39`. 
+- **Visually Similar Digits:** Pay extremely close attention to similar-looking digits to prevent misreadings. Specifically watch out for:
+  - **2s vs. 3s** (e.g., mistaking 32 for 22, or 34 for 24)
+  - **4s vs. 8s**
+  - **5s vs. 6s** (e.g., verify carefully if a number is `45` or `46`)
+  - **1s vs. 7s**
+- **Double-Check Pass:** Take a strict "second pass" over consecutive rows of numbers to ensure digits aren't being mistaken due to poor image quality, surrounding text, or handwriting. Transcribe numbers EXACTLY as they appear.
+
+**LAYOUT & PROCESSING ORDER:**
+- The worksheet is arranged in two distinct vertical columns separated by a line.
+- Read down the entire left column first (Q1 to Q20).
+- Then read down the entire right column (Q21 to Q40).
+- Sort your final output array sequentially by `question_number` in ascending order (1 through 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and target JSON, here is an analysis of the key factors to guide your OCR instructions:
+
+*   **Question Type:** Number comparison. Specifically, identifying and selecting the smallest number from a horizontal list of four numbers.
+*   **Examples Present:** None. The worksheet begins directly with numbered questions (starting at Q1) without any pre-solved examples.
+*   **Answer Format:** Circling. The student answers by drawing a circle around one of the numbers provided in the sequence. 
+*   **Structural Quirks:**
+    *   **Two-Column Layout:** The questions are arranged in two distinct vertical columns separated by a line down the middle of the page. The OCR must read down the left column first, then the right column to maintain sequential order (e.g., Q1-10 then Q11-20).
+    *   **Specific Numbering Format:** Every question starts with the prefix "Q" followed by the number and a period (e.g., "Q1.", "Q15."). This entire prefix must be included in the `question` string.
+    *   **Spacing and Punctuation:** The numbers in each question are separated by commas with significant horizontal spacing. The OCR must capture these commas in the `question` string exactly as they appear.
+    *   **Handwritten Detection vs. Accuracy:** The `student_answer` must capture the number that is *actually circled*, even if the student's answer is mathematically incorrect (e.g., in Q17, the student circled '35', though '31' is the smallest).
+    *   **Missing Answers:** Some rows do not have any circled numbers (e.g., Q29, Q30). The system must be able to output an empty string `""` for the `student_answer` in these cases.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

@@ -31,6 +31,15 @@ export interface StudentAnalytics {
     repeatedCount: number;
     repetitionRate: number;
 }
+
+export interface PaginatedStudentAnalytics {
+    students: StudentAnalytics[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+}
+
 export interface School {
     id: string;
     name: string;
@@ -39,26 +48,36 @@ export interface Class {
     id: string;
     name: string;
     schoolId: string;
+    academicYear: string;
 }
 // Analytics API methods
 export const analyticsAPI = {
     // Get overall analytics data for a date range
     getOverallAnalytics: async (startDate: string, endDate: string, schoolIds?: string[]): Promise<OverallAnalytics> => {
         let url = `/analytics/overall?startDate=${startDate}&endDate=${endDate}`;
-        
+
         if (schoolIds && schoolIds.length > 0) {
             // Add school filters to URL
             schoolIds.forEach(schoolId => {
                 url += `&schoolIds=${encodeURIComponent(schoolId)}`;
             });
         }
-        
+
         return fetchAPI(url, {
             method: 'GET'
         });
     },
-    // Get student analytics data
-    getStudentAnalytics: async (filters?: { schoolId?: string; classId?: string; startDate?: string; endDate?: string }): Promise<StudentAnalytics[]> => {
+    // Get student analytics data with server-side pagination
+    getStudentAnalytics: async (filters?: {
+        schoolId?: string;
+        classId?: string;
+        startDate?: string;
+        endDate?: string;
+        page?: number;
+        pageSize?: number;
+        search?: string;
+        showArchived?: string;
+    }): Promise<PaginatedStudentAnalytics> => {
         let url = '/analytics/students';
         if (filters) {
             const params = new URLSearchParams();
@@ -66,11 +85,15 @@ export const analyticsAPI = {
             if (filters.classId) params.append('classId', filters.classId);
             if (filters.startDate) params.append('startDate', filters.startDate);
             if (filters.endDate) params.append('endDate', filters.endDate);
+            if (filters.page) params.append('page', filters.page.toString());
+            if (filters.pageSize) params.append('pageSize', filters.pageSize.toString());
+            if (filters.search) params.append('search', filters.search);
+            if (filters.showArchived) params.append('showArchived', filters.showArchived);
             if (params.toString()) {
                 url += `?${params.toString()}`;
             }
         }
-        
+
         return fetchAPI(url, {
             method: 'GET'
         });
@@ -111,14 +134,14 @@ export const analyticsAPI = {
                 url += `&${params.toString()}`;
             }
         }
-        
+
         // Get token from cookie (same way as fetchAPI utility)
-        const token = typeof window !== 'undefined' ? 
+        const token = typeof window !== 'undefined' ?
             document.cookie
                 .split('; ')
                 .find(row => row.startsWith('token='))
                 ?.split('=')[1] : null;
-          try {
+        try {
             const response = await fetch(`${API_BASE_URL}${url}`, {
                 method: 'GET',
                 headers: {

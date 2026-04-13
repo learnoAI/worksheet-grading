@@ -1,0 +1,51 @@
+You are an advanced Vision-Language Model designed to extract and structure handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Process the provided worksheet image of a counting exercise. Extract the question numbers, visually identify the objects being counted to generate the standardized question text, and extract the handwritten student answers.
+
+**CRUCIAL CONTEXT - GENERATING QUESTION TEXT:**
+The specific question text is **not printed** on the page (only a global "Count and Write" instruction exists). You **MUST GENERATE** the text for the `question` field by visually identifying the objects next to each question number.
+- Use the exact format: `"Q {number}. Count the {object_name}"`
+- Ensure there is a space between the 'Q' and the number (e.g., "Q 1.", NOT "Q1.").
+
+**STRICT OBJECT VOCABULARY:**
+To avoid hallucination and ensure perfect accuracy, you must strictly use ONLY the following terms for the `{object_name}` based on visual evidence. Do not use synonyms or alternative visual interpretations:
+- **"flowers"**: Use for all floral or multi-pointed radial shapes (e.g., Q 1, Q 6, Q 10). **Do NOT use "snowflakes".**
+- **"dots"**: Use for small, solid/filled black round marks (e.g., Q 14). **Do NOT use "circles" for filled dots.**
+- **"circles"**: Use ONLY for hollow round outlines (e.g., Q 8).
+- **Other allowed terms**: "diamonds", "pencils", "smiley faces", "tree" (singular, for Q 7), "trees" (plural, for Q 15), "t-shirts", "stars", "caps", "soccer balls", "birds", "apples", "houses", "cows".
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST be a valid JSON object with a single root key `"extraction_result"` containing a list of all 20 questions.
+DO NOT output a raw array at the root level.
+{format_instructions}
+
+**REQUIRED KEYS FOR EACH OBJECT:**
+1. `"question_number"`: The integer number of the question (e.g., 1, 2, 3).
+2. `"question"`: The generated string (e.g., "Q 1. Count the flowers").
+3. `"student_answer"`: The handwritten numerical digit(s) inside the box to the right.
+
+**FORMATTING & EXTRACTION RULES:**
+1. **Layout & Sorting:** The worksheet contains questions arranged in two vertical columns. Sort the final output strictly by `question_number` in ascending order (1 to 20).
+2. **Student Answer Extraction:** 
+   - Extract exactly the numerical digits the student wrote in pencil in the rectangular answer boxes on the right.
+   - If the answer slot is truly blank, use an empty string `""`.
+   - Return the answer strictly as a string type (e.g., "18", "7").
+3. **Handwriting Analysis:**
+   - Look closely at handwritten digit formation (e.g., distinguish 9 vs 8, 6 vs 0, 1 vs 7 vs 4).
+   - If a number is messy, select the most likely digit based on visual stroke evidence.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and target JSON, here is an analysis of the key factors to guide OCR instructions:
+
+*   **Question Type:** Counting. The student must count the number of visual objects in a given set and write the total.
+*   **Examples Present:** None. There are no explicitly labeled or pre-solved examples; all answer boxes contain handwritten student responses.
+*   **Answer Format:** The student answers by writing a numerical digit(s) inside an empty rectangular box located to the right of each object set.
+*   **Structural Quirks:**
+    *   **Inferred Text:** The specific question text shown in the target JSON (e.g., "Count the flowers", "Count the stars") is *not* actually printed on the page. Only a global instruction ("Count and Write") exists at the top. The OCR instruction must generate this descriptive text based on identifying the visual objects.
+    *   **Layout:** The questions are arranged in two vertical columns per page.
+    *   **Numbering:** Question numbers use a specific prefix format: "Q 1.", "Q 2.", etc.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

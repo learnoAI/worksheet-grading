@@ -28,7 +28,8 @@ interface CreateClassModalProps {
 export function CreateClassModal({ isOpen, onClose, onSuccess, defaultSchoolId }: CreateClassModalProps) {
     const [formData, setFormData] = useState({
         name: '',
-        schoolId: defaultSchoolId || ''
+        schoolId: defaultSchoolId || '',
+        academicYear: '25-26'
     });
     const [schools, setSchools] = useState<School[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -72,11 +73,17 @@ export function CreateClassModal({ isOpen, onClose, onSuccess, defaultSchoolId }
             return;
         }
 
+        if (!formData.academicYear.trim()) {
+            toast.error('Academic year is required');
+            return;
+        }
+
         try {
             setIsLoading(true);
             await classAPI.createClass({
                 name: formData.name.trim(),
-                schoolId: formData.schoolId
+                schoolId: formData.schoolId,
+                academicYear: formData.academicYear.trim()
             });
             
             toast.success('Class created successfully');
@@ -86,7 +93,8 @@ export function CreateClassModal({ isOpen, onClose, onSuccess, defaultSchoolId }
             // Reset form
             setFormData({
                 name: '',
-                schoolId: defaultSchoolId || ''
+                schoolId: defaultSchoolId || '',
+                academicYear: '25-26'
             });
         } catch (error: any) {
             console.error('Error creating class:', error);
@@ -102,7 +110,8 @@ export function CreateClassModal({ isOpen, onClose, onSuccess, defaultSchoolId }
             // Reset form
             setFormData({
                 name: '',
-                schoolId: defaultSchoolId || ''
+                schoolId: defaultSchoolId || '',
+                academicYear: '25-26'
             });
         }
     };
@@ -163,6 +172,21 @@ export function CreateClassModal({ isOpen, onClose, onSuccess, defaultSchoolId }
                                     </Select>
                                 )}
                             </div>
+                        </div>
+
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="academicYear" className="text-right">
+                                Academic Year
+                            </Label>
+                            <Input
+                                id="academicYear"
+                                value={formData.academicYear}
+                                onChange={(e) => setFormData(prev => ({ ...prev, academicYear: e.target.value }))}
+                                placeholder="25-26"
+                                className="col-span-3"
+                                disabled={isLoading}
+                                required
+                            />
                         </div>
                     </div>
                     

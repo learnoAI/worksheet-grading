@@ -1,0 +1,56 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the images provided. Ignore all header information (Name, Token Number, Marks), Hindi instructions, and watermarks/logos ("Saarthi EDUCATION").
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond in the following JSON format, providing a list of all 40 questions and their answers:
+{format_instructions}
+
+**DO NOT** use dynamic keys (like "Q1", "A1", "Q_2", etc.).
+**DO NOT** nest the objects.
+**KEYS MUST BE:** `"question_number"` (Integer), `"question"` (String), `"student_answer"` (String).
+
+**FORMATTING RULES:**
+
+1. **Question Number Field (`question_number`):**
+   - **MUST BE STRICTLY AN INTEGER** (e.g., 1, 2, 33, 40).
+   - **DO NOT** include "Q" prefixes or periods. Output `1`, NOT `"Q1."`.
+
+2. **Question Field (`question`):**
+   - Must include the label (e.g., "Q1.", "Q21.") at the start, followed by a space, the 3-digit number, a space, and the equals sign (e.g., "Q1. 203 =").
+   - *Crucial Normalization:* On the second page, some questions might be missing the "Q" prefix. You MUST add it back to normalize the output format to "Q[number]. [number] =" for all items.
+   - Must flatten any vertical text into a single horizontal string.
+   - **NO** newline characters in the string.
+
+3. **Student Answer Field (`student_answer`):**
+   - Extract exactly what the student wrote in pencil (usually in the format of hundreds + tens + ones).
+   - **DO NOT AUTO-CORRECT MATH ERRORS.** Transcribe the student's handwritten answers exactly as they appear. If they wrote "200 + 10 + 7" for 211, output exactly that. Do not attempt to solve or fix their work.
+   - **DO NOT REMOVE TRAILING SYMBOLS.** If an answer is incomplete (e.g., "200 +"), capture the trailing "+" sign. 
+   - If the answer slot is entirely blank, use an empty string `""`.
+   - Ensure consistent spacing around the "+" symbols (e.g., "200 + 80 + 6").
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation, especially distinguishing **8** vs **3** vs **6** (e.g., ensure you don't misread 286 as 236).
+- Distinguish **9** vs **8**, **6** vs **0**, and **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Sort the final output by `question_number` in ascending order (1 to 40).
+- Read column by column correctly by tracking the sequential Question IDs across the two pages.
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Expanded form of 3-digit numbers.
+- **Examples Present:** Q1 and Q2 on the first page appear to be solved examples, printed on the worksheet.
+- **Answer Format:** Handwritten expanded forms (hundreds + tens + ones) next to the printed number and equals sign. Some answers are incomplete (e.g., Q34, Q38).
+- **Structural Quirks:** 
+    - The worksheet spans two pages/images.
+    - Two vertical columns of questions per page.
+    - Questions are numbered sequentially (Q1 to Q20 on the first image, Q21 to Q40 on the second image). The second image is missing the 'Q' prefix for the first column, but the JSON continues the numbering logic.
+    - Header information (Name, Token Number, Expanded Form - 903, Marks) is present but ignored in the JSON.
+    - There are Hindi instructions below the English ones.
+    - There are watermarks/logos ("Saarthi EDUCATION") at the bottom right.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

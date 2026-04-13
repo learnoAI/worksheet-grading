@@ -1,0 +1,33 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://king-prawn-app-k2urh.ondigitalocean.app/worksheet-grading-backend/api"
+      },
+      "ios": {
+        "simulator": false
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://king-prawn-app-k2urh.ondigitalocean.app/worksheet-grading-backend/api"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://king-prawn-app-k2urh.ondigitalocean.app/worksheet-grading-backend/api"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

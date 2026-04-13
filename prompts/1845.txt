@@ -1,0 +1,43 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the provided worksheet images. The worksheet contains vertical subtraction problems arranged in a grid-based layout.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond ONLY with a JSON array containing objects for each question. 
+**DO NOT** use dynamic keys. **DO NOT** nest the objects.
+Each object MUST have exactly these three keys with the specified data types:
+
+1. `"question_number"`: **(Integer)** The pure numerical identifier of the question. You MUST strip the "Q" prefix. (Example: Use `1` instead of `"Q1"`).
+2. `"question"`: **(String)** The flattened horizontal text of the math problem. 
+    - Must include the original label at the start (e.g., `"Q1."`, `"Q2."`).
+    - Must convert the vertical subtraction stack into a single horizontal equation using a hyphen for minus (e.g., `"Q1. 301 - 1"`).
+    - **NO** newline characters (`\n`).
+3. `"student_answer"`: **(String)** The handwritten digits written in pencil underneath the horizontal line of the math problem. If blank, use `""`.
+
+**HANDWRITING & EXTRACTION GUIDELINES:**
+- **Flattening:** Accurately associate the "Q" identifier on the left with the adjacent vertical numbers, and transcribe them horizontally (Top Number -> Minus -> Bottom Number).
+- **Digit Verification:** Pay extreme attention to visually similar handwritten/printed digits to avoid transcription errors.
+    - **Critically distinguish between 4 and 9.** Look closely at closed tops vs open tops.
+    - Distinguish **9** vs **8**, **6** vs **0**, and **1** vs **7**.
+- If a number is messy, select the most likely digit based strictly on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Process the columns systematically and output the final JSON array sorted by `question_number` in ascending order (1, 2, 3... up to the final question).
+
+Return ONLY the raw, valid JSON array. Do not include explanatory text, markdown formatting blocks, or comments.
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is the analysis of the provided worksheet images and target JSON:
+
+*   **Question Type:** Subtraction problems. The original images present the math vertically (stacked), but the target JSON requires these to be transcribed into a single horizontal string equation (e.g., converting a vertical 301 minus 1 into "301 - 1").
+*   **Examples Present:** None. There are no explicitly labeled solved examples on these pages; the numbered questions begin immediately.
+*   **Answer Format:** Handwritten numerical answers placed underneath the horizontal line of each vertical subtraction problem.
+*   **Structural Quirks:** 
+    *   Grid-based layout organized into distinct vertical columns.
+    *   Question identifiers (e.g., "Q6.") are located to the left of the stacked numbers.
+    *   The primary OCR challenge is correctly associating the "Q" identifier with the adjacent vertical math stack and flattening that stack into a linear format for the `question` field in the JSON.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

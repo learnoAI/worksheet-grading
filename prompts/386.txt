@@ -1,0 +1,46 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}
+
+**DO NOT** use dynamic keys (like "Q1", "A1", "Q_2", etc.).
+**DO NOT** nest the objects.
+**KEYS MUST BE:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+1.  **Question Field:**
+    - Must include the label (e.g., "Q1.", "Q2.") at the start.
+    - Must flatten vertical text into a single horizontal line.
+    - **CRITICAL:** When transcribing the fill-in-the-blank space, represent the empty space using double underscores (`__`). **DO NOT** use a question mark (`?`).
+    - The expected format is: `Q<number>. <first_number> , __ , <second_number>` (e.g., `"Q1. 75 , __ , 77"`). Notice the spaces around the commas and underscores.
+    - **NO** newline characters in the string.
+2.  **Student Answer Field:**
+    - Extract exactly what the student wrote in pencil on the middle line.
+    - If the answer slot is blank, use an empty string `""`.
+    - Return the answer as a string.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- The worksheet asks "What comes in between" (missing middle number sequence).
+- Look closely at digit formation, as handwriting may be faint or messy.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- Ignore scribbled out numbers or obvious corrections; extract the final intended answer.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER & LAYOUT:**
+- The page is organized into two main vertical columns. Read carefully to capture all items.
+- Sort the final output by `question_number` strictly in ascending order (1, 2, 3, etc.).
+- Ensure no questions are skipped.
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Missing middle number in a sequence ("What comes in between").
+*   **Examples Present:** None clearly marked as examples.
+*   **Answer Format:** Fill-in-the-blank on a solid line between two numbers.
+*   **Structural Quirks:** Organized into two main vertical columns per page, with questions numbered "Q1.", "Q2.", etc. Some handwriting is faint or messy, with corrections visible (e.g., scribbled out numbers). The question itself is implied by the layout `Number , ___ , Number`.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

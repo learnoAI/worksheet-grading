@@ -1,0 +1,43 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every numbered division problem and its corresponding handwritten student answer from the image provided. Ignore the bilingual instructions at the top ("Divide the following." / "भाग करो."). 
+
+**STRICT JSON SCHEMA ENFORCEMENT:**
+You must output **ONLY** a perfectly valid JSON array of objects. Do not include conversational filler, markdown formatting (like ```json), or stray OCR artifacts (e.g., "othis.") anywhere in the output. 
+Use exactly these keys:
+- `"question_number"` (integer)
+- `"question"` (string)
+- `"student_answer"` (string)
+
+**LITERAL TRANSCRIPTION RULES (CRITICAL):**
+1. **The `question` Field:**
+   - **Exact Spacing:** You MUST include a space between the letter "Q" and the question number. (e.g., Output `"Q 1."`, **NOT** `"Q1."`).
+   - **Trailing Symbol:** You MUST include the equals sign (`=`) at the end of the question string. (e.g., Output `"Q 1. 65 ÷ 3 ="`, **NOT** `"Q 1. 65 ÷ 3"`).
+   - **Format Pattern:** The final string must perfectly match the pattern: `"Q [number]. [number] ÷ [number] ="`
+   - Use the division symbol `÷` (Unicode `\u00f7`).
+   - Flatten the text into a single horizontal string. **NO** newline characters.
+
+2. **The `student_answer` Field:**
+   - Extract exactly what the student wrote in pencil after the equals sign.
+   - The format is typically the quotient, the letter 'R', and the remainder (e.g., `"21 R 2"`).
+   - Look closely at digit formation (distinguish 9 vs 8, 6 vs 0, 1 vs 7 vs 4).
+   - If the answer slot is completely blank, use an empty string `""`. Return all answers as strings.
+
+**PROCESSING ORDER:**
+- The worksheet contains two columns. Ensure you process all items and sort the final JSON array by `question_number` in ascending order (from 1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and target JSON, here is the educational analysis to help improve OCR instructions:
+
+*   **Question Type:** Arithmetic division problems (specifically, 2-digit numbers divided by 1-digit numbers, resulting in a quotient and remainder).
+*   **Examples Present:** None. The worksheet consists entirely of practice problems without any pre-solved examples.
+*   **Answer Format:** Handwritten text placed directly after the equals sign (`=`). Students are instructed (implicitly) to write the answer in a specific format indicating both quotient and remainder using the letter 'R' (e.g., "21 R 2").
+*   **Structural Quirks:**
+    *   **Two-Column Layout:** The problems are arranged vertically in two distinct columns split down the middle of the page.
+    *   **Specific Numbering:** Question numbers are prefixed with a 'Q' and followed by a period (e.g., "Q 1.", "Q 2.").
+    *   **Bilingual Instructions:** The main instruction is provided in both English ("Divide the following.") and Hindi ("भाग करो.").
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 
 // Declare global prisma variable to prevent multiple instances in development
@@ -8,6 +9,10 @@ declare global {
 
 // Initialize Prisma Client with connection pooling and error handling
 const prismaClientSingleton = () => {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is not set. Ensure environment variables are loaded before Prisma initializes.');
+  }
+
   return new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
     errorFormat: 'minimal',
@@ -26,6 +31,8 @@ if (process.env.NODE_ENV !== 'production') {
   globalThis.prisma = prisma;
 }
 
+const isTestEnv = process.env.NODE_ENV === 'test';
+
 // Initial connection with retry logic
 let connectionAttempts = 0;
 const maxAttempts = 3;
@@ -38,7 +45,7 @@ const connectWithRetry = async () => {
   } catch (error) {
     connectionAttempts++;
     console.error(`❌ Database connection attempt ${connectionAttempts} failed:`, error);
-    
+
     if (connectionAttempts < maxAttempts) {
       console.log(`⏳ Retrying in ${retryDelay / 1000} seconds...`);
       setTimeout(connectWithRetry, retryDelay);
@@ -51,25 +58,29 @@ const connectWithRetry = async () => {
 };
 
 // Start connection
-connectWithRetry();
+if (!isTestEnv) {
+  connectWithRetry();
+}
 
 // Graceful shutdown
-process.on('beforeExit', async () => {
-  console.log('🔄 Disconnecting from database...');
-  await prisma.$disconnect();
-});
+if (!isTestEnv) {
+  process.on('beforeExit', async () => {
+    console.log('🔄 Disconnecting from database...');
+    await prisma.$disconnect();
+  });
 
-process.on('SIGINT', async () => {
-  console.log('🔄 Graceful shutdown - disconnecting from database...');
-  await prisma.$disconnect();
-  process.exit(0);
-});
+  process.on('SIGINT', async () => {
+    console.log('🔄 Graceful shutdown - disconnecting from database...');
+    await prisma.$disconnect();
+    process.exit(0);
+  });
 
-process.on('SIGTERM', async () => {
-  console.log('🔄 Graceful shutdown - disconnecting from database...');
-  await prisma.$disconnect();
-  process.exit(0);
-});
+  process.on('SIGTERM', async () => {
+    console.log('🔄 Graceful shutdown - disconnecting from database...');
+    await prisma.$disconnect();
+    process.exit(0);
+  });
+}
 
 // Connection health check utility
 export const checkDatabaseConnection = async (): Promise<boolean> => {
@@ -88,17 +99,17 @@ export const withDatabaseRetry = async <T>(
   maxRetries: number = 3
 ): Promise<T> => {
   let lastError: Error;
-  
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await operation();
     } catch (error: any) {
       lastError = error;
-      
+
       // Check if it's a connection-related error
       if (error.code === 'P2037' || error.message?.includes('connection')) {
         console.warn(`Database operation attempt ${attempt}/${maxRetries} failed:`, error.message);
-        
+
         if (attempt < maxRetries) {
           // Wait before retry with exponential backoff
           const delay = Math.pow(2, attempt) * 1000;
@@ -106,12 +117,12 @@ export const withDatabaseRetry = async <T>(
           continue;
         }
       }
-      
+
       // For non-connection errors, throw immediately
       throw error;
     }
   }
-  
+
   throw lastError!;
 };
 

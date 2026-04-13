@@ -1,158 +1,122 @@
-import { fetchAPI, API_BASE_URL } from './utils';
-import { GradingJob, BatchJobStatus, ClassJobsStatus } from './types';
+import { fetchAPI } from './utils';
 
-export interface TeacherJobsSummary {
-    pending: number;
+export interface GradingJobSummary {
+    queued: number;
     processing: number;
     completed: number;
     failed: number;
     total: number;
 }
 
+export interface GradingJob {
+    id: string;
+    studentId?: string;
+    studentName: string;
+    worksheetNumber: number;
+    classId?: string;
+    status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+    worksheetId?: string;
+    errorMessage?: string;
+    dispatchError?: string;
+    attemptCount?: number;
+    enqueuedAt?: string;
+    startedAt?: string;
+    lastHeartbeatAt?: string;
+    lastErrorAt?: string;
+    createdAt: string;
+    completedAt?: string;
+}
+
+export interface TeacherJobsResponse {
+    success: boolean;
+    summary: GradingJobSummary;
+    jobs: GradingJob[];
+}
+
 export const gradingJobsAPI = {
-    // Create single grading job (with file upload)
-    createJob: async (formData: FormData): Promise<{ success: boolean; jobId: string; status: string }> => {
-        // Get token from cookie
-        const token = typeof document !== 'undefined'
-            ? document.cookie
-                .split('; ')
-                .find(row => row.startsWith('token='))
-                ?.split('=')[1]
-            : undefined;
-
-        const response = await fetch(`${API_BASE_URL}/grading-jobs/create`, {
-            method: 'POST',
-            body: formData,
-            headers: {
-                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            }
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to create grading job');
-        }
-
-        return response.json();
+    // Get teacher's jobs summary for today
+    getTeacherJobsToday: async (): Promise<TeacherJobsResponse> => {
+        return fetchAPI('/grading-jobs/teacher/today');
     },
 
-    // Create batch grading jobs
-    createBatchJobs: async (data: {
-        jobs: Array<{
-            tokenNo: string;
-            worksheetName: string;
-            studentId: string;
-            studentName: string;
-            worksheetNumber: number;
-            isRepeated: boolean;
-            isCorrectGrade?: boolean;
-            isIncorrectGrade?: boolean;
-        }>;
-        classId: string;
-        submittedOn: string;
-    }): Promise<{ success: boolean; batchId: string; jobIds: string[]; totalJobs: number }> => {
-        return fetchAPI('/grading-jobs/create-batch', {
-            method: 'POST',
-            body: JSON.stringify(data)
-        });
+    // Get jobs by class and date (for checking active jobs on page load)
+    getJobsByClassAndDate: async (classId: string, date: string): Promise<TeacherJobsResponse> => {
+        return fetchAPI(`/grading-jobs/class/${classId}?date=${encodeURIComponent(date)}`);
     },
 
-    // Get job status
+    // Get single job status
     getJobStatus: async (jobId: string): Promise<{ success: boolean; job: GradingJob }> => {
-        return fetchAPI(`/grading-jobs/status/${jobId}`);
+        return fetchAPI(`/grading-jobs/${jobId}`);
     },
 
-    // Get batch status
-    getBatchStatus: async (batchId: string): Promise<{ success: boolean; batch: BatchJobStatus }> => {
-        return fetchAPI(`/grading-jobs/batch/${batchId}`);
-    },
-
-    // Get jobs by class and date
-    getJobsByClass: async (classId: string, date: string): Promise<{ success: boolean } & ClassJobsStatus> => {
-        return fetchAPI(`/grading-jobs/by-class/${classId}?date=${encodeURIComponent(date)}`);
-    },
-
-    // Get teacher's jobs summary (across all classes)
-    getMyJobsSummary: async (): Promise<{ success: boolean } & TeacherJobsSummary> => {
-        return fetchAPI('/grading-jobs/my-summary');
+    // Get multiple job statuses
+    getBatchJobStatus: async (jobIds: string[]): Promise<{ success: boolean; jobs: GradingJob[] }> => {
+        return fetchAPI('/grading-jobs/batch-status', {
+            method: 'POST',
+            body: JSON.stringify({ jobIds })
+        });
     },
 
     // Poll job status until completion
     pollJobStatus: async (
         jobId: string,
         onUpdate: (job: GradingJob) => void,
-        maxAttempts: number = 120, // 10 minutes at 5 second intervals
-        interval: number = 5000
+        // AI grading can take several minutes under load (queue backlog + model runtime).
+        // Keep polling long enough that "AI Grade All" doesn't time out prematurely.
+        maxAttempts: number = 600,
+        intervalMs: number = 3000,
+        maxConsecutiveErrors: number = 30
     ): Promise<GradingJob> => {
         return new Promise((resolve, reject) => {
             let attempts = 0;
+            let consecutiveErrors = 0;
 
             const poll = async () => {
                 try {
                     attempts++;
                     const response = await gradingJobsAPI.getJobStatus(jobId);
                     const job = response.job;
+                    consecutiveErrors = 0;
 
                     onUpdate(job);
 
-                    // Check if job is finished
-                    if (job.status === 'completed' || job.status === 'failed') {
+                    if (job.status === 'COMPLETED' || job.status === 'FAILED') {
                         resolve(job);
                         return;
                     }
 
-                    // Check if max attempts reached
                     if (attempts >= maxAttempts) {
-                        reject(new Error('Polling timeout - job is taking too long'));
+                        reject(new Error('Polling timeout'));
                         return;
                     }
 
-                    // Continue polling
-                    setTimeout(poll, interval);
+                    setTimeout(poll, intervalMs);
                 } catch (error) {
-                    reject(error);
-                }
-            };
+                    consecutiveErrors++;
 
-            poll();
-        });
-    },
+                    const message = error instanceof Error ? error.message : String(error);
+                    const isJobNotFound = message.toLowerCase().includes('job not found');
 
-    // Poll batch status until completion
-    pollBatchStatus: async (
-        batchId: string,
-        onUpdate: (batch: BatchJobStatus) => void,
-        maxAttempts: number = 120,
-        interval: number = 10000 // 10 seconds for batch
-    ): Promise<BatchJobStatus> => {
-        return new Promise((resolve, reject) => {
-            let attempts = 0;
-
-            const poll = async () => {
-                try {
-                    attempts++;
-                    const response = await gradingJobsAPI.getBatchStatus(batchId);
-                    const batch = response.batch;
-
-                    onUpdate(batch);
-
-                    // Check if all jobs are finished
-                    const allFinished = batch.pending === 0 && batch.processing === 0;
-                    if (allFinished) {
-                        resolve(batch);
+                    if (isJobNotFound && consecutiveErrors >= 3) {
+                        reject(error);
                         return;
                     }
 
-                    // Check if max attempts reached
+                    if (consecutiveErrors >= maxConsecutiveErrors) {
+                        reject(
+                            new Error(
+                                `Polling interrupted after ${maxConsecutiveErrors} consecutive errors: ${message}`
+                            )
+                        );
+                        return;
+                    }
+
                     if (attempts >= maxAttempts) {
-                        reject(new Error('Polling timeout - batch is taking too long'));
+                        reject(new Error('Polling timeout'));
                         return;
                     }
 
-                    // Continue polling
-                    setTimeout(poll, interval);
-                } catch (error) {
-                    reject(error);
+                    setTimeout(poll, intervalMs);
                 }
             };
 

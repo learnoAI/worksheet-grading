@@ -199,8 +199,9 @@ export const updateUser = async (req: Request, res: Response) => {
             updateData.password = await bcrypt.hash(password, salt);
         }
 
-        if (role) {
-            updateData.role = role;
+        // Role changes are not allowed via update
+        if (role && role !== existingUser.role) {
+            return res.status(400).json({ message: 'Changing user role is not allowed' });
         }
 
         if (tokenNumber !== undefined) {

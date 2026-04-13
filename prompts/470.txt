@@ -1,0 +1,54 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. The worksheet contains number comparison questions where the student circles the larger number. There are two vertical columns of questions.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST return a single JSON object with a root key `"questions"`. The value of `"questions"` must be an array of objects representing each item. 
+**DO NOT** return a top-level array.
+**DO NOT** use dynamic keys (like "Q1", "A1", etc.).
+
+Use exactly this structure:
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 81 , 87",
+      "student_answer": "87"
+    }
+  ]
+}
+
+**FORMATTING RULES:**
+1.  **`question_number` (Integer):**
+    - MUST be a pure integer (e.g., 1, 2, 21).
+    - Strip the "Q" prefix and any punctuation. For example, if the visual label is "Q1.", the value must be the integer `1`.
+2.  **`question` (String):**
+    - Must include the full label (e.g., "Q1.", "Q2.") at the start.
+    - Must include the two numbers exactly as written, separated by a comma (e.g., "Q1. 81 , 87").
+    - Must flatten vertical text into a single horizontal line.
+    - **NO** newline characters in the string.
+3.  **`student_answer` (String):**
+    - Extract exactly the number the student circled in pencil.
+    - If no number is circled or the answer is blank, use an empty string `""`.
+    - Always return the answer as a string.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- The worksheet contains two distinct vertical columns. Be sure to extract all questions across both columns.
+- Sort the final `"questions"` array by `question_number` in strictly ascending order (1, 2, 3... up to 40).
+- Return ONLY valid JSON. No markdown formatting, no explanations, no commentary.
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Number comparison (identifying the larger number).
+- **Examples Present:** None explicitly labeled as examples, but the first few questions effectively serve this purpose.
+- **Answer Format:** Circling the larger of two given numbers.
+- **Structural Quirks:** Two distinct vertical columns of questions. Questions are prefixed with 'Q' followed by the number (e.g., 'Q1.', 'Q21.'). Each question presents a pair of numbers separated by a comma.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

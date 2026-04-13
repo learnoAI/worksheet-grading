@@ -1,0 +1,35 @@
+Extract questions and student answers from the worksheet images into a strict JSON list.
+
+**CONTEXT:**
+This is a **DIVISION** worksheet. The mathematical operation is division with remainders.
+- The symbol between the numbers is the **Division Sign (÷)** (Unicode `\u00f7`). It is **NOT** a plus sign (+).
+- The student answers follow the format: **"Quotient R Remainder"** (e.g., "1 R 2").
+
+**JSON OUTPUT STRUCTURE:**
+Return a single JSON Array of Objects. Each object must have exactly these keys:
+1.  `"question_number"`: (Integer) The index of the question (e.g., 1, 2, 3).
+2.  `"question"`: (String) The full question text including the label (e.g., "Q.1 5 ÷ 3 =").
+3.  `"student_answer"`: (String) The exact handwritten answer (e.g., "1 R 2").
+
+**STRICT EXTRACTION RULES:**
+1.  **SYMBOL CORRECTION:** Visually, the division sign ($\div$) might look like a plus ($+$) due to blur, but logically, because the answers use "R" (Remainder), the operation MUST be treated as division. **Always transcribe the operator as `÷` or `\u00f7`.**
+2.  **CONTENT FORMAT:** The `question` field MUST include the "Q.x" prefix, the numbers, the division symbol, and the equals sign. Do not use dynamic keys like "Q.1".
+3.  **CHARACTER RESTRICTIONS:** The `student_answer` field should strictly contain **only** Latin digits (0-9), the uppercase letter 'R', and spaces. Do NOT use non-Latin characters (e.g., do not use `\u092d`). If a handwritten '2' looks strange, transcribe it as the digit '2'.
+4.  **EMPTY ANSWERS:** If the student has not written an answer, set `student_answer` to an empty string `""`.
+5.  **ORDER:** Sort the output by `question_number`.
+6.  **LAYOUT:** Process all columns. There are typically 8-40 questions.
+
+**ONE-SHOT EXAMPLE:**
+Input: An image showing "Q.1 5 ÷ 3 =" with a handwritten answer "1 R 2".
+Output:
+```json
+[
+  {
+    "question_number": 1,
+    "question": "Q.1 5 + 3 =",
+    "student_answer": "1 R 2"
+  }
+]
+```
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

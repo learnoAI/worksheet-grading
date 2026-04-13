@@ -1,0 +1,54 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. There are up to 40 questions arranged in two vertical columns.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond ONLY with a valid JSON array of objects.
+{format_instructions}
+
+**REQUIRED KEYS AND FORMATTING RULES:**
+1. **`question_number`** (Integer):
+   - Must be an **INTEGER** (e.g., `1`, `2`, `21`).
+   - Extract ONLY the numerical value. Strip away the "Q" prefix and the period. DO NOT output strings like "Q1.".
+   
+2. **`question`** (String):
+   - Must include the exact label (e.g., "Q1.", "Q2.") at the start, followed by a space.
+   - Must flatten the vertical layout of numbers into a single horizontal string.
+   - **CRITICAL SPACING:** You MUST preserve exact verbatim spacing around punctuation. Specifically, separate the four number options with a space, a comma, and a space.
+   - **Correct Example:** `"Q1. 51 , 56 , 58 , 52"`
+   - **Incorrect Example:** `"Q1. 51, 56, 58, 52"` (Fails because it is missing the space before the comma)
+   
+3. **`student_answer`** (String):
+   - The student's answer is indicated by a pencil circle or oval drawn around one of the four numbers.
+   - Extract the circled number exactly.
+   - Return the answer as a string (e.g., `"51"`). If completely blank, use `""`.
+
+**WORKSHEET CONTEXT & VISUAL NOISE (CRITICAL):**
+- **Teacher Marks:** The image contains red teacher grading marks (long diagonal lines crossing through multiple questions). **IGNORE THESE ENTIRELY.** Do not let them interfere with digit recognition and do not misinterpret them as student circles or text.
+- **Layout:** Track the question numbers carefully across the two columns to ensure no questions are missed.
+
+**HANDWRITING & OCR EXTRACTION GUIDELINES:**
+- Look closely at digit formation beneath any stray marks.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- Select the most likely underlying printed digit if a number is obscured by a circle or grading line.
+
+**PROCESSING ORDER:**
+- Sort the final JSON array by `question_number` strictly in ascending order (1, 2, 3, etc.).
+- Verify your final output to ensure the `question_number` is an integer and the space-before-comma rule is applied to every `question` string.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and the target JSON, here is an analysis of the key factors to help write better OCR instructions:
+
+*   **Question Type:** Number comparison. The instruction specifically asks to "Circle the smallest number" from a given set.
+*   **Examples Present:** None. There are no pre-solved examples provided on the pages; all items (Q1-Q40) are standard student questions.
+*   **Answer Format:** Circling. The student indicates their answer by drawing a circle or oval around one of the four number options.
+*   **Structural Quirks:**
+    *   **Column Layout:** The questions are arranged in two distinct vertical columns on each page.
+    *   **Specific Numbering:** Questions follow a strict "Q[number]." format (e.g., "Q1.", "Q21.").
+    *   **Text Reconstruction:** The target JSON requires the question options to be reconstructed into a single string with specific spacing around the comma delimiters (e.g., "51 , 56 , 58 , 52").
+    *   **Visual Noise:** There are red teacher grading marks (long diagonal lines crossing through multiple questions) that overlay the printed text and student answers, which the OCR must be instructed to ignore to avoid misinterpreting them as circles or text.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

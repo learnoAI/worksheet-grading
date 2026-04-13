@@ -1,0 +1,64 @@
+You are a highly precise OCR system designed to visually extract math worksheet data into a strict JSON format.
+
+**TASK & LAYOUT CONTEXT:**
+Extract every question and its corresponding student answer from the provided image. There are 40 questions in total, arranged in 4 vertical columns. Read them sequentially from Q1 to Q40 (read down the first column, then the second, etc.).
+Each problem is formatted as a vertical multiplication stack. Crucially, there is a **printed horizontal line** separating the printed question (above the line) from the student's handwritten working (below the line). 
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond strictly with a JSON array containing objects with the following keys and data types. 
+{format_instructions}
+
+**DO NOT** use dynamic keys. **DO NOT** nest the objects.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**STRICT EXTRACTION RULES:**
+
+1. **`question_number` (INTEGER):**
+   - Extract the numerical value only. 
+   - Must be an **integer** (e.g., `1`, `2`, `3`).
+   - **DO NOT** output strings like `"Q1."` or `"1."`.
+
+2. **`question` (STRING):**
+   - Extract ONLY the printed text representing the problem (e.g., `"Q2. 65 x 12"`).
+   - Format must always be: `"Q[Number]. [2-digit number] x [2-digit number]"`.
+   - **SPATIAL BOUNDARY - CRITICAL:** The printed question is ALWAYS the top two numbers situated ABOVE the horizontal line. 
+   - **DOUBLE-CHECK THE FIRST DIGIT:** Pay intense attention to the very first digit of the top number for each question. Do NOT confuse the printed top number with the student's handwritten intermediate calculation (partial product) directly below it. Look strictly at the printed ink above the line.
+
+3. **`student_answer` (STRING):**
+   - **PRE-PRINTED EXAMPLES:** The first row of each page contains fully solved printed examples. For questions **1, 6, 11, 16, 21, 26, 31, and 36**, you MUST output an empty string `""`.
+   - **HANDWRITTEN ANSWERS:** For all other questions, extract ONLY the student's handwritten working found BELOW the horizontal line.
+   - **FORMATTING THE ANSWER:** The handwritten working is a vertical stack. You must flatten it into a single horizontal string using this EXACT pattern:
+     `"{partial_product_1} +{partial_product_2}x {final_sum}"`
+     - *Example Breakdown:* If the student wrote `130` on the first line, `+65x` on the second line, and `780` as the final sum.
+     - *Correct Output:* `"130 +65x 780"`
+   - **SPACING & SYMBOLS:** 
+     - Include exactly one space between the three parts.
+     - The `+` and `x` (placeholder) must be attached directly to the second partial product with no spaces (e.g., `+54x`, `+95x`).
+     - Ignore any small, hand-drawn carry-over numbers (usually written above or within the partial products).
+   - **BLANK ANSWERS:** If a question is entirely unsolved/blank by the student, output `""` (Ignore standard column addition working out if there is no final formatted answer string).
+
+**CRITICAL ANTI-HALLUCINATION & ANTI-CALCULATION DIRECTIVES:**
+- **ZERO-TOLERANCE FOR CALCULATION:** You are a visual transcriber, NOT a calculator. Transcribe the digits exactly as they appear in the image. Do NOT attempt to mathematically solve, correct, or infer the calculations. Provide the literal visual text.
+- **PREVENT HALLUCINATION CASCADES:** If you misread a base question, do not fabricate or "fix" the `student_answer` to mathematically match your flawed reading. Even if the student's math is wrong, transcribe what they physically wrote. Look strictly at the ink on the page.
+- **HANDWRITING & DIGIT EXTRACTION GUIDELINES:**
+  - Pay extremely close attention to similar-looking digits. Distinguish carefully between:
+    - **9** vs **3** vs **8** (e.g., ensure you do not read a printed 95 as 31)
+    - **6** vs **3** vs **0**
+    - **1** vs **7** vs **4**
+  - If handwriting is messy, blurry, or low resolution, transcribe the exact visual strokes rather than guessing a mathematically convenient number.
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Multiplication of two-digit numbers.
+*   **Examples Present:** Yes, the first row of each page (Q1, Q6, Q11, Q16 and Q21, Q26, Q31, Q36) shows fully solved examples of vertical multiplication, including partial products.
+*   **Answer Format:** Students solve the problems directly on the worksheet below the printed question. The answers are written in a specific multi-line format showing partial products and a final sum, often including carry-over numbers and an 'x' placeholder.
+*   **Structural Quirks:**
+    *   The page is divided into four vertical columns.
+    *   Questions are numbered sequentially with a "Q" prefix (e.g., Q1., Q2.).
+    *   The problems are presented in a vertical stack format.
+    *   Handwritten student answers show step-by-step working, including partial products and a final sum line.
+    *   There are small, hand-drawn carry-over numbers visible above some problems.
+    *   A printed line separates the problem from the student's working area.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

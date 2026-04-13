@@ -1,0 +1,62 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every math problem and its corresponding handwritten student answer from the provided worksheet image. The physical worksheet displays vertical addition problems in a grid layout; you must flatten these into horizontal string equations.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST output a single JSON object containing a `"questions"` array. 
+Do NOT output a raw array. Do NOT use dynamic keys. Follow this exact structure:
+
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 17 + 62",
+      "student_answer": "79"
+    }
+  ]
+}
+```
+
+**FIELD EXTRACTION RULES:**
+
+1. **`question_number` (Integer):**
+   - Extract only the numeric value of the question.
+   - MUST be an integer (e.g., `1`, `2`, `22`). Do NOT output strings like "Q1." or "1.".
+
+2. **`question` (String):**
+   - Must flatten the vertical stacked addition problem into a single horizontal equation.
+   - **Label Formatting:** Must exactly mirror the spacing from the image: "Q [number]. [Equation]". There MUST be a space between the "Q" and the number (e.g., `"Q 1. 17 + 62"`, not `"Q1. 17 + 62"`).
+   - **Equation Formatting:** Add a space before and after the plus sign (e.g., `"14 + 37"`).
+   - **NO** newline characters (`\n`) are allowed in this string.
+
+3. **`student_answer` (String):**
+   - Extract exactly what the student wrote in pencil beneath the horizontal equation line.
+   - Return the answer as a string (e.g., `"79"`).
+   - If the answer slot is completely blank, use an empty string `""`.
+
+**HANDWRITING & INTERFERENCE GUIDELINES:**
+- **Ignore Teacher Marks:** There are large red teacher grading marks (ticks/lines) drawn across several questions and answers. Completely ignore these red marks; only extract the printed black text and handwritten pencil digits.
+- **Strict Digit Accuracy:** Pay extremely close attention to digit formation to avoid transcription errors.
+  - Specifically, double-check **4 vs. 5** (e.g., do not mistake `15` for `14`), **9 vs. 8**, **6 vs. 0**, and **1 vs. 7**.
+  - Review the printed digits in the equations carefully before finalizing the output.
+
+**PROCESSING ORDER:**
+- The worksheet is arranged in four vertical columns. Extract all questions and sort your final JSON array strictly by `question_number` in ascending order (1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and the target JSON, here is an analysis of the key factors to guide the OCR instructions:
+
+*   **Question Type:** Two-digit vertical addition math problems.
+*   **Examples Present:** None. There are no pre-solved examples; all questions require a student answer.
+*   **Answer Format:** Handwritten numeric answers written underneath the horizontal line of each vertical equation.
+*   **Structural Quirks:**
+    *   **Vertical to Horizontal Conversion:** The physical worksheet displays the addition problems vertically (stacked numbers), but the target JSON requires them to be flattened into a horizontal string equation (e.g., "17 + 62").
+    *   **Question Labeling:** Each problem is preceded by a specific label (e.g., "Q 1.", "Q 22.") positioned to the left. The target JSON combines this label and the horizontal equation into the single `question` string.
+    *   **Grid Layout:** The questions are arranged in four distinct vertical columns across the page.
+    *   **Interference:** There are large red teacher grading marks (ticks/lines) drawn across several questions and answers that the OCR needs to ignore.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

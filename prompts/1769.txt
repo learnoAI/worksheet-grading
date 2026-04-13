@@ -1,0 +1,59 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**WORKSHEET CONTEXT:**
+- The image is a subtraction math worksheet.
+- Problems are arranged in four vertical columns.
+- Ignore the handwritten date and score at the top.
+- Each problem is formatted vertically (stacked) with a horizontal line separating the operands from the handwritten answer.
+- Question labels (e.g., "Q1.") appear to the left of the problems.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. 
+
+**STRICT JSON SCHEMA:**
+You MUST wrap your output in a root `questions` object containing an array. 
+Use exactly this structure:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 120 - 1",
+      "student_answer": "119"
+    }
+  ]
+}
+```
+
+**FIELD EXTRACTION RULES:**
+
+1. **`question_number` (Integer)**: 
+   - Extract ONLY the numeric value. 
+   - Do NOT include "Q" or ".". (e.g., If the label is "Q1.", output the integer `1`).
+
+2. **`question` (String)**: 
+   - You MUST include the full question prefix (e.g., "Q1. ", "Q2. ") at the very beginning of the string.
+   - Flatten the vertical math problem into a single horizontal line.
+   - Separate the operands with a hyphen and spaces (e.g., "Q24. 110 - 2").
+   - DO NOT include newline characters.
+
+3. **`student_answer` (String)**: 
+   - Extract the handwritten number located below the horizontal line.
+   - **CRITICAL RULE - NO AUTO-CORRECTION:** You are a transcription tool, NOT a calculator. You MUST extract exactly what the student wrote in pencil, even if the math calculation is completely incorrect. For example, if the problem is "110 - 2" and the student wrote "168", you must output "168", NOT "108". If the student wrote "165" for "110 - 5", output "165".
+   - If the answer slot is blank, use an empty string `""`.
+
+**HANDWRITING & LAYOUT GUIDELINES:**
+- Process columns systematically to ensure you capture all questions. Sort the final JSON array by `question_number` ascending (from 1 up to 40).
+- Look closely at digit formation to avoid hallucinating corrections.
+- Distinguish carefully between **6** vs **0** (a sloppy 0 might look like a 6), **9** vs **8**, and **1** vs **7** vs **4**. 
+- Rely entirely on visual stroke evidence, never on mathematical logic.
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Subtraction.
+*   **Examples Present:** None.
+*   **Answer Format:** Handwritten numbers placed below the provided horizontal lines.
+*   **Structural Quirks:** The problems are arranged in four vertical columns. The question number (e.g., 'Q1.') is positioned to the left of the subtraction problem. Each subtraction problem is formatted vertically, with a horizontal line separating the operands from the answer space. A handwritten date and score are present at the top. The output reformats the vertical subtraction into a horizontal equation string (e.g., "Q1. 120 - 1").
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

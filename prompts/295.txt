@@ -1,0 +1,59 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. The worksheet asks the student to compare two numbers and circle the larger one. 
+**CRITICAL WARNING:** Students make mistakes! You must extract EXACTLY the number the student visually circled, even if their answer is mathematically incorrect (i.e., they circled the smaller number). DO NOT correct the student's math.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST return a JSON object with a single root key `"questions"`. The value of `"questions"` must be an array containing the question objects. 
+**DO NOT** return a top-level array.
+Respond EXACTLY in the following format structure:
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 2 , 20",
+      "student_answer": "20"
+    }
+  ]
+}
+
+**DO NOT** use dynamic keys.
+**DO NOT** nest the objects deeper than shown.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+1.  **Question Number (`question_number`):**
+    - Must be an integer representing the numeric ID of the question (e.g., 1, 2, 3).
+2.  **Question Field (`question`):**
+    - Must format the string strictly as: "Q[#]. [Number 1] , [Number 2]".
+    - Must include the label (e.g., "Q1.", "Q2.") at the start, followed by a space.
+    - Ensure the two numbers are separated by a space, a comma, and a space (e.g., " , ").
+    - Must flatten vertical text into a single horizontal string.
+    - **NO** newline characters in the string.
+3.  **Student Answer Field (`student_answer`):**
+    - The student's answer is the number they EXPLICITLY CIRCLED.
+    - Extract exactly the circled number as a string.
+    - **DO NOT EVALUATE THE MATH.** If the student circled the wrong/smaller number (e.g., circling 17 instead of 19), you MUST output `"17"`.
+    - **CRITICAL:** Pay exceptionally close attention to ambiguous marks, faint circles, or selections where the numbers are printed close together. Ensure you extract the number that is predominantly enclosed by the circle.
+    - Carefully verify the exact number marked, paying close attention to visually similar digits (e.g., 7 vs. 9) to prevent transcription errors.
+    - If no number is circled or it is completely blank, use an empty string `""`.
+
+**HANDWRITING & LAYOUT EXTRACTION GUIDELINES:**
+- The worksheet contains two vertical columns of questions spanning two pages. Process questions in logical sequential order from Q1 to Q40.
+- Sort the final output array strictly by `question_number` ascending.
+- Handle multiple columns correctly by tracking the explicit Question IDs (Q1, Q2, etc.).
+- Look closely at digit formation. Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- **SELF-CORRECTION/DOUBLE-CHECK STEP:** Before finalizing your output, re-verify every student answer against the original image. Confirm that you are outputting the visually circled number and not defaulting to the mathematically larger number.
+- **SPECIFIC CHECK:** Pay special attention to Q14. Double-check which number is explicitly circled (17 or 19). Do not output "19" just because it is larger; verify the visual evidence first.
+- If a number is messy, select the most likely digit based strictly on visual stroke evidence.
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Number comparison (identifying the bigger number).
+- **Examples Present:** No explicitly marked examples, but all questions follow the same format.
+- **Answer Format:** Circling the larger of two numbers. The circled number should be extracted as the `student_answer`.
+- **Structural Quirks:** Two vertical columns of questions spanning two pages. Questions are numbered sequentially across both pages (Q1 to Q40). Each question presents two numbers separated by a comma. The question format in JSON includes the question number and both numbers (e.g., "Q1. 2 , 20").
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

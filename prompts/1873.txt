@@ -1,0 +1,51 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every math problem and its corresponding handwritten student answer from the image provided. The worksheet contains subtraction problems in a multi-column grid layout.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond in the following JSON format, providing a list of all 40 questions and their answers:
+{format_instructions}
+
+**DO NOT** use dynamic keys. 
+**DO NOT** nest the objects.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**EXTRACTION & FORMATTING RULES:**
+
+1. **`question_number` (Integer):**
+   - Extract this strictly as an **integer** (e.g., `1`, `2`, `23`).
+   - **DO NOT** include the "Q" prefix or the period. (e.g., if the text says "Q1.", the value must be `1`).
+
+2. **`question` (String):**
+   - Must include the full label (e.g., "Q1.", "Q2.") at the start of the string.
+   - You must flatten the vertical math problem into a single horizontal string.
+   - Example Transformation: A vertical block showing `921` stacked over `- 11` with the label "Q1." MUST become the exact string: `"Q1. 921 - 11"`.
+   - Ensure there is a single space separating the prefix, the top number, the minus sign, and the bottom number.
+   - **NO** newline characters (`\n`) in this string.
+
+3. **`student_answer` (String):**
+   - Extract exactly what the student wrote in pencil below the printed horizontal line.
+   - Return the answer as a string (e.g., `"908"`).
+   - If the answer slot is blank, use an empty string `""`.
+   - **CRITICAL DIGIT RECOGNITION:** Pay extremely close attention to similar-looking handwritten numbers. Carefully distinguish between **'0' and '8'** (look closely for full closures vs. figure-eight strokes). Also carefully distinguish **9 vs 8**, **6 vs 0**, and **1 vs 7 vs 4**.
+
+**PROCESSING ORDER:**
+- Process all vertical columns to ensure no questions are missed.
+- Sort the final output array strictly by `question_number` in ascending order (1 to 40).
+- Output ONLY valid JSON. No conversational text.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and the target JSON, here is an educational analysis to help write better OCR instructions:
+
+*   **Question Type:** Subtraction problems (specifically, 3-digit numbers minus 2-digit numbers).
+*   **Examples Present:** None. There are no pre-solved example problems on either page; all questions have been answered by the student.
+*   **Answer Format:** Handwritten numbers placed directly below the printed horizontal line of each vertical math problem.
+*   **Structural Quirks:**
+    *   **Grid Layout:** The questions are arranged in a structured grid with four vertical columns.
+    *   **Numbering:** Each question is preceded by a specific alphanumeric prefix format (e.g., "Q1.", "Q21.").
+    *   **Format Transformation:** The printed questions are formatted vertically on the page (numbers stacked), but the target JSON requires them to be transcribed horizontally as a single string (e.g., vertical `921` over `- 11` becomes `"Q1. 921 - 11"`).
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

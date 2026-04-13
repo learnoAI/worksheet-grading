@@ -1,0 +1,59 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding handwritten student answers from the images provided.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond strictly with a JSON array containing objects formatted exactly like this:
+[
+  {
+    "question_number": <integer>,
+    "question": "<string>",
+    "student_answer": "<string>"
+  }
+]
+
+**FORMATTING & EXTRACTION RULES:**
+
+1. **Question Number (`question_number`):**
+   - Must be strictly an **INTEGER** (e.g., `1`, `2`, `3`), NOT a string like "Q1".
+
+2. **Question Text (`question`):**
+   - Transcribe ONLY the visible printed text exactly as it appears. 
+   - **DO NOT** infer instructions, guess missing words, or generate number grids.
+   - For Q1, transcribe exactly the printed instruction: `"Q1. Write the skipped numbers 1-90"`.
+   - For Q2 through Q8, output EXACTLY the question identifier with its period (e.g., `"Q2."`, `"Q3."`). **DO NOT** add fabricated text.
+
+3. **Student Answer (`student_answer`):**
+   - **Scan the ENTIRE Answer Space:** Do not truncate the beginning or end of number sequences. Look at the very top of columns and the far left of rows/grids to ensure you capture the starting numbers (e.g., do not miss the starting "9, 18, 27...").
+   - **Extract ONLY handwritten numbers.** Several questions (specifically Q4 and Q5) feature a mix of pre-printed numbers and handwritten numbers. You must ignore the pre-printed numbers and transcribe ONLY what the student wrote in pencil in the blanks.
+   - **Formatting:** Separate multiple extracted numbers with a comma and a single space (e.g., `"9, 18, 27"`). 
+
+**CRITICAL ANTI-HALLUCINATION & VERIFICATION DIRECTIVES:**
+- **Contextual Hint:** The worksheet involves skip counting by 9s. Use this context to disambiguate sloppy handwriting.
+- **DO NOT Auto-Complete Sequences:** You MUST transcribe exactly what is there. If a student skipped a multiple, you MUST also omit it. **In Q8, the student skipped the number "54". You must NOT insert "54" into your output for Q8.**
+- **Layout Awareness & Specifics:**
+  - **Q1 (1-90 Grid):** Scan left-to-right, top-to-bottom. Capture all 10 handwritten numbers. Ensure you start with the first number: `"9, 18..."`.
+  - **Q2-Q4 (Horizontal Rows):** Read row by row. For Q4, ignore pre-printed numbers and extract ONLY handwritten fill-in-the-blanks: `"18, 36, 54, 72, 90"`.
+  - **Q5-Q8 (Vertical Columns):** Read strictly **column by column, starting from the very top box down to the bottom**.
+    - **Q5:** Ignore the pre-printed '9' and '27'. Extract only the handwritten numbers: `"18, 36, 45, 54, 63, 72, 81, 90"`.
+    - **Q6 & Q7:** ALL numbers in the sequence are handwritten. Start from the very top box. Ensure your output begins with `"9, 18, 27..."`.
+    - **Q8:** Start from the top (`"9, 18, 27..."`). Observe the student's error and leave out the skipped number. Output must be exactly: `"9, 18, 27, 36, 45, 63, 72, 81, 90"`.
+
+Return ONLY valid JSON.
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Skip counting sequences (multiples of 9).
+*   **Examples Present:** The first image shows a grid from 1 to 90 where multiples of 9 are filled in by the student. The second image shows vertical columns, some with starting numbers provided.
+*   **Answer Format:** Filling in the blanks within horizontal rows or vertical columns. The student writes the missing numbers in the sequence.
+*   **Structural Quirks:**
+    *   The worksheet spans two pages/images.
+    *   Questions Q1-Q4 are on the first image, and Q5-Q8 are on the second.
+    *   Q1 is a large 10x9 grid where the student fills in missing numbers (multiples of 9). The target JSON only captures the student-written numbers from this grid.
+    *   Q2, Q3, and Q4 are horizontal rows of boxes. Some boxes have pre-printed numbers, others are filled by the student. The JSON captures all student-written numbers in the row. In Q4, some numbers are pre-printed, so only the handwritten ones are recorded.
+    *   Q5-Q8 on the second page are vertical columns. Similar to Q4, some numbers are pre-printed, and the JSON captures the handwritten responses to complete the sequence. The target JSON seems to capture *all* handwritten numbers in the column, not just the logical missing ones (e.g., in Q5, 9 and 27 are pre-printed, but the student wrote 45, 54, etc., and also overwrote 9 and 27? Wait, looking closely at Q5, 9 and 27 are printed. The student wrote 18, 36, 45, 54, 63, 72, 81, 90. The JSON for Q5 says "18, 36, 45, 54, 63, 72, 81, 90". This matches the handwritten numbers.)
+    *   The prompt "Write the skipped numbers" applies to all questions. For Q1, I need to synthesize the prompt based on the grid structure. For others, just the Q number is enough as per the target JSON.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

@@ -1,0 +1,52 @@
+You are a specialized OCR system designed to extract math worksheet data into a strict, predefined JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the provided image. The worksheet contains multiplication problems arranged in two vertical columns. The answers are handwritten in pencil, and there is a large red checkmark across the page that you must ignore.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond strictly with a JSON array containing objects with the exact following keys and data types.
+**DO NOT** use dynamic keys or nest the objects.
+**DO NOT** wrap the JSON in markdown blocks if not supported by standard output formats, but ensure the structure matches exactly:
+
+```json
+[
+  {
+    "question_number": 1, 
+    "question": "Q1. 6 x 4 = 24",
+    "student_answer": ""
+  }
+]
+```
+
+**FIELD EXTRACTION RULES:**
+
+1. **`question_number` (INTEGER):**
+   - Extract the numerical value of the question number.
+   - **MUST** be an integer (e.g., `1`, `2`), **NOT** a string (e.g., `"1"`).
+
+2. **`question` (STRING):**
+   - Must include the question label at the start (e.g., "Q1.", "Q2.").
+   - Must flatten vertical text into a single horizontal line with **no** newline characters.
+   - **HANDLING PRE-PRINTED EXAMPLES (Q1 - Q5):** Questions Q1 through Q5 are solved examples. The answers are pre-printed, not handwritten. For these examples, include the *entire* equation (including the pre-printed answer) in this `question` field (e.g., `"Q1. 6 x 4 = 24"`).
+   - For all other questions (Q6 onwards), end the string exactly at the equals sign (e.g., `"Q6. 6 x 2 ="`).
+
+3. **`student_answer` (STRING):**
+   - Extract **ONLY** the handwritten text written in pencil after the equals sign.
+   - **HANDLING PRE-PRINTED EXAMPLES (Q1 - Q5):** Because the answers for Q1-Q5 are pre-printed examples and not handwritten by the student, their `student_answer` field **MUST** be an empty string `""`.
+   - If an answer slot is genuinely blank, use an empty string `""`.
+   - Return the extracted handwritten answer as a string (e.g., `"12"`).
+
+**HANDWRITING & IMAGE GUIDELINES:**
+- Ignore the large red checkmark spanning across the page; do not let it interfere with digit recognition.
+- Look closely at digit formation (e.g., distinguishing **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**).
+- Sort the final JSON array strictly by `question_number` in ascending order (1 to 40), seamlessly merging the two vertical columns based on their sequential Q-numbers.
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Multiplication.
+- **Examples Present:** Yes, questions Q1 to Q5 serve as solved examples, with the answers pre-printed.
+- **Answer Format:** Fill in the blanks. Students write the numerical answer directly next to the equals sign.
+- **Structural Quirks:** The worksheet features two vertical columns of questions. Questions are numbered sequentially using the prefix 'Q' (e.g., Q1, Q2) across two images. The answers are handwritten in pencil. A large red checkmark spans across the page.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

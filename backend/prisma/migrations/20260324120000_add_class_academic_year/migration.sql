@@ -1,0 +1,2 @@
+ALTER TABLE "Class"
+ADD COLUMN "academicYear" TEXT NOT NULL DEFAULT '25-26';

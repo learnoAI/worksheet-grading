@@ -1,0 +1,66 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. 
+
+**WORKSHEET CONTEXT:**
+- The worksheet asks students to find the missing number in a sequence (between two given numbers).
+- The questions are structured in two vertical columns. Read down the first column, then down the second.
+- Format: A printed label (e.g., "Q1."), a number, a comma, a printed blank line, another comma, and a final number.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST be a single JSON object with a root key `"worksheet_data"` containing an array of objects. 
+**DO NOT** use dynamic keys. **DO NOT** return a raw array.
+
+Use this exact structure:
+```json
+{
+  "worksheet_data": [
+    {
+      "question_number": 1,
+      "question": "Q1. 20 , __ , 22",
+      "student_answer": "21"
+    }
+  ]
+}
+```
+
+**FORMATTING RULES:**
+
+1. **`question_number` (Integer):**
+   - Extract ONLY the integer value (e.g., `1`, `2`, `40`).
+   - **STRIP AWAY** any letters or punctuation marks like "Q" or ".". Do not output "Q1." or "1.". It must be a pure number.
+
+2. **`question` (String):**
+   - Must include the full original label (e.g., "Q1.", "Q2.") at the start.
+   - Represent the fill-in-the-blank line exactly as two underscores `"__"`.
+   - Maintain the spacing around commas. Example: `"Q1. 20 , __ , 22"`.
+   - Must flatten vertical text into a single horizontal line. **NO** newline characters.
+
+3. **`student_answer` (String):**
+   - Extract exactly the handwritten number the student wrote on the blank line in pencil.
+   - Return the answer as a string (e.g., `"21"`).
+   - If the answer slot is entirely blank, use an empty string `""`.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Ensure all items from both columns are captured.
+- Sort the final array by `question_number` in ascending order (1, 2, 3... up to the final question).
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Sequence completion (finding the number 'between' two given numbers).
+- **Examples Present:** None explicitly marked as examples, all are sequentially numbered questions.
+- **Answer Format:** Fill-in-the-blanks. The student writes the missing number on a printed underscore between two comma-separated numbers. The target JSON represents the blank as "__" in the `question` field and extracts the handwritten number into `student_answer`.
+- **Structural Quirks:** 
+  - The worksheet is divided into two vertical columns of questions.
+  - Questions are numbered with a "Q" prefix (e.g., Q1., Q2., Q21., Q22.).
+  - The numbering sequence goes down the first column and then continues down the second column. There are two images showing a continuous set of questions from Q1 to Q40.
+  - The questions have a consistent format: "Q[number]. [number 1] , __ , [number 2]".
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

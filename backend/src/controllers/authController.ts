@@ -5,7 +5,7 @@ import { validationResult } from 'express-validator';
 import prisma from '../utils/prisma';
 import config from '../config/env';
 
-/**
+/** 
  * User login
  * @route POST /api/auth/login
  */

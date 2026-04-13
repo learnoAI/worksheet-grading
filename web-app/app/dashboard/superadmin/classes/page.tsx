@@ -14,9 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { 
-    Dialog, 
-    DialogContent
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { 
@@ -289,6 +293,23 @@ export default function ClassesPage() {
     // Create class state
     const [showCreateClass, setShowCreateClass] = useState(false);
     
+    // Bulk archive state
+    const [showBulkArchive, setShowBulkArchive] = useState(false);
+    const [bulkArchiveYear, setBulkArchiveYear] = useState('25-26');
+    const [bulkArchiveSchoolId, setBulkArchiveSchoolId] = useState('all');
+    const [bulkArchiving, setBulkArchiving] = useState(false);
+
+    // Academic year onboarding state
+    const [showAcademicOnboarding, setShowAcademicOnboarding] = useState(false);
+    const [onboardingSchoolId, setOnboardingSchoolId] = useState('');
+    const [classTeacherFile, setClassTeacherFile] = useState<File | null>(null);
+    const [classTeacherData, setClassTeacherData] = useState('');
+    const [studentClassFile, setStudentClassFile] = useState<File | null>(null);
+    const [studentClassData, setStudentClassData] = useState('');
+    const [onboardingInProgress, setOnboardingInProgress] = useState(false);
+    const [onboardingStep, setOnboardingStep] = useState<string>('');
+    const [showOnboardingConfirm, setShowOnboardingConfirm] = useState(false);
+
     // Management modals state
     const [selectedClassForStudents, setSelectedClassForStudents] = useState<ClassWithSchool | null>(null);
     const [selectedClassForTeachers, setSelectedClassForTeachers] = useState<ClassWithSchool | null>(null);
@@ -492,6 +513,190 @@ export default function ClassesPage() {
             setActionLoading(null);
         }
     }, []);
+
+    const handleBulkArchive = useCallback(async () => {
+        if (!bulkArchiveYear.trim()) {
+            toast.error('Please enter an academic year');
+            return;
+        }
+
+        try {
+            setBulkArchiving(true);
+            const schoolId = bulkArchiveSchoolId !== 'all' ? bulkArchiveSchoolId : undefined;
+            const result = await classAPI.archiveClassesByYear(bulkArchiveYear.trim(), schoolId);
+
+            // Update local state
+            setClasses(prev => prev.map(cls =>
+                cls.academicYear === bulkArchiveYear.trim() && !cls.isArchived
+                    && (bulkArchiveSchoolId === 'all' || cls.schoolId === bulkArchiveSchoolId)
+                    ? { ...cls, isArchived: true }
+                    : cls
+            ));
+
+            toast.success(result.message);
+            setShowBulkArchive(false);
+            apiCache.clear();
+        } catch (error: any) {
+            console.error('Error bulk archiving:', error);
+            toast.error(error.message || 'Failed to bulk archive classes');
+        } finally {
+            setBulkArchiving(false);
+        }
+    }, [bulkArchiveYear, bulkArchiveSchoolId]);
+
+    const downloadCsvTemplate = useCallback((filename: string, content: string) => {
+        const blob = new Blob([content], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    }, []);
+
+    const handleDownloadClassTeacherTemplate = useCallback(() => {
+        const csv = `className,academicYear,teacherName,teacherUsername\nClass 5A,26-27,Ramesh Kumar,ramesh.kumar\nClass 5B,26-27,Priya Sharma,priya.sharma\nClass 6A,26-27,Ramesh Kumar,ramesh.kumar`;
+        downloadCsvTemplate('class-teacher-template.csv', csv);
+    }, [downloadCsvTemplate]);
+
+    const handleDownloadStudentClassTemplate = useCallback(() => {
+        const csv = `tokenNumber,studentName,className,academicYear\nTN001,Aarav Sharma,Class 5A,26-27\nTN002,Neha Patel,Class 5A,26-27\nTN003,Rohan Gupta,Class 5B,26-27`;
+        downloadCsvTemplate('student-class-template.csv', csv);
+    }, [downloadCsvTemplate]);
+
+    const parseCsvLine = useCallback((line: string): string[] => {
+        const values: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                values.push(current.trim());
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        values.push(current.trim());
+        return values;
+    }, []);
+
+    const parseCsvString = useCallback((content: string): Record<string, string>[] => {
+        const lines = content.split('\n').filter(line => line.trim());
+        if (lines.length < 2) return [];
+        const headers = parseCsvLine(lines[0]);
+        const rows: Record<string, string>[] = [];
+        for (let i = 1; i < lines.length; i++) {
+            const values = parseCsvLine(lines[i]);
+            if (values.some(v => v)) {
+                const row: Record<string, string> = {};
+                headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
+                rows.push(row);
+            }
+        }
+        return rows;
+    }, []);
+
+    const readFileAsText = useCallback((file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target?.result as string);
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsText(file);
+        });
+    }, []);
+
+    const handleStartOnboarding = useCallback(async () => {
+        if (!onboardingSchoolId) {
+            toast.error('Please select a school');
+            return;
+        }
+        if (!classTeacherFile) {
+            toast.error('Please select a class-teacher CSV file');
+            return;
+        }
+        if (!studentClassFile) {
+            toast.error('Please select a student-class CSV file');
+            return;
+        }
+
+        try {
+            setOnboardingInProgress(true);
+
+            // Step 1: Process class-teacher CSV
+            setOnboardingStep('Processing class-teacher mapping...');
+            const ctContent = classTeacherData || await readFileAsText(classTeacherFile);
+            const ctRows = parseCsvString(ctContent);
+
+            if (ctRows.length === 0) {
+                toast.error('No valid rows found in class-teacher CSV');
+                return;
+            }
+
+            const ctRequiredCols = ['className', 'academicYear', 'teacherUsername'];
+            const ctMissingCols = ctRequiredCols.filter(c => !(c in ctRows[0]));
+            if (ctMissingCols.length > 0) {
+                toast.error(`Class-teacher CSV missing columns: ${ctMissingCols.join(', ')}`);
+                return;
+            }
+
+            const ctResult = await classAPI.uploadClassTeachersCsv(onboardingSchoolId, ctRows as any);
+            toast.success(`Step 1: ${ctResult.message}`);
+
+            if (ctResult.results.errors.length > 0) {
+                console.warn('Class-teacher upload errors:', ctResult.results.errors);
+                toast.warning(`Step 1: ${ctResult.results.errors.length} rows had errors — check console`);
+            }
+
+            // Step 2: Process student-class CSV
+            setOnboardingStep('Processing student-class mapping...');
+            const scContent = studentClassData || await readFileAsText(studentClassFile);
+            const scRows = parseCsvString(scContent);
+
+            if (scRows.length === 0) {
+                toast.error('No valid rows found in student-class CSV');
+                return;
+            }
+
+            const scRequiredCols = ['tokenNumber', 'studentName', 'className', 'academicYear'];
+            const scMissingCols = scRequiredCols.filter(c => !(c in scRows[0]));
+            if (scMissingCols.length > 0) {
+                toast.error(`Student-class CSV missing columns: ${scMissingCols.join(', ')}`);
+                return;
+            }
+
+            const scResult = await classAPI.uploadStudentClassesCsv(onboardingSchoolId, scRows as any);
+            toast.success(`Step 2: ${scResult.message}`);
+
+            if (scResult.results.errors.length > 0) {
+                console.warn('Student-class upload errors:', scResult.results.errors);
+                toast.warning(`Step 2: ${scResult.results.errors.length} rows had errors — check console`);
+            }
+
+            // Done — reset state
+            setOnboardingStep('');
+            setClassTeacherFile(null);
+            setClassTeacherData('');
+            setStudentClassFile(null);
+            setStudentClassData('');
+            apiCache.clear();
+            loadInitialData();
+            toast.success('Onboarding complete!');
+        } catch (error: any) {
+            console.error('Error during onboarding:', error);
+            toast.error(error.message || 'Onboarding failed');
+        } finally {
+            setOnboardingInProgress(false);
+            setOnboardingStep('');
+        }
+    }, [onboardingSchoolId, classTeacherFile, classTeacherData, studentClassFile, studentClassData, parseCsvString, readFileAsText, loadInitialData]);
 
     const handleRefresh = useCallback(() => {
         // Clear cache on refresh to get fresh data
@@ -748,6 +953,24 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                                 <Download className="h-4 w-4" />
                                 Download Template
                             </Button>
+                            <Button
+                                onClick={() => setShowBulkArchive(true)}
+                                variant="outline"
+                                size="sm"
+                                className="flex items-center justify-center gap-2 w-full sm:w-auto text-red-600 border-red-200 hover:bg-red-50"
+                            >
+                                <Archive className="h-4 w-4" />
+                                Bulk Archive by Year
+                            </Button>
+                            <Button
+                                onClick={() => setShowAcademicOnboarding(!showAcademicOnboarding)}
+                                variant="outline"
+                                size="sm"
+                                className="flex items-center justify-center gap-2 w-full sm:w-auto"
+                            >
+                                <GraduationCap className="h-4 w-4" />
+                                {showAcademicOnboarding ? 'Hide Year Onboarding' : 'New Year Onboarding'}
+                            </Button>
                         </div>
                     </div>
 
@@ -831,8 +1054,212 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                             </div>
                         </div>
                     )}
+
                 </CardContent>
             </Card>
+
+            {/* Academic Year Onboarding Section */}
+            {showAcademicOnboarding && (
+                <Card className="border-2 border-blue-300 bg-blue-50/30">
+                    <CardHeader>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <CardTitle className="flex items-center gap-2">
+                                    <GraduationCap className="h-5 w-5 text-blue-600" />
+                                    New Academic Year Onboarding
+                                </CardTitle>
+                                <CardDescription>
+                                    Upload class-teacher and student-class CSVs to set up a new academic year.
+                                </CardDescription>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                    setShowAcademicOnboarding(false);
+                                    setClassTeacherFile(null);
+                                    setClassTeacherData('');
+                                    setStudentClassFile(null);
+                                    setStudentClassData('');
+                                    setOnboardingSchoolId('');
+                                }}
+                            >
+                                Close
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        {/* School Selection */}
+                        <div className={`rounded-lg p-4 ${onboardingSchoolId ? 'bg-green-50 border border-green-300' : 'bg-yellow-50 border-2 border-yellow-400'}`}>
+                            <Label className={`block text-sm font-semibold mb-2 ${onboardingSchoolId ? 'text-green-800' : 'text-yellow-800'}`}>
+                                {onboardingSchoolId ? 'School Selected' : 'Select a School to Continue'}
+                            </Label>
+                            <Select value={onboardingSchoolId} onValueChange={setOnboardingSchoolId}>
+                                <SelectTrigger className="bg-white">
+                                    <SelectValue placeholder="Select a school" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {schools.map(school => (
+                                        <SelectItem key={school.id} value={school.id}>
+                                            {school.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* Step 1: Class-Teacher CSV */}
+                        <div className={`border rounded-lg p-4 space-y-3 bg-white ${classTeacherFile ? 'border-green-300' : ''}`}>
+                            <div className="flex items-start justify-between">
+                                <div>
+                                    <Label className="text-sm font-semibold">Step 1: Class-Teacher Mapping</Label>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Columns: className, academicYear, teacherName, teacherUsername
+                                    </p>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleDownloadClassTeacherTemplate}
+                                    className="text-xs"
+                                >
+                                    <Download className="h-3 w-3 mr-1" />
+                                    Download Template
+                                </Button>
+                            </div>
+                            <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${classTeacherFile ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-gray-400'}`}>
+                                <Label htmlFor="classTeacherFile" className="cursor-pointer">
+                                    <div className="text-sm font-medium text-gray-900 mb-1">
+                                        {classTeacherFile ? `Selected: ${classTeacherFile.name}` : 'Click to select class-teacher CSV'}
+                                    </div>
+                                </Label>
+                                <input
+                                    id="classTeacherFile"
+                                    type="file"
+                                    accept=".csv,text/csv"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                            setClassTeacherFile(file);
+                                            const reader = new FileReader();
+                                            reader.onload = (ev) => setClassTeacherData(ev.target?.result as string);
+                                            reader.readAsText(file);
+                                        }
+                                    }}
+                                    className="hidden"
+                                    disabled={onboardingInProgress}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Step 2: Student-Class CSV */}
+                        <div className={`border rounded-lg p-4 space-y-3 bg-white ${studentClassFile ? 'border-green-300' : ''}`}>
+                            <div className="flex items-start justify-between">
+                                <div>
+                                    <Label className="text-sm font-semibold">Step 2: Student-Class Mapping</Label>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Columns: tokenNumber, studentName, className, academicYear
+                                    </p>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleDownloadStudentClassTemplate}
+                                    className="text-xs"
+                                >
+                                    <Download className="h-3 w-3 mr-1" />
+                                    Download Template
+                                </Button>
+                            </div>
+                            <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${studentClassFile ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-gray-400'}`}>
+                                <Label htmlFor="studentClassFile" className="cursor-pointer">
+                                    <div className="text-sm font-medium text-gray-900 mb-1">
+                                        {studentClassFile ? `Selected: ${studentClassFile.name}` : 'Click to select student-class CSV'}
+                                    </div>
+                                </Label>
+                                <input
+                                    id="studentClassFile"
+                                    type="file"
+                                    accept=".csv,text/csv"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                            setStudentClassFile(file);
+                                            const reader = new FileReader();
+                                            reader.onload = (ev) => setStudentClassData(ev.target?.result as string);
+                                            reader.readAsText(file);
+                                        }
+                                    }}
+                                    className="hidden"
+                                    disabled={onboardingInProgress}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Start Onboarding Button */}
+                        <div className="pt-2 space-y-3">
+                            {onboardingStep && (
+                                <p className="text-sm text-blue-600 flex items-center gap-2">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    {onboardingStep}
+                                </p>
+                            )}
+                            {!onboardingInProgress && (!onboardingSchoolId || !classTeacherFile || !studentClassFile) && (
+                                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                                    Before starting:{' '}
+                                    {[
+                                        !onboardingSchoolId && 'select a school',
+                                        !classTeacherFile && 'upload class-teacher CSV',
+                                        !studentClassFile && 'upload student-class CSV'
+                                    ].filter(Boolean).join(', ')}
+                                </p>
+                            )}
+                            <Button
+                                onClick={() => setShowOnboardingConfirm(true)}
+                                disabled={onboardingInProgress || !onboardingSchoolId || !classTeacherFile || !studentClassFile}
+                                className="w-full sm:w-auto"
+                            >
+                                {onboardingInProgress ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        Processing...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Upload className="h-4 w-4 mr-2" />
+                                        Start Onboarding
+                                    </>
+                                )}
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Onboarding Confirmation Dialog */}
+            <Dialog open={showOnboardingConfirm} onOpenChange={setShowOnboardingConfirm}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Confirm Onboarding</DialogTitle>
+                        <DialogDescription>
+                            This will create new classes, assign teachers, and map students for the selected school. Please verify the details below.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 py-4 text-sm">
+                        <p><strong>School:</strong> {schools.find(s => s.id === onboardingSchoolId)?.name}</p>
+                        <p><strong>Class-Teacher CSV:</strong> {classTeacherFile?.name}</p>
+                        <p><strong>Student-Class CSV:</strong> {studentClassFile?.name}</p>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowOnboardingConfirm(false)}>
+                            Cancel
+                        </Button>
+                        <Button onClick={() => { setShowOnboardingConfirm(false); handleStartOnboarding(); }}>
+                            Confirm & Start
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Summary */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1021,6 +1448,80 @@ Jennifer Thomas,TN010,Class 3B,Oakwood High School`;
                     />
                 </Suspense>
             )}
+
+            {/* Bulk Archive Confirmation Dialog */}
+            <Dialog open={showBulkArchive} onOpenChange={(open) => { if (!bulkArchiving) setShowBulkArchive(open); }}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Bulk Archive Classes</DialogTitle>
+                        <DialogDescription>
+                            Archive all active classes for a specific academic year. Students with no other active classes will also be archived.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">
+                                Academic Year
+                            </Label>
+                            <div className="col-span-3">
+                                <Select value={bulkArchiveYear} onValueChange={setBulkArchiveYear} disabled={bulkArchiving}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select academic year" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {[...new Set(classes.map(c => c.academicYear))].sort().map(year => (
+                                            <SelectItem key={year} value={year}>
+                                                {year}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">
+                                School
+                            </Label>
+                            <div className="col-span-3">
+                                <Select value={bulkArchiveSchoolId} onValueChange={setBulkArchiveSchoolId} disabled={bulkArchiving}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select school" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">All Schools</SelectItem>
+                                        {schools.map(school => (
+                                            <SelectItem key={school.id} value={school.id}>
+                                                {school.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                            This will archive <strong>{classes.filter(c => !c.isArchived && c.academicYear === bulkArchiveYear.trim() && (bulkArchiveSchoolId === 'all' || c.schoolId === bulkArchiveSchoolId)).length}</strong> active class(es) for year <strong>{bulkArchiveYear}</strong>{bulkArchiveSchoolId !== 'all' ? ` in ${schools.find(s => s.id === bulkArchiveSchoolId)?.name}` : ' across all schools'}.
+                        </p>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setShowBulkArchive(false)}
+                            disabled={bulkArchiving}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            className="bg-red-600 text-white hover:bg-red-700"
+                            onClick={handleBulkArchive}
+                            disabled={bulkArchiving || !bulkArchiveYear.trim() || classes.filter(c => !c.isArchived && c.academicYear === bulkArchiveYear.trim() && (bulkArchiveSchoolId === 'all' || c.schoolId === bulkArchiveSchoolId)).length === 0}
+                        >
+                            {bulkArchiving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {bulkArchiving ? 'Archiving...' : 'Archive All'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -1,0 +1,117 @@
+Duplicate Worksheets Report - 2026-01-23T05:58:18.054Z
+========================================================================================================================
+Grouping by: [studentId, classId, templateId, submittedOn]
+Found 4 cases of duplicate worksheets
+
+
+Student: Sorya (Token: 27S022)
+Class: Udaan Public School - 4th (25-26)
+Date: 2026-01-24
+Worksheet #: 561
+Is Repeated: false
+Teacher: Kavita (kavita)
+Total duplicate worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 8eb94d1b-8204-4cb8-83f7-7f30a55b0a0b
+    Worksheet #: 561
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:27:08 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 6a334f0a-34d3-4d65-8483-2a18dcc017ed
+    Worksheet #: 561
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:27:05 GMT+0530 (India Standard Time)
+
+
+
+Student: Sorya (Token: 27S022)
+Class: Udaan Public School - 4th (25-26)
+Date: 2026-01-23
+Worksheet #: 560
+Is Repeated: false
+Teacher: Kavita (kavita)
+Total duplicate worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: b5134554-a88a-466a-b2b2-668137595617
+    Worksheet #: 560
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:26:31 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 649884ab-8ba8-4e69-b07d-b9bb70001ba7
+    Worksheet #: 560
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:26:25 GMT+0530 (India Standard Time)
+
+
+
+Student: Trisha (Token: 27S327)
+Class: Udaan Public School - 1st (25-26)
+Date: 2026-01-23
+Worksheet #: 282
+Is Repeated: false
+Teacher: Kavita (kavita)
+Total duplicate worksheets found: 3
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: ea9afbdd-7e27-4000-9a46-ec673c7919c1
+    Worksheet #: 282
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:26:01 GMT+0530 (India Standard Time)
+
+  DELETING (2 worksheet(s)):
+    ID: 9b2b4fb0-df61-4613-bb20-150c290162bf
+    Worksheet #: 282
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:26:00 GMT+0530 (India Standard Time)
+
+    ID: deca04d2-4533-43a5-af68-20db16bd7f5c
+    Worksheet #: 282
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:25:49 GMT+0530 (India Standard Time)
+
+
+
+Student: Maanvi (Token: 30S448)
+Class: Heaven Convent Public School - 3rd (25-26)
+Date: 2026-01-23
+Worksheet #: 521
+Is Repeated: false
+Teacher: Sakina (sakina)
+Total duplicate worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 302d353c-f8e3-43a5-83cd-b5332a9c6a1d
+    Worksheet #: 521
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:27:06 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: e6e41556-f882-4b36-8816-8eb0911fd88d
+    Worksheet #: 521
+    Grade: 17
+    Absent: false
+    Created: Fri Jan 23 2026 11:23:51 GMT+0530 (India Standard Time)
+
+
+========================================================================================================================
+
+SUMMARY:
+Total duplicate groups: 4
+Worksheets to keep (one per group): 4
+Worksheets to delete (duplicates): 5

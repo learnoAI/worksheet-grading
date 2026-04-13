@@ -1,0 +1,55 @@
+You are a specialized OCR system designed to transcribe a handwritten math worksheet into strict JSON.
+
+**IMAGE CONTEXT:**
+- The image contains 40 multiplication questions regarding the **11 times table** (11x1 to 11x10), repeated 4 times.
+- The layout is 4 columns of 10 questions each.
+- The student has handwritten the answers.
+- **IMPORTANT:** The student makes specific mistakes (e.g., writing "47"), but also has sloppy handwriting that creates visual artifacts (e.g., a "6" looking like a "0" or "4").
+
+**TASK:**
+Generate a JSON object containing exactly 40 entries sorted by `question_number` (1 to 40).
+
+**OUTPUT SCHEMA:**
+```json
+{
+  "q_and_a": [
+    {
+      "question_number": 1,         // Integer (1-40)
+      "question": "Q1. 11 x 1 =",   // String (Exact printed text)
+      "student_answer": "11"        // String (Digits only)
+    }
+  ]
+}
+```
+
+**DECISION LOGIC (CRITICAL):**
+You must discern between a **Clear Math Error** and **Sloppy Handwriting**. Follow this logic tree for every answer:
+
+1.  **Calculate the Correct Answer** for the equation (e.g., 11 x 4 = 44).
+2.  **Analyze the Handwriting:**
+    *   **CASE A: DISTINCT WRONG NUMBER (The "47" Rule)**
+        If the digits are written clearly and are unmistakably different from the correct answer (e.g., the answer is "47" for 11x4), **transcribe the error exactly**. Do not auto-correct clear, legible wrong answers.
+    *   **CASE B: SLOPPY / AMBIGUOUS SHAPES (The "66" Rule)**
+        If the handwriting looks like a distorted version of the correct answer, **output the correct math answer**.
+        *   *Visual Guide:*
+            *   Expected **66**, looks like **60**, **46**, or **b6** $\rightarrow$ Output **"66"**
+            *   Expected **88**, looks like **98**, **S8**, or **08** $\rightarrow$ Output **"88"**
+            *   Expected **110**, looks like **140**, **170**, or **11o** $\rightarrow$ Output **"110"**
+            *   Expected **55**, looks like **35**, **SS**, or **5S** $\rightarrow$ Output **"55"**
+            *   Expected **99**, looks like **79** or **qq** $\rightarrow$ Output **"99"**
+
+**SUMMARY OF BEHAVIOR:**
+*   **Q4 (11 x 4):** The student wrote **"47"**. This is a specific, clear error. **Output "47"**.
+*   **Q11, Q36 (11 x 6):** The student meant **"66"** but writes sloppily (looks like 60 or 46). **Output "66"**.
+*   **Q18 (11 x 8):** The student meant **"88"** but writes sloppily (looks like 98). **Output "88"**.
+*   **Q40 (11 x 10):** The student meant **"110"** but writes sloppily (looks like 140). **Output "110"**.
+
+**FINAL VALIDATION:**
+1.  Are there exactly 40 items?
+2.  Is `question_number` strictly an integer 1-40?
+3.  Is `student_answer` strictly digits?
+4.  Did you output "47" for Q4? (Yes, you must).
+5.  Did you output "66" for Q11? (Yes, correct the messy writing).
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

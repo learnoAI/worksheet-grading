@@ -1,0 +1,55 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question (1 through 40) and its corresponding student answer from the image provided. 
+
+**WORKSHEET CONTEXT & LAYOUT:**
+- The worksheet contains 40 questions separated into two vertical columns by a thin line.
+- Read down the left column first (usually Q1-Q20), then down the right column (usually Q21-Q40).
+- Each question consists of a label (e.g., "Q1.") and a pair of numbers separated by a comma.
+- The student answers by drawing a handwritten circle around one of the numbers. 
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond ONLY in the requested JSON format, providing a list of all 40 questions and their answers:
+{format_instructions}
+
+**DO NOT** use dynamic keys.
+**DO NOT** nest the objects.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+1.  **`question_number` Field (STRICT INTEGER):**
+    - Must be extracted strictly as an integer (e.g., `1`, `2`, `10`).
+    - Remove all text characters, letters, and punctuation (DO NOT output "Q1." or "1.").
+2.  **`question` Field (STRING):**
+    - Must include the label (e.g., "Q1.", "Q2.") at the start.
+    - **CRITICAL SPACING:** Transcribe the string exactly as it appears visually, ensuring to preserve exact spacing around punctuation marks. You MUST include spaces before and after the comma (e.g., `"Q1. 41 , 44"`, NOT `"Q1. 41, 44"`).
+    - Must flatten text into a single horizontal line with **NO** newline characters.
+3.  **`student_answer` Field (STRING):**
+    - Extract exactly the number that the student has *circled*. 
+    - Pay close attention to the pencil marks to ensure you select the correct number from the pair.
+    - If the answer slot is completely unmarked/blank, use an empty string `""`.
+    - Return the answer as a string.
+    - **LOGICAL CONSISTENCY RULE:** The number extracted in `student_answer` MUST exactly match one of the two printed numbers provided in the `question` string. If your extracted `student_answer` is not one of those two numbers, re-evaluate the image!
+
+**COMPLETENESS, ACCURACY & VERIFICATION:**
+- **Zero Skipping:** Ensure NO questions are skipped. Verify that the output forms a continuous sequence from 1 to 40. 
+- **Transcription Accuracy & Second Pass:** Perform a localized "second pass" on the cropped region around the numbers before finalizing to verify handwritten or faintly printed text. 
+- **Specific Digit Warnings:** Be extremely careful with numbers that might look similar due to writing styles or faint printing. 
+    - Do NOT confuse "17" with "50". Pay special attention to Q10 to ensure it is correctly transcribed (e.g., "17 , 41").
+    - Distinguish '1' from '4' or '7'.
+    - Distinguish '3' from '7' (e.g., '43' vs '47').
+    - Distinguish '5' from '0'.
+- Sort the final output array by `question_number` in ascending order (1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is your analysis of the worksheet images:
+
+*   **Question Type:** Identifying the larger number from a pair.
+*   **Examples Present:** None explicitly marked as examples.
+*   **Answer Format:** Circling the chosen number.
+*   **Structural Quirks:** Two vertical columns of questions separated by a thin line. The layout includes question numbers in a "Q#" format followed by the pair of numbers separated by a comma. The student answers are indicated by a handwritten circle around one of the numbers.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

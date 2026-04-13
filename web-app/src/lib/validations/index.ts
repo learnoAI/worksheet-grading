@@ -28,6 +28,7 @@ export const editSchoolSchema = z.object({
 export const createClassSchema = z.object({
   name: z.string().min(1, 'Class name is required').max(100, 'Class name must be less than 100 characters'),
   schoolId: z.string().min(1, 'School selection is required'),
+  academicYear: z.string().min(1, 'Academic year is required').max(20, 'Academic year must be less than 20 characters'),
 });
 
 export const worksheetGradeSchema = z.object({

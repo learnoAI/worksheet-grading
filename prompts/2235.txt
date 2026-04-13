@@ -1,0 +1,97 @@
+You are a specialized OCR system designed to perfectly extract mathematical worksheet data into a strict JSON format. 
+
+**TASK:**
+Extract every question (printed text) and its corresponding handwritten student answer (pencil/pen) from the provided image.
+
+**LAYOUT NAVIGATION & READING ORDER (CRITICAL):**
+The worksheet is laid out in **two vertical columns**. You MUST read strictly column-by-column to avoid blending data:
+1. First, read vertically down **Column 1** (Q1 through Q20).
+2. Second, read vertically down **Column 2** (Q21 through Q40).
+**DO NOT read horizontally across rows.** 
+
+**STRICT SEPARATION OF PRINTED VS. HANDWRITTEN TEXT:**
+- **`question` field:** Must contain **ONLY** the pre-printed ink. Do not include any pencil strokes, filled-in answers, or handwritten notes. If there is a printed box, output it as `[ ]`.
+- **`student_answer` field:** Must contain **ONLY** the student's handwriting (pencil/pen).
+
+---
+
+**EXTRACTION & FORMATTING RULES:**
+
+1. **`question_number` Field:**
+   - Must exactly match the printed text, always starting with "Q" and ending with a period (e.g., "Q1.", "Q2.", "Q40.").
+
+2. **`question` Field (SPATIAL ACCURACY & EMPTY BOX PLACEMENT):**
+   - DO NOT duplicate the question number here.
+   - **CRITICAL - POSITION OF THE BOX (`[ ]`):** You must look carefully at the fraction bar on the right side of the equals sign!
+     - **Top Box:** If the empty box is **ABOVE** the fraction bar (numerator), and the printed number is below, output exactly `[ ] / denominator` (e.g., `3/7 = [ ] / 56`).
+     - **Bottom Box:** If the empty box is **BELOW** the fraction bar (denominator), and the printed number is above, output exactly `numerator / [ ]` (e.g., `3/10 = 9 / [ ]`).
+   - **NEGATIVE EXAMPLES - DO NOT SWAP:**
+     - *Incorrect:* Seeing a box over 15 and outputting `15 / [ ]`.
+     - *Correct:* Outputting exactly `[ ] / 15`.
+     - *Incorrect:* Putting the student's handwritten answer into this field (e.g., if a student wrote "36" in a box above a printed "32", DO NOT output `36 / [ ]`). The box remains `[ ]`. The correct output is `[ ] / 32`.
+   - **Multipliers `(xN)` - COLUMN DIFFERENCES:**
+     - **Column 1 (Q1-Q20):** There are **NO printed multipliers**. If you see `(x8)` or `(x10)`, it is handwritten and belongs ONLY in the `student_answer` field. 
+     - **Column 2 (Q21-Q40):** Multipliers **ARE pre-printed** at the end of the equation. You MUST include them exactly as printed in the `question` field (e.g., `5/8 = 40 / [ ] (x8)`).
+
+3. **`student_answer` Field (HANDWRITING ONLY - STRICT ORDER):**
+   - You must preserve the exact left-to-right visual order of the student's handwritten text.
+   - **Required Pattern:** `[Number written inside the box] [(Multiplier if written)] [Final repeated fraction]`
+   - **DO NOT MISS THE BOX NUMBER:** The number the student wrote *inside* the printed `[ ]` MUST be the very first thing in this string.
+     - *Example 1 (Handwritten multiplier):* `24 (x8) 24/56`
+     - *Example 2 (Printed multiplier, so student only wrote box num & fraction):* `64 40/64`
+     - *Example 3 (No box to fill, just handwritten multiplier & fraction):* `(x10) 50/60`
+
+4. **ANTI-HALLUCINATION & NO AUTO-SOLVING:**
+   - **DO NOT attempt to auto-solve the math or guess patterns.** The student's answers might be incorrect, or the fractions might not follow an obvious sequence. Transcribe *only* what is visibly printed or written on the page.
+   - Pay extreme attention to the exact printed numbers in Q37, Q39, and Q40. Do not fabricate numbers for these equations.
+   - Distinguish carefully between **9 vs 8**, **7 vs 2 vs 1**, and **6 vs 0**.
+
+---
+
+**JSON SCHEMA ENFORCEMENT:**
+Output strictly a JSON object with a single root key `"questions"`. The value must be an array of objects with the exact keys `"question_number"`, `"question"`, `"student_answer"`.
+
+**Example Output:**
+```json
+{
+  "questions": [
+    {
+      "question_number": "Q1.",
+      "question": "5/6 = 50 / 60",
+      "student_answer": "(x10) 50/60"
+    },
+    {
+      "question_number": "Q2.",
+      "question": "3/7 = [ ] / 56",
+      "student_answer": "24 (x8) 24/56"
+    },
+    {
+      "question_number": "Q4.",
+      "question": "9/8 = [ ] / 32",
+      "student_answer": "36 (x4) 36/32"
+    },
+    {
+      "question_number": "Q39.",
+      "question": "2/9 = 8 / [ ] (x4)",
+      "student_answer": "36 8/36"
+    }
+  ]
+}
+```
+Return ONLY the JSON. No markdown wrappers outside the JSON, no explanations, no commentary.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and the target JSON, here are the key factors to guide the OCR instructions:
+
+*   **Question Type:** Math problems focused on calculating equivalent fractions (finding the missing numerator or denominator).
+*   **Examples Present:** None. There are no explicitly labeled or pre-solved examples on the page.
+*   **Answer Format:** Fill-in-the-boxes. The student is required to write a specific number inside a pre-printed empty square `[ ]`.
+*   **Structural Quirks:**
+    *   **Two-column layout:** The questions are divided vertically into two halves on the page.
+    *   **Numbering Style:** Questions use a specific prefix format: "Q" followed by the number and a period (e.g., "Q1.", "Q21.").
+    *   **Fraction Layout:** Fractions are formatted vertically with a standard horizontal fraction bar.
+    *   **Extraneous Handwriting:** Students have written significant extra workings to the right of the equations (e.g., repeating the final fraction like "40/64" or writing notes like "CX8"). The target JSON often captures the boxed answer alongside this rewritten final fraction.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

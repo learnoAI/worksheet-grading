@@ -1,0 +1,19 @@
+# Used by `wrangler dev`. For production, prefer:
+# - `wrangler secret put GEMINI_API_KEY`
+# - `wrangler secret put BACKEND_WORKER_TOKEN`
+# - Cloudflare dashboard vars/secrets, or `wrangler deploy --var BACKEND_BASE_URL:https://...`
+
+BACKEND_BASE_URL=https://your-backend.example.com
+BACKEND_WORKER_TOKEN=REPLACE_ME
+GEMINI_API_KEY=REPLACE_ME
+
+GEMINI_OCR_MODEL=gemini-2.0-flash
+GEMINI_AI_GRADING_MODEL=gemini-3-flash-preview
+GEMINI_BOOK_GRADING_MODEL=gemini-2.0-flash
+
+POSTHOG_API_KEY=REPLACE_ME
+POSTHOG_HOST=https://us.i.posthog.com
+
+HEARTBEAT_INTERVAL_MS=60000
+FAST_MAX_PAGES=4
+MAX_QUEUE_ATTEMPTS=5

@@ -1,0 +1,59 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every arithmetic question and its corresponding student answer from the provided image. The image contains a 4-column grid of vertical multiplication problems. You must process the questions in numerical order, which means reading **down** each column rather than strictly left-to-right across the whole page.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output must be a JSON object containing a single key `"questions"` whose value is an array of objects. 
+**DO NOT** output a raw array at the root level.
+**DO NOT** use dynamic keys.
+
+Use exactly this structure:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 39 x 60",
+      "student_answer": "2340"
+    }
+  ]
+}
+```
+
+**FIELD FORMATTING RULES:**
+
+1. **`question_number`** (Integer):
+   - Must be output as a numeric **integer** (e.g., `1`, `2`), NOT a string (e.g., `"1"`).
+
+2. **`question`** (String):
+   - **Prefix Formatting:** You MUST include the question label exactly formatted as `"Q [number]. "` with a **space** between the "Q" and the number (e.g., `"Q 1. "`, `"Q 10. "`). Do NOT output `"Q1."` or `"Q2."`.
+   - **Equation Flattening:** You must flatten the vertical math problem into a single horizontal string.
+   - **Structure:** The final string must look like `"Q 1. 39 x 60"`.
+   - **NO** newline characters in the string.
+
+3. **`student_answer`** (String):
+   - Extract exactly what the student wrote in pencil below the horizontal line.
+   - **Commas:** You MUST preserve any handwritten thousands-separator commas exactly as drawn (e.g., if the student wrote `"5,400"`, output `"5,400"`. If they wrote `"2340"`, output `"2340"`).
+   - If the answer slot is completely blank, use an empty string `""`.
+   - Always return this field as a string.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation to distinguish **9** vs **8**, **6** vs **0**, and **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+- Ensure all 40 questions are extracted. Double-check your numbering to ensure you haven't skipped any items in the columns.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and target JSON, here are the key factors to guide your OCR instructions:
+
+*   **Question Type:** Arithmetic (Multiplication). Specifically, vertical multiplication of 2-digit numbers by 60.
+*   **Examples Present:** There are no explicitly labeled examples. All items on the page follow the exact same format.
+*   **Answer Format:** Handwritten answers are placed directly below the horizontal line under each vertical math problem. Hand-drawn commas in larger numbers (e.g., "5,400") must be transcribed exactly as written.
+*   **Structural Quirks:**
+    *   **Vertical-to-Horizontal Flattening:** The physical worksheet uses a stacked vertical layout for the math problems, but the OCR must flatten this into a single horizontal string for the JSON (e.g., a stacked `39`, `x 60` must become `39 x 60`).
+    *   **Grid Layout:** The questions are laid out in a distinct 4-column grid. The numbering order reads down the columns rather than strictly left-to-right across the whole page.
+    *   **Specific Question Labelling:** Each question is preceded by a specific label format (e.g., "Q 1.", "Q 2.") which needs to be explicitly included at the start of the `question` string in the JSON output.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

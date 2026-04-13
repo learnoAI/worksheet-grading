@@ -1,0 +1,59 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the provided image.
+
+**WORKSHEET CONTEXT & PATTERNS:**
+- The worksheet contains vertical subtraction problems, specifically subtracting multiples of 10 (10, 20, ... 100) from 3-digit numbers (like 220, 230, 240, 250).
+- Problems are arranged in a structured grid. Notice the pattern: questions usually share the same top number (minuend) in sequential blocks. Use this context to avoid misreading digits (e.g., misreading "220" as "230").
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST be a JSON object containing a single root key `"worksheet_data"`, which holds an array of question objects. 
+Example skeleton:
+{
+  "worksheet_data": [
+    {
+      "question_number": "Q1.",
+      "question": "220 - 10",
+      "student_answer": "210"
+    }
+  ]
+}
+
+**DO NOT** return a raw array. You MUST wrap the array in the `"worksheet_data"` root object.
+**DO NOT** use dynamic keys. Every object in the array MUST use exactly these three keys: `"question_number"`, `"question"`, `"student_answer"`.
+
+**EXTRACTION & FORMATTING RULES:**
+
+1. **"question_number" Field:**
+   - Extract the question identifier exactly as written (e.g., "Q1.", "Q23.").
+
+2. **"question" Field:**
+   - Visually, the problems are stacked vertically. You MUST flatten the vertical problem into a single horizontal string (e.g., "220 - 10").
+   - Include a single space around the minus sign.
+   - **CRITICAL:** DO NOT include the question number in this field. Only include the math equation (e.g., "220 - 10", NOT "Q1. 220 - 10").
+
+3. **"student_answer" Field:**
+   - Extract the handwritten numeric response placed beneath the horizontal separator line of the math problem.
+   - **STRICT BLANK HANDLING:** If a student answer is missing, very faint, partially erased, or consists of unreadable stray marks/shapes (like "Δ" or "O"), output an empty string `""`. 
+   - DO NOT attempt to guess the answer, calculate the math yourself, or transcribe stray doodles. Only extract clear, intentional handwritten digits.
+
+**PROCESSING ORDER & OCR ACCURACY:**
+- Carefully distinguish between similar looking digits (**9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**).
+- Sort the final output array by `question_number` in ascending order (Q1 through Q40).
+- Follow the question numbers sequentially to properly handle multiple columns.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the worksheet images and the target JSON, here is the educational analysis to assist in formulating OCR instructions:
+
+*   **Question Type:** Vertical subtraction (specifically subtracting multiples of 10 from 3-digit numbers).
+*   **Examples Present:** None. There are no solved examples; the worksheet begins immediately with the first practice problem.
+*   **Answer Format:** Handwritten numeric responses placed beneath the horizontal separator line of each vertical math problem. Note that some answers are very faint or partially erased (e.g., Q23-Q25) and should be output as blank strings `""` if illegible or incomplete.
+*   **Structural Quirks:** 
+    *   The problems are arranged in a structured grid with horizontal and vertical dividing lines.
+    *   **Format Conversion:** Visually, the problems are presented vertically (minuend on top, subtrahend below). However, the target JSON requires transcribing the `question` field into a horizontal equation string (e.g., reading vertically stacked `220`, `-10` as `"220 - 10"`).
+    *   Question identifiers (e.g., "Q1.") appear to the left of the top number in each cell.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

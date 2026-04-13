@@ -1,0 +1,65 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**IMAGE CONTEXT:**
+- A two-column math worksheet with long division problems.
+- **Left Column:** Questions 1–20.
+- **Right Column:** Questions 21–40.
+
+**PROCESSING PROCEDURE:**
+1.  Scan the **Left Column** from top to bottom (Questions 1 to 20).
+2.  Scan the **Right Column** from top to bottom (Questions 21 to 40).
+3.  Ensure all 40 items are extracted.
+
+**DATA EXTRACTION RULES:**
+
+1.  **`question_number` (Integer):**
+    - Extract the integer number identifying the question.
+    - Remove "Q" prefixes, dots, or parentheses (e.g., extract `1` from "Q 1.").
+
+2.  **`question` (String):**
+    - Transcribe the printed question text **exactly as it appears** visually.
+    - **STRICT VERBATIM:** Do NOT standardize the format. If the text says "7. 4 ) 436" (missing the "Q"), output it exactly like that. Do not insert "Q" if it is not printed on the page.
+    - Maintain internal spacing (e.g., "Q 1. 4 ) 342").
+
+3.  **`student_answer` (String):**
+    - **LOCATION:** Focus **strictly** on the space **ABOVE** the division bracket/bar.
+    - **TYPE:** Extract the **handwritten** quotient.
+    - **CRITICAL VISUAL DISTINCTION:**
+        - **Do NOT copy the printed dividend** (the number inside the bracket) as the answer. For example, in Q2 ("4 ) 210"), the answer is NOT "210". You must look for the handwritten "52" above the bar.
+        - **Do NOT** include numbers from the vertical subtraction calculations below the bar.
+    - **AMBIGUITY RESOLUTION (MATH CHECK):**
+        - If a handwritten digit is messy or ambiguous (e.g., looking like a '2' or '3'), calculate the expected result (`Dividend / Divisor`) to guide your recognition. 
+        - *Example (Q30):* "5 ) 469". 469/5 is ~93. If the digit looks like a 92 or 93, use the math to confirm it is "93".
+    - **DIGIT MORPHOLOGY:**
+        - Distinguish **'2'** vs **'0'**: '2' has an open tail; '0' is a closed loop.
+        - Distinguish **'4'** vs **'9'**: Check the top loop closure.
+    - **HANDLING FAINT TEXT:** Aggressively attempt to transcribe faint or light handwriting. Do not return an empty string unless the space above the bar is completely void of ink.
+
+**JSON SCHEMA:**
+Return a valid JSON object matching this structure exactly:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 4 ) 342",
+      "student_answer": "85"
+    },
+    {
+      "question_number": 7,
+      "question": "7. 4 ) 436", 
+      "student_answer": "109"
+    }
+  ]
+}
+```
+
+**QUALITY CONTROL CHECKLIST:**
+1.  **Count:** Are there exactly 40 objects?
+2.  **Verbatim Text:** Check Q7. Did you incorrectly add a "Q"? Keep it "7. 4 ) 436".
+3.  **No Repetition:** Check Q2. Is the answer "210"? If yes, FIX IT. It should be the handwritten "52".
+4.  **Math Accuracy:** Check Q30. "5 ) 469". The answer should be near 93. If you wrote "92", correct it to "93".
+5.  **Completeness:** Ensure Q12, Q19, Q20 have answers (e.g., "111", "177", "143").
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

@@ -17,7 +17,6 @@ interface GradedWorksheetData {
     isIncorrectGrade?: boolean;
     mongoDbId?: string;
     gradingDetails?: any;
-    wrongQuestionNumbers?: string;
 }
 
 interface CreateGradedWorksheetData {
@@ -42,7 +41,7 @@ export const worksheetAPI = {
 
     createGradedWorksheet: async (data: CreateGradedWorksheetData): Promise<Worksheet> => {
         const requestData = { ...data };
-        
+
         if (requestData.isAbsent) {
             requestData.worksheetNumber = 0;
             requestData.grade = 0;
@@ -52,7 +51,7 @@ export const worksheetAPI = {
             requestData.grade = parseFloat(requestData.grade.toString());
             requestData.worksheetNumber = parseInt(requestData.worksheetNumber.toString());
         }
-        
+
         return fetchAPI<Worksheet>('/worksheets/grade', {
             method: 'POST',
             body: JSON.stringify(requestData)
@@ -63,7 +62,7 @@ export const worksheetAPI = {
         const date = new Date(submittedOn);
         const startDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
         const endDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() + 1));
-        
+
         try {
             return await fetchAPI<GradedWorksheetData | null>(
                 `/worksheets/find?classId=${encodeURIComponent(classId)}&studentId=${encodeURIComponent(studentId)}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
@@ -78,7 +77,7 @@ export const worksheetAPI = {
         const date = new Date(submittedOn);
         const startDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
         const endDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() + 1));
-        
+
         try {
             return await fetchAPI<GradedWorksheetData[]>(
                 `/worksheets/find-all?classId=${encodeURIComponent(classId)}&studentId=${encodeURIComponent(studentId)}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
@@ -90,7 +89,7 @@ export const worksheetAPI = {
 
     updateGradedWorksheet: async (id: string, data: CreateGradedWorksheetData): Promise<GradedWorksheetData> => {
         const requestData = { ...data };
-        
+
         if (requestData.isAbsent) {
             requestData.worksheetNumber = 0;
             requestData.grade = 0;
@@ -99,7 +98,7 @@ export const worksheetAPI = {
             requestData.grade = parseFloat(requestData.grade.toString());
             requestData.worksheetNumber = parseInt(requestData.worksheetNumber.toString());
         }
-        
+
         return fetchAPI<GradedWorksheetData>(`/worksheets/grade/${id}`, {
             method: 'PUT',
             body: JSON.stringify(requestData)
@@ -115,12 +114,12 @@ export const worksheetAPI = {
     getPreviousWorksheets: async (classId: string, studentId: string, currentDate: string): Promise<Worksheet[]> => {
         const date = new Date(currentDate);
         const endDate = new Date(Date.UTC(
-            date.getFullYear(), 
-            date.getMonth(), 
+            date.getFullYear(),
+            date.getMonth(),
             date.getDate(),
             23, 59, 59, 999
         ));
-        
+
         try {
             return await fetchAPI<Worksheet[]>(
                 `/worksheets/history?classId=${classId}&studentId=${studentId}&endDate=${endDate.toISOString()}`
@@ -130,13 +129,106 @@ export const worksheetAPI = {
         }
     },
 
+    // Batch endpoint: Get all worksheets for a class on a specific date
+    getClassWorksheetsForDate: async (classId: string, submittedOn: string): Promise<{
+        students: { id: string; name: string; tokenNumber: string }[];
+        worksheetsByStudent: Record<string, GradedWorksheetData[]>;
+        studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[]; recommendedWorksheetNumber: number; isRecommendedRepeated: boolean }>;
+        stats: {
+            totalStudents: number;
+            studentsWithWorksheets: number;
+            gradedCount: number;
+            absentCount: number;
+            pendingCount: number;
+        };
+    }> => {
+        return fetchAPI<{
+            students: { id: string; name: string; tokenNumber: string }[];
+            worksheetsByStudent: Record<string, GradedWorksheetData[]>;
+            studentSummaries: Record<string, { lastWorksheetNumber: number | null; lastGrade: number | null; completedWorksheetNumbers: number[]; recommendedWorksheetNumber: number; isRecommendedRepeated: boolean }>;
+            stats: {
+                totalStudents: number;
+                studentsWithWorksheets: number;
+                gradedCount: number;
+                absentCount: number;
+                pendingCount: number;
+            };
+        }>(`/worksheets/class-date?classId=${encodeURIComponent(classId)}&submittedOn=${encodeURIComponent(submittedOn)}`);
+    },
+
+    // Check if a worksheet would be repeated for a student
+    checkIsRepeated: async (classId: string, studentId: string, worksheetNumber: number, beforeDate?: string): Promise<{
+        isRepeated: boolean;
+        previousWorksheet?: { id: string; grade: number; submittedOn: string } | null;
+    }> => {
+        return fetchAPI<{
+            isRepeated: boolean;
+            previousWorksheet?: { id: string; grade: number; submittedOn: string } | null;
+        }>('/worksheets/check-repeated', {
+            method: 'POST',
+            body: JSON.stringify({ classId, studentId, worksheetNumber, beforeDate })
+        });
+    },
+
+    // Get recommended next worksheet for a student
+    getRecommendedWorksheet: async (classId: string, studentId: string, beforeDate?: string): Promise<{
+        recommendedWorksheetNumber: number;
+        isRepeated: boolean;
+        lastWorksheetNumber: number | null;
+        lastGrade: number | null;
+        progressionThreshold: number;
+    }> => {
+        return fetchAPI<{
+            recommendedWorksheetNumber: number;
+            isRepeated: boolean;
+            lastWorksheetNumber: number | null;
+            lastGrade: number | null;
+            progressionThreshold: number;
+        }>('/worksheets/recommend-next', {
+            method: 'POST',
+            body: JSON.stringify({ classId, studentId, beforeDate })
+        });
+    },
+
+    // Batch save worksheets for multiple students
+    batchSaveWorksheets: async (classId: string, submittedOn: string, worksheets: Array<{
+        studentId: string;
+        worksheetNumber?: number;
+        grade?: string | number;
+        isAbsent?: boolean;
+        isRepeated?: boolean;
+        isIncorrectGrade?: boolean;
+        gradingDetails?: any;
+        wrongQuestionNumbers?: string;
+        action?: 'save' | 'delete';
+    }>): Promise<{
+        success: boolean;
+        saved: number;
+        updated: number;
+        deleted: number;
+        failed: number;
+        errors: { studentId: string; error: string }[];
+    }> => {
+        return fetchAPI<{
+            success: boolean;
+            saved: number;
+            updated: number;
+            deleted: number;
+            failed: number;
+            errors: { studentId: string; error: string }[];
+        }>('/worksheets/batch-save', {
+            method: 'POST',
+            body: JSON.stringify({ classId, submittedOn, worksheets })
+        });
+    },
+
     getIncorrectGradingWorksheets: async (params?: { page?: number; pageSize?: number; startDate?: string; endDate?: string }): Promise<{ data: any[]; total: number; page: number; pageSize: number }> => {
         const query = new URLSearchParams();
         if (params?.page) query.set('page', String(params.page));
         if (params?.pageSize) query.set('pageSize', String(params.pageSize));
         if (params?.startDate) query.set('startDate', params.startDate);
         if (params?.endDate) query.set('endDate', params.endDate);
-        
+
         const queryString = query.toString();
         return fetchAPI<{ data: any[]; total: number; page: number; pageSize: number }>(
             `/worksheets/incorrect-grading${queryString ? `?${queryString}` : ''}`
@@ -170,10 +262,10 @@ export const worksheetAPI = {
         const body: { full: boolean; startDate?: string; endDate?: string } = {
             full: !params?.startDate && !params?.endDate,
         };
-        
+
         if (params?.startDate) body.startDate = params.startDate;
         if (params?.endDate) body.endDate = params.endDate;
-        
+
         return fetchAPI<{ total_ai_graded: number }>('/worksheets/total-ai-graded', {
             method: 'POST',
             body: JSON.stringify(body),
@@ -185,11 +277,11 @@ export const worksheetAPI = {
             token_no: tokenNo,
             worksheet_name: worksheetNumber.toString()
         };
-        
+
         if (overallScore !== undefined && overallScore !== null) {
             requestBody.overall_score = Number(overallScore);
         }
-        
+
         return fetchAPI<any>('/worksheets/student-grading-details', {
             method: 'POST',
             body: JSON.stringify(requestBody)

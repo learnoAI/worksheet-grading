@@ -1,0 +1,3 @@
+[submodule "taste-skill"]
+	path = taste-skill
+	url = git@github.com:Leonxlnx/taste-skill.git

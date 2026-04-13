@@ -1,11 +1,20 @@
 'use client'
 
-import { usePathname, useSearchParams } from "next/navigation"
 import { useEffect } from "react"
-import { usePostHog } from 'posthog-js/react'
 
 import posthog from 'posthog-js'
 import { PostHogProvider as PHProvider } from 'posthog-js/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 15_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+})
 
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -27,8 +36,10 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <PHProvider client={posthog}>
-      {children}
-    </PHProvider>
+    <QueryClientProvider client={queryClient}>
+      <PHProvider client={posthog}>
+        {children}
+      </PHProvider>
+    </QueryClientProvider>
   )
 }

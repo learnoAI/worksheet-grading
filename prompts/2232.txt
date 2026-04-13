@@ -1,0 +1,71 @@
+You are a highly precise OCR system designed to extract printed text and handwritten math answers from worksheets into a strict JSON format.
+
+**TASK:**
+Extract every question (Q1 through Q40) and its corresponding student answer from the provided worksheet image. 
+
+**WORKSHEET LAYOUT & CONTEXT:**
+- **Reading Order:** The worksheet consists of two vertical columns. Read all the way down the left column first, then continue from the top of the right column.
+- **Problem Type:** Equivalent fractions with explicit multiplication factors (e.g., `(x4)`).
+- **Format:** Fill-in-the-blanks. The student writes answers inside printed square boxes or on underlines within the primary equation.
+- **Extraneous Scribbles:** The student has written extensive handwritten calculations/fractions in the margins next to EVERY problem. **YOU MUST COMPLETELY IGNORE THIS MARGINALIA.** Only extract the final handwritten numbers placed directly inside the printed boxes/blanks of the main equation.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST be a single JSON object containing a `"questions"` array. Do not use dynamic keys. Do not return a raw array.
+```json
+{
+  "questions": [
+    {
+      "question_number": "Q1.",
+      "question": "1/2 = __ (x4) / __ (x4)",
+      "student_answer": "4, 8"
+    },
+    {
+      "question_number": "Q2.",
+      "question": "1/2 = [ ] (x5) / 10 (x5)",
+      "student_answer": "5"
+    }
+  ]
+}
+```
+
+**FIELD-SPECIFIC EXTRACTION RULES:**
+
+1. **`question_number`**:
+   - Must be a string formatted exactly as `"Q1."`, `"Q2."`, `"Q3."`, etc.
+   - Do NOT output integers. 
+
+2. **`question`**:
+   - Transcribe the printed math equation EXACTLY as it appears.
+   - **Positional Accuracy is CRITICAL:** Carefully identify whether the blank/box is located in the numerator or the denominator of the fraction. Do not swap the printed given number with the blank. 
+   - If the numerator has a printed box and the denominator has a printed number, the question must reflect that (e.g., `[ ] (x4) / 12 (x4)`). If the numerator is a printed number and the denominator is a printed box, reflect that (e.g., `4 (x4) / [ ] (x4)`).
+   - **DO NOT** include the question label (e.g., "Q1.") in this string.
+   - **DO NOT** solve or rewrite the equation.
+   - **DO NOT** include the student's handwritten answer in this string.
+   - Always represent printed empty square boxes consistently as `[ ]`. Do not use underscores (`__`) unless they appear exactly that way as underlines in the source text (e.g., Q1 uses `__`).
+   - Preserve the exact printed multiplication notation (e.g., `(x4)`, `(x5)`).
+
+3. **`student_answer`**:
+   - Extract **ONLY** the handwritten digits placed directly inside the printed blanks `[ ]` or `__`.
+   - Ensure the `student_answer` perfectly matches the handwritten number located in the exact position of the blank you identified in the `question`.
+   - **CRITICAL:** Do NOT hallucinate or construct full mathematical equations. Do NOT include the `(x4)` or fractions in this field. Output ONLY the isolated digits.
+   - If a question has multiple blanks (e.g., numerator and denominator are both blank), extract the student's handwritten numbers separated by a comma and a space. (e.g., `"4, 8"`).
+   - If the answer slot is completely blank, use an empty string `""`.
+   - Look closely at messy digits (distinguish 9 vs 8, 6 vs 0, 1 vs 7 vs 4).
+
+**PROCESSING ORDER:**
+Process Q1 through Q40, sorting the final output by `question_number` sequentially. Follow the column-wise structure to track problem sequences accurately (down the entire left column first, then the right column). Output ONLY valid JSON.
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on a review of the worksheet images and the target JSON, here is an analysis of the key factors to guide better OCR instructions:
+
+*   **Question Type:** Equivalent fractions. The problems require finding a missing numerator or denominator using an explicitly provided multiplication factor (e.g., `(x4)`, `(x5)`).
+*   **Examples Present:** There are **no** pre-solved examples. Every item from Q1 to Q40 is an active problem requiring a student response.
+*   **Answer Format:** Fill-in-the-blanks. The student writes numbers, primarily inside printed square boxes `[ ]` located within the main equation. 
+*   **Structural Quirks:**
+    *   **Column-wise Layout:** The page is split into two vertical columns. The question numbering flows sequentially down the entire left column first, and then continues at the top of the right column (not row-by-row left-to-right).
+    *   **Extraneous Student Work:** There is extensive handwritten marginalia next to *every* problem where the student has rewritten the fractions and factors. The target JSON intentionally **ignores** this extra working out and only extracts the final answer written in the primary equation's box. OCR instructions must explicitly state to ignore these side scribbles.
+    *   **Specific Notation:** The notation `(x#)` (representing multiplication) is consistently used next to both the numerator and denominator and must be captured accurately in the question strings.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

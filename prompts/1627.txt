@@ -1,0 +1,64 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the provided worksheet image. 
+
+**JSON SCHEMA ENFORCEMENT:**
+You must return a single JSON object containing a `"questions"` array. 
+**DO NOT** return a raw array. 
+**DO NOT** use dynamic keys. 
+**DO NOT** nest the objects further.
+
+Use exactly this structure:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 877 + 200",
+      "student_answer": "1077"
+    }
+  ]
+}
+```
+
+**EXTRACTION & FORMATTING RULES:**
+
+1. **`question_number` (Integer):**
+   - Extract the question number as an integer (e.g., `1`, `2`, `3`).
+   - **MUST** completely remove the "Q" prefix. Do not return strings like "Q1".
+
+2. **`question` (String):**
+   - Must include the exact label at the start (e.g., "Q1.", "Q26.").
+   - Must flatten the vertically stacked addition problem into a single horizontal line (e.g., "Q1. 877 + 200").
+   - Separate the numbers and the plus sign with spaces.
+   - **NO** newline characters in the string.
+
+3. **`student_answer` (String):**
+   - Extract exactly what the student wrote in pencil below the horizontal sum line.
+   - **CRITICAL: DO NOT CALCULATE THE MATH.** Transcribe the student's answer exactly as it appears in the image, even if it is mathematically incorrect (e.g., if the student wrote "1398" for 893 + 600, output "1398", NOT "1493").
+   - If the answer slot is completely blank, use an empty string `""`.
+   - Always return this value as a string.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at handwritten digit formation. Pay special attention to distinguishing **9** vs **8**, **6** vs **0**, and **1** vs **7** vs **4**.
+- If a number is messy or rewritten, select the most likely digit based entirely on visual stroke evidence, not mathematical logic.
+
+**PROCESSING ORDER:**
+- The questions are arranged in a multi-column grid. Read and track the question identifiers carefully.
+- Sort the final extracted array by `question_number` in ascending order (1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and the target JSON output, here is an analysis of the key factors to guide OCR instructions:
+
+*   **Question Type:** Vertical addition of three-digit numbers.
+*   **Examples Present:** None explicitly labeled. The worksheet consists entirely of sequential problems (Q1-Q40) meant for the student to solve.
+*   **Answer Format:** Handwritten numeric answers placed directly below the horizontal sum line for each vertical problem.
+*   **Structural Quirks:**
+    *   **Linearization Required:** While the problems are printed vertically (e.g., 877 stacked above + 200), the target JSON requires them to be transcribed as linear equations (e.g., "Q1. 877 + 200").
+    *   **Columnar Layout:** The questions are arranged in a four-column grid across the pages.
+    *   **Specific Numbering Prefix:** Each question is identified by a "Q" followed by the number and a period (e.g., "Q1.", "Q26."). This exact prefix is included in the extracted `question` string.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

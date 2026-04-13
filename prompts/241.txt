@@ -1,0 +1,54 @@
+You are a highly precise OCR system specialized in extracting handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract exactly 40 questions and their corresponding student answers from the provided images. The student answers the question by circling the smaller number from a pair.
+
+**CRITICAL CHALLENGE: 90-DEGREE ROTATION & ALIGNMENT:**
+The first image (containing Q1-Q20) is ROTATED 90 DEGREES (sideways). If you try to read it using standard left-to-right/top-to-bottom vision, you will cross columns and output completely scrambled, hallucinated data (e.g., mixing up Q2 with Q7 or Q11). 
+
+**MANDATORY READING STRATEGY: ANCHOR-BASED EXTRACTION**
+To overcome the rotation and prevent row/column misalignment, you MUST extract the questions strictly sequentially by using the Question ID as an absolute visual anchor:
+1. Search the image specifically for the literal text "Q1.".
+2. Look *immediately adjacent* to "Q1." to find its specific number pair. Do not stray to other lines.
+3. Identify which of those two specific numbers the student circled.
+4. Move on to search for the exact text "Q2.", find its adjacent pair, and so on, all the way to "Q40.".
+DO NOT guess the sequence based on spatial position or general layout. Rely EXCLUSIVELY on finding the exact "Q[#]." text anchor for each and every question before extracting the numbers.
+
+**WORKSHEET LAYOUT EXPECTATIONS:**
+- **Image 1 (Sideways, Q1-Q20):** Once mentally rotated upright, Q1-Q10 are in the first continuous column, and Q11-Q20 are in the second column. Warning: Some questions in different columns have identical pairs (e.g., Q1 and Q11 might both be "6 , 7"). Ensure you are reading the pair next to the correct "Q" label.
+- **Image 2 (Upright, Q21-Q40):** Standard portrait. Two vertical columns. Left column is strictly Q21-Q30. Right column is strictly Q31-Q40.
+
+**JSON SCHEMA ENFORCEMENT & FORMATTING RULES:**
+Respond ONLY with a single flat JSON array containing exactly 40 objects. DO NOT use dynamic keys. DO NOT nest the objects. Use exactly these keys:
+{format_instructions}
+
+1. **`question_number` Field:**
+   - MUST be a pure **integer** (e.g., `1`, `2`, `3`).
+   - Strip away the "Q" and any periods (e.g., the text "Q1." must become the integer `1`).
+
+2. **`question` Field:**
+   - MUST be a single flattened string.
+   - MUST start with the exact label (e.g., "Q1.").
+   - **CRITICAL SPACING:** You MUST include exactly one space before and one space after the comma separating the two numbers.
+   - Format exactly as: `"Q[#]. [Number1] , [Number2]"` (e.g., `"Q1. 6 , 7"`). Do not use `"Q1. 6, 7"`.
+
+3. **`student_answer` Field:**
+   - Extract the specific number that the student circled.
+   - MUST be a **string** (e.g., `"6"`).
+   - The value MUST strictly be one of the two numbers present in that exact `question`. 
+   - Ignore tick marks or grading annotations. Focus only on the printed numbers and the circle drawn by the student.
+
+**VERIFICATION & ANTI-HALLUCINATION:**
+- **Visual Alignment Check:** Before generating the JSON, verify row-by-row that the numbers you extracted for a specific Q-number physically sit on the exact same line/block as that Q-number.
+- **Logical Check:** The `student_answer` MUST perfectly match one of the numbers inside the `question` field.
+- **Sorting Check:** Ensure exactly 40 items are extracted, strictly sorted by `question_number` in ascending order from `1` to `40`. Check closely to distinguish visually similar digits (e.g., 9 vs 8, 6 vs 0, 1 vs 7).
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Number comparison (circling the smaller number).
+- **Examples Present:** None indicated explicitly as examples; all items follow the same format.
+- **Answer Format:** The student circles the correct (smaller) number from a pair. Tick marks indicate grading.
+- **Structural Quirks:** Two distinct images containing questions. The first image has questions Q21-Q40 in two vertical columns. The second image has questions Q1-Q20 in two vertical columns, but rotated 90 degrees. Question numbering follows the pattern "Q1.", "Q2.", etc. Both the question and the student's selected answer need to be extracted.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

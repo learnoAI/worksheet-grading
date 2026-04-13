@@ -1,0 +1,61 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided.
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST return a JSON object with a single root key `"box_2d"` containing a list of all questions and their answers.
+Follow this exact structure:
+```json
+{
+  "box_2d": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 243 x 50",
+      "student_answer": "12150"
+    }
+  ]
+}
+```
+**DO NOT** use dynamic keys.
+**DO NOT** nest the objects further.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING & EXTRACTION RULES:**
+
+1.  **Question Field:**
+    - **Preserve Exact Spacing:** You MUST include a space between the "Q" and the number (e.g., "Q 1.", "Q 2.", "Q 10."). Do NOT output "Q1.".
+    - **Flatten Layout:** The math problems are presented vertically. You must flatten them into a single horizontal string (e.g., "Q 1. 243 x 50").
+    - **NO** newline characters in the string.
+
+2.  **Student Answer Field:**
+    - **Extract Final Answer Only:** Extract the number written underneath the solid line below the multiplication problem. Ignore any small carry-over digits the student wrote above the top numbers.
+    - **STRICT LITERAL TRANSCRIPTION (NO AUTOCORRECT):** Transcribe the text exactly as it appears visually. **DO NOT AUTOCORRECT MATH ERRORS.** If the mathematical product is 36000 but the student visually wrote "36006", you MUST output "36006". If they wrote "38356" instead of "38350", output "38356".
+    - If the answer slot is blank, use an empty string `""`.
+    - Return the answer as a string.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation, especially the last digits of the student's answer.
+- Distinguish **0** vs **6**, **9** vs **8**, **1** vs **7** vs **4**. 
+- Base your decision entirely on the stroke evidence of the pencil marks, not on what the correct mathematical answer should be.
+
+**PROCESSING ORDER:**
+- The problems are arranged in a multi-column grid. Scan all columns.
+- Sort the final output array strictly by `question_number` in ascending order (1, 2, 3... up to the final question).
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is an analysis of the provided worksheet based on your criteria:
+
+*   **Question Type:** Multiplication problems (multiplying a 3-digit number by a 2-digit number, specifically 50).
+*   **Examples Present:** None clearly marked as solved examples. The first few questions might be printed with answers to serve as examples, but they follow the exact same format as the rest of the student-answered questions.
+*   **Answer Format:** Students write the final product underneath a solid line, below the numbers being multiplied. There's also evidence of students writing carry-over digits above the top numbers.
+*   **Structural Quirks:**
+    *   The problems are arranged in a grid with four columns.
+    *   Each problem is numbered with a "Q [number]." prefix (e.g., "Q 1.", "Q 2.").
+    *   The problems are set up vertically.
+    *   There is a mix of printed text (the problem numbers and the numbers to be multiplied) and handwritten text (the student's answers and carry-over digits).
+    *   The header contains spaces for "Name", "Token Number", and "Marks".
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

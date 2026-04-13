@@ -14,92 +14,6 @@ export enum ProcessingStatus {
     FAILED = 'FAILED'
 }
 
-export type GradingJobStatus = 'pending' | 'processing' | 'completed' | 'failed';
-
-export interface QuestionScore {
-    question_number: number;
-    question: string;
-    student_answer: string;
-    correct_answer: string;
-    points_earned: number;
-    max_points: number;
-    is_correct: boolean;
-    feedback: string;
-}
-
-export interface GradingDetails {
-    total_possible: number;
-    grade_percentage: number;
-    total_questions: number;
-    correct_answers: number;
-    wrong_answers: number;
-    unanswered: number;
-    question_scores: QuestionScore[];
-    wrong_questions: QuestionScore[];
-    correct_questions: QuestionScore[];
-    unanswered_questions: QuestionScore[];
-    overall_feedback: string;
-}
-
-export interface GradingJobResult {
-    grade: number;
-    mongoDbId: string;
-    total_possible: number;
-    grade_percentage: number;
-    total_questions: number;
-    correct_answers: number;
-    wrong_answers: number;
-    unanswered: number;
-    question_scores: QuestionScore[];
-    wrong_questions: QuestionScore[];
-    correct_questions: QuestionScore[];
-    unanswered_questions: QuestionScore[];
-    overall_feedback: string;
-}
-
-export interface GradingJob {
-    jobId: string;
-    status: GradingJobStatus;
-    result?: GradingJobResult;
-    postgresId?: string;
-    error?: string;
-    createdAt: string;
-    updatedAt: string;
-}
-
-export interface BatchJobStatus {
-    batchId: string;
-    totalJobs: number;
-    completed: number;
-    failed: number;
-    processing: number;
-    pending: number;
-    jobs: Array<{
-        jobId: string;
-        studentName: string;
-        status: GradingJobStatus;
-        result?: GradingJobResult;
-        postgresId?: string;
-        error?: string;
-    }>;
-}
-
-export interface ClassJobsStatus {
-    pending: number;
-    processing: number;
-    completed: number;
-    failed: number;
-    jobs: Array<{
-        jobId: string;
-        studentName: string;
-        tokenNo: string;
-        status: GradingJobStatus;
-        result?: GradingJobResult;
-        postgresId?: string;
-        error?: string;
-    }>;
-}
-
 export enum NotificationStatus {
     READ = 'READ',
     UNREAD = 'UNREAD'
@@ -146,6 +60,7 @@ export interface Class {
     id: string;
     name: string;
     schoolId: string;
+    academicYear: string;
     createdAt: string;
     updatedAt: string;
     isArchived?: boolean;
@@ -179,13 +94,35 @@ export interface AdminSchool {
     school?: School;
 }
 
+export interface MainTopic {
+    id: string;
+    name: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
 export interface MathSkill {
     id: string;
     name: string;
     description?: string;
+    mainTopicId?: string | null;
+    mainTopic?: MainTopic | null;
     createdAt: string;
     updatedAt: string;
     worksheets?: WorksheetTemplateQuestion[];
+}
+
+export interface WorksheetCurriculumMapping {
+    worksheetNumber: number;
+    isTest: boolean;
+    learningOutcome: {
+        id: string;
+        name: string;
+    };
+    mainTopic: {
+        id: string;
+        name: string;
+    } | null;
 }
 
 export interface WorksheetTemplate {
@@ -251,6 +188,7 @@ export interface Worksheet {
     isIncorrectGrade?: boolean;
     mongoDbId?: string;
     gradingDetails?: any; // JSON field for detailed grading information
+    wrongQuestionNumbers?: string; // Comma-separated list of wrong/unanswered question numbers
 }
 
 export interface WorksheetImage {

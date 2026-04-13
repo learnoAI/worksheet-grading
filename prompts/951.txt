@@ -1,0 +1,46 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the images provided. The worksheet contains vertical addition problems (two-digit plus one-digit) arranged in a grid across two pages (Q1-Q20, Q21-Q40).
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond ONLY with a JSON array of objects. Do not use dynamic keys. Do not nest the objects.
+Each object MUST have exactly these three keys with these exact data types:
+- `"question_number"` (integer)
+- `"question"` (string)
+- `"student_answer"` (string)
+
+**FORMATTING RULES:**
+1.  **`question_number` Field:**
+    - Extract the question number as an **integer only**.
+    - Strip away the "Q" and the period (e.g., for "Q1.", the value must be strictly the integer `1`).
+2.  **`question` Field:**
+    - Must combine the label and the mathematical expression into a single string.
+    - Must be formatted exactly like this example: `"Q1. 75 + 9"`.
+    - Flatten the vertical text into a single horizontal line.
+    - Include exactly one space before and after the `+` sign.
+    - **NO** newline characters in the string.
+3.  **`student_answer` Field:**
+    - Extract exactly what the student wrote in pencil below the horizontal line.
+    - Return the answer as a string (e.g., `"84"`).
+    - If the answer slot is blank, use an empty string `""`.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation.
+- **CRITICAL:** Carefully differentiate between handwritten **6** and **8** (e.g., double-check your reading for Q39 to ensure you do not mistake an 8 for a 6).
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Process the grid correctly by tracking the sequential Question IDs across columns and rows.
+- Ensure the final output array is sorted sequentially by `question_number` ascending (1 through 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+*   **Question Type:** Vertical addition problems (two-digit plus one-digit).
+*   **Examples Present:** None clearly marked as examples.
+*   **Answer Format:** Handwritten numbers below a horizontal line under each problem.
+*   **Structural Quirks:** Problems are arranged in a grid (multiple columns and rows). Each problem is labeled sequentially (e.g., Q1., Q2.). The question string in the JSON combines the label and the mathematical expression linearly (e.g., "Q1. 75 + 9"). Student answers are the handwritten sums. Two pages are shown, one with Q1-Q20 and another with Q21-Q40.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

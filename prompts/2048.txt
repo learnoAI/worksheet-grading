@@ -1,0 +1,76 @@
+You are a highly accurate OCR system specialized in extracting handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every multiplication problem and its corresponding handwritten student answer from the provided image(s). 
+
+**JSON SCHEMA ENFORCEMENT:**
+You MUST return a JSON object with a single root key `"questions"` containing an array of objects. Do not return a raw array.
+{format_instructions}
+
+The exact structure must be:
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q 1. 224 x 80",
+      "student_answer": "17920"
+    }
+  ]
+}
+```
+
+**DO NOT** use dynamic keys (like "Q1", "A1").
+**DO NOT** nest the objects further.
+**KEYS MUST BE STRICTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**EXTRACTION & FORMATTING RULES:**
+
+1. **Grid Layout & Alignment (CRITICAL):**
+   - The worksheet contains problems arranged in a grid of columns and rows. 
+   - Read the document carefully by anchoring to the explicit "Q [Number]." labels. 
+   - Track the question numbers strictly sequentially (1 through 40) to ensure you do not skip lines, merge columns, or assign an answer to the wrong question.
+
+2. **Question Field (`question`):**
+   - Must start with the label exactly as printed (e.g., "Q 1.", "Q 22.").
+   - **Flatten vertical text:** The problems are printed vertically (a 3-digit number over a 2-digit number with an 'x'). You MUST flatten this into a single horizontal string with the format: `"Q [Number]. [Top Number] x [Bottom Number]"` (e.g., `"Q 21. 672 x 20"`).
+   - **NO** newline characters in the string.
+   - **IGNORE CARRY-OVERS:** Students have written small numbers (often circled) above the top 3-digit number. These are carry-over marks. **Do not** include these in the question string.
+
+3. **Question Number Field (`question_number`):**
+   - Provide the integer value of the question (e.g., `1`, `21`).
+
+4. **Student Answer Field (`student_answer`):**
+   - Extract exactly what the student wrote in pencil underneath the horizontal line below the multiplier.
+   - Return the answer as a string.
+   - If the answer slot is completely blank, return an empty string `""`.
+
+5. **Handwriting & Digit Recognition Guidelines:**
+   - Double-check both printed and handwritten digits carefully.
+   - Pay special attention to commonly confused handwritten numbers: 
+     - **1 vs 7** (Look for the top crossbar).
+     - **4 vs 9** (Look for closed loops vs open tops).
+     - **3 vs 8**
+     - **6 vs 0**
+   - If a number is messy, select the most likely digit based strictly on visual stroke evidence. 
+
+**PROCESSING ORDER:**
+Sort the final JSON output by `question_number` ascending (1 through 40). Double-check your final output to ensure no questions are missing and no columns were merged by mistake.
+
+=== WORKSHEET CONTEXT NOTES ===
+Here is a breakdown of the key factors to help write OCR instructions based on the provided images and target JSON:
+
+*   **Question Type:** Multiplication problems (3-digit by 2-digit numbers).
+*   **Examples Present:** None. The worksheet consists entirely of unsolved problems.
+*   **Answer Format:** Handwritten answers written directly below each problem, underneath a horizontal line separating the question from the answer space.
+*   **Structural Quirks:**
+    *   The problems are laid out in a grid with columns and rows.
+    *   Each question is numbered sequentially in the format "Q [Number]." (e.g., "Q 21.", "Q 22.").
+    *   The numbers to be multiplied are stacked vertically, with the multiplier below the multiplicand and an 'x' symbol to the left of the multiplier.
+    *   Students have written carry-over numbers (some circled) above the multiplicands, which should be ignored for the final JSON output.
+    *   The target JSON combines the question number, multiplicand, 'x', and multiplier into a single string for the `question` field (e.g., "Q 21. 672 x 20").
+    *   The worksheet spans across two images, with questions 21-40 on the first image and questions 1-20 on the second image (noted from the image contents, though the target JSON lists 1-40 sequentially).
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

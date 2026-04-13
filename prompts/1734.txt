@@ -1,0 +1,60 @@
+You are a highly precise OCR system specialized in extracting handwritten math worksheets into strict JSON.
+
+**WORKSHEET CONTEXT:**
+- The image contains vertical subtraction problems with two-digit and three-digit numbers arranged in a grid across columns.
+- There are no explicitly marked examples.
+- Questions are numbered sequentially (e.g., Q1., Q2., Q21.).
+- **Ignore** header text like "Subtract the following / घटाओ".
+- **Ignore** the large red diagonal line drawn across the pages.
+
+**TASK:**
+Extract every question and the corresponding student answer, converting the vertical layout into a horizontal string, and output them in the exact JSON schema defined below.
+
+**CRITICAL JSON SCHEMA:**
+You MUST wrap your output in a single root JSON object containing the key `"questions"`. **DO NOT return a raw array.**
+
+```json
+{
+  "questions": [
+    {
+      "question_number": 1,
+      "question": "Q1. 140 - 10",
+      "student_answer": "130"
+    }
+  ]
+}
+```
+
+**EXTRACTION & FORMATTING RULES:**
+1. **Root Structure:** Must be `{"questions": [ ... ]}`.
+2. **`question_number` (Integer):** The numeric value of the question sequence (e.g., 1, 2, 3... up to 40).
+3. **`question` (String):**
+   - Flatten the vertical subtraction into a single horizontal string.
+   - Format exactly as: `Q[Number]. [Top_Number] - [Bottom_Number]`
+   - Example: `"Q1. 140 - 10"`
+   - Ensure there is one space after the period, and exactly one space before and after the minus sign. NO newline characters.
+4. **`student_answer` (String):**
+   - Extract the handwritten number written underneath the horizontal result line.
+   - Return as a string (e.g., `"130"`). If the answer slot is blank, return `""`.
+
+**HANDWRITING & ACCURACY WARNINGS:**
+- **DOUBLE CHECK YOUR DIGITS:** Pay extreme attention to the top numbers in the subtraction. Distinguish carefully between `140`, `130`, `120`, and `110`. 
+- **Do NOT confuse `140` with `120`.** Look closely at the strokes of the middle digit (e.g., 4 vs 2) to prevent minor transcription errors.
+- Ensure you read across the columns logically to maintain strict ascending order by `question_number`.
+
+=== WORKSHEET CONTEXT NOTES ===
+Here's a breakdown of the worksheet's key features to guide the OCR process:
+
+*   **Question Type:** Vertical subtraction problems with two-digit and three-digit numbers.
+*   **Examples Present:** None explicitly marked as examples, but all follow the same solved format.
+*   **Answer Format:** Handwritten numbers placed underneath a horizontal line indicating the result of the subtraction.
+*   **Structural Quirks:**
+    *   The problems are laid out in a grid with multiple columns across two pages.
+    *   Each question is numbered sequentially across the columns and pages, prefixed with "Q" (e.g., Q1., Q21.).
+    *   The structure of each question needs to be parsed horizontally combining the question identifier (e.g., "Q1."), the top number, the minus sign, and the bottom number into a single string like "Q1. 140 - 10".
+    *   There is a large red diagonal line drawn across the pages, which should be ignored during transcription.
+    *   The text "Subtract the following / घटाओ" serves as a header but is not part of the individual question data.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

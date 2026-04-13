@@ -1,0 +1,57 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding final student answer from the image provided. 
+
+**WORKSHEET CONTEXT:**
+- **Question Type:** Long division. 
+- **Layout:** The questions are arranged in a grid-like format across four columns. 
+- **Answers:** The student's final answer (quotient) is written *above* the division bracket. The step-by-step workings are written *below* the problem.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond ONLY with a JSON array containing objects with the exact keys and data types below:
+```json
+[
+  {
+    "question_number": 1, 
+    "question": "Q 1. 4 ) 120",
+    "student_answer": "30"
+  }
+]
+```
+**DO NOT** use dynamic keys. **DO NOT** nest the objects.
+
+**DATA TYPE AND FORMATTING RULES:**
+
+1. **`question_number` Field:**
+   - Must be an **INTEGER** (e.g., `1`, `2`, `3`), NOT a string (`"1"`).
+
+2. **`question` Field (String):**
+   - Must include the label exactly as written (e.g., "Q 1.", "Q 2.") at the start.
+   - **PRESERVE EXACT SPACING:** Pay special attention to the division symbol/parenthesis. You must include the spaces around it exactly as they appear (e.g., output `"4 ) 120"`, NOT `"4) 120"`).
+   - Flatten vertical text into a single horizontal line.
+   - **NO** newline characters (`\n`) in the string.
+
+3. **`student_answer` Field (String):**
+   - **EXTRACT ONLY THE FINAL QUOTIENT** (the number written at the very top, above the division bracket).
+   - **STRICTLY IGNORE** all step-by-step long division workings below the bracket (do NOT include intermediate subtractions, minus signs, down arrows, or remainders like "-12", "↓", or "00").
+   - Ensure there are **NO newline characters** (`\n`) in the output string.
+   - If the top answer slot is completely blank, use an empty string `""`.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Read column by column or row by row, but ultimately sort the final output by `question_number` in ascending order (1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Division.
+- **Examples Present:** No solved examples; however, the student has shown their work (the long division steps) beneath or around the final answer.
+- **Answer Format:** The final answer (quotient) is written above the division bracket. The step-by-step working is written below.
+- **Structural Quirks:** The problems are arranged in a grid-like format across four columns. Each question is numbered sequentially (e.g., Q1, Q2, etc.) followed by the divisor, a closing parenthesis indicating the division symbol, and the dividend. The target output extracts only the question string (e.g., "Q 1. 4 ) 120") and the final student answer (the quotient written on top).
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

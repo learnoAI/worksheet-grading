@@ -1,0 +1,488 @@
+Duplicate Worksheets Report - 2026-01-23T05:43:14.356Z
+========================================================================================================================
+Found 20 cases of multiple worksheets per student per day
+
+
+Student: Aysha (Token: 39S154)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: feaba6e4-061d-4341-9fac-a2e23ecac682
+    Worksheet #: 1224
+    Grade: 37
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:49 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: b64a228a-7532-47c3-91a5-555e19b2f9c1
+    Worksheet #: 1224
+    Grade: 37
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:03 GMT+0530 (India Standard Time)
+
+
+
+Student: Yash (Token: 39S170)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 8d5a75bf-49c4-4eee-981f-c2aa7d8f1b4f
+    Worksheet #: 583
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:51 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: af9ea9d4-4f8b-4cf0-a155-1dc70194b66a
+    Worksheet #: 583
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:03 GMT+0530 (India Standard Time)
+
+
+
+Student: Lakhvinder (Token: 39S165)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 48a94df5-c156-45ab-9cfd-b406b9661a6a
+    Worksheet #: 797
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:49 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 860575f8-8839-4886-a0c3-0f63e7cf6a96
+    Worksheet #: 797
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:03 GMT+0530 (India Standard Time)
+
+
+
+Student: Navdeep (Token: 39S077)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 007e8aa9-7bb9-4eb1-8c03-561a846c838e
+    Worksheet #: 724
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:48 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 5e9d822f-2868-4e90-ad92-dfe4d7c411e9
+    Worksheet #: 724
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:03 GMT+0530 (India Standard Time)
+
+
+
+Student: Anjal (Token: 39S160)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 9aa4b0e9-49d7-49a3-88cc-19f5c1f9bb9d
+    Worksheet #: 589
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:49 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: e04186d5-5bd4-4941-a1f6-531fb460aaf9
+    Worksheet #: 589
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:03 GMT+0530 (India Standard Time)
+
+
+
+Student: Shubhansh Gupta (Token: 39S046)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 1bcdc0dd-6408-468d-8af3-cf80a21172a6
+    Worksheet #: 826
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:45 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 2b3596a9-0ac6-4096-b6bb-8cbae74dd760
+    Worksheet #: 826
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:00 GMT+0530 (India Standard Time)
+
+
+
+Student: Sanvi (Token: 39S079)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 6ede8a3a-c029-4f23-8fa5-0baa38cb2b2c
+    Worksheet #: 1019
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:48 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 9aa05367-4e5f-4e4a-832e-2febb7382322
+    Worksheet #: 1019
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:04 GMT+0530 (India Standard Time)
+
+
+
+Student: Sagun (Token: 39S272)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 5011078a-7260-48a4-91d8-a772798126fa
+    Worksheet #: 592
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:51 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 02f5961d-10b2-4342-9b58-c3fbd4d18950
+    Worksheet #: 592
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:05 GMT+0530 (India Standard Time)
+
+
+
+Student: Uinita (Token: 39S169)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 71c1f8c3-c044-4929-bcf1-7b7baa82fbae
+    Worksheet #: 1030
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:51 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: dafad004-deee-43f6-9349-8d477724a9ff
+    Worksheet #: 1030
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:03 GMT+0530 (India Standard Time)
+
+
+
+Student: Trisha (Token: 39S273)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: d6c7e611-c48f-4003-902a-0d9f0d75f698
+    Worksheet #: 1047
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:50 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 0ef93357-751b-48bf-bacf-c73e8edb9f12
+    Worksheet #: 1047
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:06 GMT+0530 (India Standard Time)
+
+
+
+Student: Ranjana (Token: 39S270)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 5
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: cd3481c0-a1ea-401d-90d1-bbcd572671f9
+    Worksheet #: 540
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:54 GMT+0530 (India Standard Time)
+
+  DELETING (4 worksheet(s)):
+    ID: b80e64d0-24ee-4771-9d62-88d5db58cded
+    Worksheet #: 540
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:53 GMT+0530 (India Standard Time)
+
+    ID: e4f89bfc-1cce-486a-b377-42acd3770f5f
+    Worksheet #: 540
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:52 GMT+0530 (India Standard Time)
+
+    ID: 73e9745f-e92f-4412-8737-13ab5cf18190
+    Worksheet #: 540
+    Grade: 38
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:51 GMT+0530 (India Standard Time)
+
+    ID: e09f570a-d629-4ee7-999d-a3ca72412a1c
+    Worksheet #: 540
+    Grade: 37
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:05 GMT+0530 (India Standard Time)
+
+
+
+Student: Akshat (Token: 39S274)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 6ab8757a-5fa5-4c74-a105-6f0d1a17f7bc
+    Worksheet #: 1017
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:51 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 1f565e99-aecb-4cc2-8407-3d0734ad3f9d
+    Worksheet #: 1017
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:06 GMT+0530 (India Standard Time)
+
+
+
+Student: Sanskar (Token: 39S172)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 48ea0c03-8fb8-48ec-9b34-cc3301938deb
+    Worksheet #: 250
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:51 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 56309c0f-0139-4cf4-b7d3-d0a1378d7641
+    Worksheet #: 250
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:03 GMT+0530 (India Standard Time)
+
+
+
+Student: Shudhanshu (Token: 39S167)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: e97f1e84-a7e0-40fc-8a3b-04602b9544b2
+    Worksheet #: 369
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:51 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 0d0ccd42-b9f4-4461-8068-2107f84b4b0d
+    Worksheet #: 369
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:03 GMT+0530 (India Standard Time)
+
+
+
+Student: Chirag (Token: 39S083)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: da021ba6-462c-4b02-977a-6740eeb83b65
+    Worksheet #: 1222
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:49 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 12d06afd-a5a2-44bf-8e68-2422271515da
+    Worksheet #: 1222
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:06 GMT+0530 (India Standard Time)
+
+
+
+Student: Bhavika (Token: 39S078)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: c614934e-8329-4039-b9b9-527a7b408673
+    Worksheet #: 352
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:48 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: 1501544f-e429-4df5-9a01-e6853b4d6408
+    Worksheet #: 352
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:04 GMT+0530 (India Standard Time)
+
+
+
+Student: Aarav Vats (Token: 39S076)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: ae8dcfaa-c8ba-43aa-a9b8-d619c7cf641f
+    Worksheet #: 591
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:48 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: c51a1bba-c609-46f4-8f88-d6849fb4e1ac
+    Worksheet #: 591
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:02 GMT+0530 (India Standard Time)
+
+
+
+Student: Tejashi (Token: 39S168)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 28a36062-efb3-49ae-bffe-36028818f544
+    Worksheet #: 239
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:51 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: c66f6d47-815c-41b4-ad1d-91c14d3cc13b
+    Worksheet #: 239
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:03 GMT+0530 (India Standard Time)
+
+
+
+Student: Nancy (Token: 39S080)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 068827a2-b071-4b10-890e-ca17b567948f
+    Worksheet #: 693
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:49 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: bc0f2ddf-5638-4d6d-9cbb-5210dc91ea5b
+    Worksheet #: 693
+    Grade: 39
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:04 GMT+0530 (India Standard Time)
+
+
+
+Student: Himanshu (Token: 39S164)
+Class: Arpan Public School - 3rd (25-26)
+Date: 2026-01-20
+Teacher: Pooja (pooja)
+Total worksheets found: 2
+--------------------------------------------------------------------------------
+
+  KEEPING (Has grade):
+    ID: 8179af8a-22cd-4cd4-9690-a5376a26842c
+    Worksheet #: 981
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:11:49 GMT+0530 (India Standard Time)
+
+  DELETING (1 worksheet(s)):
+    ID: bc166462-0057-4f3f-920a-ba0cd6abf049
+    Worksheet #: 981
+    Grade: 40
+    Absent: false
+    Created: Fri Jan 23 2026 11:08:03 GMT+0530 (India Standard Time)
+
+
+========================================================================================================================
+
+SUMMARY:
+Total duplicate cases: 20
+Worksheets to keep: 20
+Worksheets to delete: 23

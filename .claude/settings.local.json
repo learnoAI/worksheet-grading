@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm test)",
+      "Bash(npm run lint)",
+      "Bash(npm run build:*)",
+      "Bash(npx prisma generate:*)",
+      "WebSearch"
+    ]
+  }
+}

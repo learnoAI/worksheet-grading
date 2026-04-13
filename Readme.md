@@ -26,6 +26,11 @@ A full-stack application for grading offline worksheets. Teachers can upload ima
 - ShadCN UI components
 - Tailwind CSS
 
+## Docs
+
+- Curriculum mapping system:
+  - `backend/docs/curriculum-mapping-system.md`
+
 ## Getting Started
 
 ### Prerequisites
@@ -81,6 +86,18 @@ A full-stack application for grading offline worksheets. Teachers can upload ima
    ```
 
 3. Access the application at `http://localhost:3000`
+
+### Running the Mobile Capture App
+
+The Expo teacher capture companion app lives in `mobile-app/`.
+
+```
+cd mobile-app
+npm install
+EXPO_PUBLIC_API_BASE_URL=https://king-prawn-app-k2urh.ondigitalocean.app/worksheet-grading-backend/api npm run start
+```
+
+Use an EAS development build for device QA because camera behavior, SecureStore, SQLite, and background uploads need native capabilities.
 
 ## Default Users
 

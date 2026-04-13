@@ -1,0 +1,49 @@
+You are an advanced OCR system designed to accurately extract handwritten math worksheet data into a strict, validated JSON format.
+
+**TASK:**
+Extract every multiplication question and its corresponding final student answer from the provided image. There are no examples on this page.
+
+**STRICT JSON SCHEMA:**
+You MUST output a single JSON object with a root key `"q_and_a"`. The value must be an array of objects.
+Each object in the array MUST contain exactly these keys with the specified data types:
+- `"question_number"`: **Integer**. The numeric value of the question (e.g., `1`, `2`, `3`). Do NOT include strings like "Q" or ".".
+- `"question"`: **String**. The question label followed by the flattened equation (e.g., `"Q1. 111 x 80"`).
+- `"student_answer"`: **String**. The final answer written by the student (e.g., `"8880"`).
+
+**EXTRACTION & FORMATTING RULES:**
+
+1.  **Question Number (`question_number`):**
+    - Identify the question label (e.g., "Q1.", "Q21.") and extract **only the integer**.
+    - Example: If the image says "Q14.", the `"question_number"` must be `14`.
+
+2.  **Question String (`question`):**
+    - The problems are written vertically. You must flatten them horizontally.
+    - Format strictly as: `"Q[Number]. [Multiplicand] x [Multiplier]"` (e.g., `"Q5. 700 x 60"`).
+    - **CRITICAL:** Ignore any small, handwritten, circled carry-over numbers above the multiplicand. Extract only the main 3-digit top number and 2-digit bottom number.
+    - Include exactly one space before and after the "x".
+
+3.  **Student Answer (`student_answer`):**
+    - Extract the handwritten number found below the horizontal line under the multiplication problem.
+    - If the answer slot is completely blank, use an empty string `""`.
+    - Do not include carry-over numbers as part of the final answer.
+
+**HANDWRITING & ACCURACY GUIDELINES:**
+- **Digit Confusion:** Pay rigorous attention to similar handwritten digits. Carefully differentiate between **6 and 8**, **0 and 9**, and **1, 4, and 7**.
+- Check closed loops carefully (e.g., don't read a messy `0` as a `9`, or a `6` as an `8`).
+- The multipliers (bottom numbers in the equations) on this worksheet frequently end in `0`. Pay close attention to these (e.g., distinguishing `60` from `70`).
+
+**PROCESSING ORDER:**
+- Process the grid layout carefully.
+- Before outputting the final JSON, **SORT** the array in strictly ascending order based on the `"question_number"` (1 to 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided images and target JSON, here is the educational analysis:
+
+*   **Question Type:** Multiplication (3-digit by 2-digit numbers).
+*   **Examples Present:** None.
+*   **Answer Format:** Handwritten answers written below the multiplication problem, typically under a drawn horizontal line. Some problems include handwritten carry-over numbers circled above the multiplicand.
+*   **Structural Quirks:** The problems are arranged in a grid-like layout with distinct columns and rows. Each problem is numbered sequentially with a "Q" prefix (e.g., Q1., Q2., Q21., Q22.). The target JSON combines the question number, multiplicand, and multiplier into a single "question" string on a single line, rather than reflecting the vertical stacking shown in the image.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

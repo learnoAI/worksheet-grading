@@ -1,6 +1,6 @@
 import { Skeleton, SkeletonStyles } from '@/components/ui/skeleton';
 import React from 'react';
- 
+
 export const PageSectionSkeleton: React.FC<{ count?: number }> = ({ count = 2 }) => (
   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
     {Array.from({ length: count }).map((_, i) => (

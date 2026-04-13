@@ -1,0 +1,42 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. The worksheet features 8 vertical columns of number tracing/writing practice for the number 9.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond in the following JSON format, providing a list of all 8 questions and their answers:
+{format_instructions}
+
+**DO NOT** use dynamic keys (like "Q1", "A1", "Q_2", etc.).
+**DO NOT** nest the objects.
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**DATA TYPES AND FORMATTING RULES:**
+1. **`question_number` (Integer):**
+   - Must be strictly an integer.
+   - Extract JUST the numeric value (e.g., `1`, `2`). **DO NOT** output strings like "Q1." or "1.".
+
+2. **`question` (String):**
+   - Must represent the label and the printed example at the top of the column.
+   - **Maintain exact original spacing:** You MUST put a space between the "Q" and the number. Format exactly as `"Q 1. 9"`, `"Q 2. 9"`, etc.
+
+3. **`student_answer` (String):**
+   - Read the student's handwritten digits going downwards in each column.
+   - Flatten this vertical column into a single horizontal string.
+   - **Delimiters & Precision:** Separate each individual number with a comma and a single space (e.g., `"9, 9, 9"`).
+   - **Count carefully:** There are exactly 10 handwritten answer boxes per column. Ensure you extract exactly 10 digits per column. A complete answer string will look exactly like: `"9, 9, 9, 9, 9, 9, 9, 9, 9, 9"`.
+
+**HANDWRITING EXTRACTION & ARTIFACT GUIDELINES:**
+- The intended written digit for the entire worksheet is **9**. 
+- **CRITICAL:** A teacher has drawn a red squiggly line (checkmark) across several columns. **IGNORE THIS RED LINE.** Do not let it trick you into hallucinating a "3", "8", or any other digit. Stick to the underlying student handwriting, which are all "9"s.
+- Process and sort the output by `question_number` in ascending order (1 through 8).
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Number tracing and writing practice.
+- **Examples Present:** The first row in each column serves as the printed example (the number 9). Tracing outlines are visible in subsequent boxes.
+- **Answer Format:** The student writes the number '9' repeatedly in vertical boxes within each column.
+- **Structural Quirks:** The worksheet is divided into vertical columns. Each column is labeled with a question number (Q 1., Q 2., etc.) located to the left of the column. The student writes the answers downwards within each column. The target JSON groups all answers in a single column as a comma-separated list under one question number. A red squiggly line (a teacher's check mark) crosses through several columns.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

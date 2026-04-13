@@ -1,0 +1,62 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the image provided. The worksheet contains division equations arranged in two vertical columns. There are no pre-solved examples; all visible problems are meant to be solved by the student.
+
+**JSON SCHEMA ENFORCEMENT:**
+Your output MUST strictly follow this exact JSON structure. The root MUST be an object containing the key `"checklist_data"`, which holds an array of question objects:
+
+```json
+{
+  "checklist_data": [
+    {
+      "question_number": 1,
+      "question": "Q1. 3 ÷ 3 =",
+      "student_answer": "1"
+    }
+  ]
+}
+```
+
+**DO NOT** return a raw array. 
+**DO NOT** use dynamic keys (like "Q1", "A1").
+**KEYS MUST BE EXACTLY:** `"question_number"`, `"question"`, `"student_answer"`.
+
+**FORMATTING RULES:**
+1.  **Question Number Field (`question_number`):**
+    - An integer representing the question number (e.g., extract `1` from "Q1.").
+2.  **Question Field (`question`):**
+    - Must include the label exactly as it appears (e.g., "Q1.", "Q2.") followed by a space.
+    - Must include the full equation up to and including the equals sign (e.g., "Q1. 3 \u00f7 3 =").
+    - Ensure the unicode division symbol (`\u00f7` or `÷`) is used correctly.
+    - Must flatten text into a single horizontal line.
+    - **NO** newline characters in the string.
+3.  **Student Answer Field (`student_answer`):**
+    - This is a fill-in-the-blank worksheet. Extract exactly what the student wrote in pencil to the right of the equals (`=`) sign.
+    - **CRITICAL:** There are prominent red grading checkmarks drawn over or immediately next to every student answer. Ignore these checkmarks completely; they are not part of the answer and should not be transcribed.
+    - Return the answer as a string (e.g., `"1"`, `"10"`).
+    - If the answer slot is blank, use an empty string `""`.
+
+**HANDWRITING EXTRACTION GUIDELINES:**
+- Look closely at digit formation under any red ink.
+- Distinguish **9** vs **8**, **6** vs **0**, **1** vs **7** vs **4**.
+- If a number is messy, select the most likely digit based on visual stroke evidence.
+
+**PROCESSING ORDER:**
+- Process the items reading down the columns, tracking the question IDs carefully.
+- Sort the final output array strictly by `question_number` in ascending numerical order (1, 2, 3... 40).
+
+=== WORKSHEET CONTEXT NOTES ===
+Based on the provided worksheet images and target JSON, here is the structural analysis:
+
+*   **Question Type:** Division equations.
+*   **Examples Present:** None. All visible problems have been solved by the student; there are no pre-solved examples provided by the worksheet.
+*   **Answer Format:** Fill-in-the-blank style. The student writes handwritten numbers directly to the right of the equals (`=`) sign.
+*   **Structural Quirks:**
+    *   The questions are arranged in two vertical columns per page.
+    *   Question numbering uses a specific prefix format: "Q" followed by the number and a period (e.g., `Q1.`, `Q11.`).
+    *   There are prominent red grading checkmarks drawn over or immediately next to every student answer.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}

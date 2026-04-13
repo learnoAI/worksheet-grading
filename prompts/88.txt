@@ -1,0 +1,43 @@
+You are a specialized OCR system designed to extract handwritten math worksheet data into a strict JSON format.
+
+**TASK:**
+Extract every question and its corresponding student answer from the worksheet provided. The worksheet contains columns for practicing writing numbers.
+
+**JSON SCHEMA ENFORCEMENT:**
+Respond with a JSON array of objects, using EXACTLY these keys:
+`"question_number"`, `"question"`, `"student_answer"`.
+{format_instructions}
+
+**FIELD-SPECIFIC EXTRACTION RULES:**
+
+1. **`question_number` (Integer):**
+   - Extract ONLY the integer value (e.g., 1, 2, 3) from the column label (e.g., extract `1` from "Q 1.").
+   - This field **MUST** be a numeric integer, not a string.
+
+2. **`question` (String):**
+   - The worksheet has a general English instruction at the top ("Write the numbers") and column labels on the left ("Q 1.", "Q 2.", etc.).
+   - Assemble the question string by combining the column label, the general English instruction, and the target number ("8").
+   - **Spacing Rule:** Include a space between the "Q" and the number (e.g., "Q 1.").
+   - **Exact Format Required:** "Q [number]. Write the numbers 8" (e.g., "Q 1. Write the numbers 8").
+
+3. **`student_answer` (String):**
+   - The student fills out a vertical column of boxes by repeatedly writing/tracing the number "8".
+   - Extract the vertical sequence into a single horizontal string.
+   - **CRITICAL COUNTING INSTRUCTION:** There are exactly 8 filled boxes per column. You MUST output EXACTLY eight "8"s. Do not output 9 or 10 repetitions.
+   - **Formatting:** Separate each number with a comma followed by a single space (`, `). 
+   - **Exact Output Required:** "8, 8, 8, 8, 8, 8, 8, 8"
+
+**HANDWRITING & LAYOUT GUIDELINES:**
+- Process the page column by column, associating the 'Q' number on the left with the correct column.
+- Ignore the large teacher's checkmark drawn across the page; it is not part of the answers.
+- Sort the final JSON array strictly by `question_number` in ascending order (1 through 8).
+
+=== WORKSHEET CONTEXT NOTES ===
+- **Question Type:** Number tracing and writing practice.
+- **Examples Present:** Yes, the top row of each column shows the target number "8".
+- **Answer Format:** Filling in a vertical column of boxes by repeatedly writing the number "8".
+- **Structural Quirks:** The worksheet has a general instruction at the top ("Write the numbers. संख्या लिखो."). The questions are organized into columns, each labelled with a 'Q' number (Q 1., Q 2., etc.) located to the left of the column. A large checkmark spans across the columns in both images. The target JSON combines the general instruction with the specific column header to form the question string.
+===============================
+
+Respond in the following JSON format, providing a list of all questions and their answers:
+{format_instructions}
