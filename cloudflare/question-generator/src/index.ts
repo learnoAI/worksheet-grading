@@ -119,27 +119,28 @@ Rules:
 Return a JSON object with one field, "questions", containing an array of objects with fields: question, answer, instruction
 Return ONLY the JSON object, no other text.`;
 
-    const data = await env.AI.run(
-        model,
-        {
-            messages: [
-                {
-                    role: 'system',
-                    content: 'Return only valid JSON matching the requested schema.'
-                },
-                { role: 'user', content: prompt }
-            ],
-            temperature: 0.8,
-            response_format: {
-                type: 'json_schema',
-                json_schema: {
-                    name: 'worksheet_questions',
-                    schema: QuestionsResponseJsonSchema,
-                    strict: true
-                }
+    const input: WorkersAiTextGenerationInput = {
+        messages: [
+            {
+                role: 'system',
+                content: 'Return only valid JSON matching the requested schema.'
+            },
+            { role: 'user', content: prompt }
+        ],
+        temperature: 0.8,
+        response_format: {
+            type: 'json_schema' as const,
+            json_schema: {
+                name: 'worksheet_questions',
+                schema: QuestionsResponseJsonSchema,
+                strict: true
             }
-        },
-        {
+        }
+    };
+
+    let data: WorkersAiTextGenerationOutput;
+    try {
+        data = await env.AI.run(model, input, {
             gateway: {
                 id: gatewayId,
                 skipCache: true,
@@ -148,10 +149,22 @@ Return ONLY the JSON object, no other text.`;
                     model
                 }
             }
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!isAiGatewayNotConfiguredError(message)) {
+            throw error;
         }
-    );
+
+        console.error(`AI Gateway ${gatewayId} is not configured; retrying question generation without gateway`);
+        data = await env.AI.run(model, input);
+    }
 
     return parseQuestionsFromWorkersAi(data);
+}
+
+function isAiGatewayNotConfiguredError(message: string): boolean {
+    return message.includes('Please configure AI Gateway') || message.includes('"code":2001');
 }
 
 function parseQuestionsFromWorkersAi(
