@@ -111,11 +111,25 @@ export async function capturePosthogEvent(
     } catch (err) {
         transportErrorCount += 1;
         // Telemetry is best effort; log but never block grading flow.
-        apiLogger.warn('posthog_capture_failed', {
-            event,
-            error: err instanceof Error ? err.message : String(err),
-            transportErrorCount
-        });
+        // Rate-limit the warn log: log the first failure, then every 100th,
+        // so persistent network outages don't flood the log stream.
+        if (transportErrorCount === 1 || transportErrorCount % 100 === 0) {
+            const errorName = err instanceof Error ? err.name : 'UnknownError';
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            // node-fetch's FetchError carries `type` (system/no-redirect/…) and
+            // `code` (ECONNREFUSED/ENOTFOUND/…) — surface both so network issues
+            // are diagnosable without shell access to prod.
+            const fetchType = (err as any)?.type;
+            const fetchCode = (err as any)?.code || (err as any)?.cause?.code;
+            apiLogger.warn('posthog_capture_failed', {
+                event,
+                errorName,
+                error: errorMessage,
+                fetchType: fetchType || undefined,
+                fetchCode: fetchCode || undefined,
+                transportErrorCount
+            });
+        }
     }
 }
 
