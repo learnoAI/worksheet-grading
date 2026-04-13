@@ -1,0 +1,470 @@
+# Cloudflare Migration Plan — Worksheet Grading Platform
+
+**Created:** 2026-04-13
+**Status:** Planning
+
+---
+
+## Current Stack Summary
+
+| Layer             | Current                                                               | Status                       |
+| ----------------- | --------------------------------------------------------------------- | ---------------------------- |
+| **Backend**       | Express.js (Node.js 22) on DigitalOcean App Platform                  | Needs migration              |
+| **Frontend**      | Next.js 14.2.25 with React 18                                         | Needs migration              |
+| **Mobile**        | Expo 54 / React Native 0.81                                           | No change needed             |
+| **Database**      | PostgreSQL via Prisma 6.19 (20+ migrations)                           | Keep, connect via Hyperdrive |
+| **Queue**         | Cloudflare Queues (`grading-fast` + DLQ)                              | Already on CF                |
+| **Storage**       | Cloudflare R2 (primary) + AWS S3 (legacy fallback)                    | Already on CF                |
+| **Workers**       | Grading consumer worker (`worksheet-grading-consumer`)                | Already on CF                |
+| **AI**            | Google Gemini API (flash models for OCR + grading)                    | Keep, proxy via AI Gateway   |
+| **Auth**          | JWT-based with bcrypt, 4-tier RBAC (SUPERADMIN/ADMIN/TEACHER/STUDENT) | Port to Workers              |
+| **Analytics**     | PostHog (frontend + backend)                                          | Keep as-is                   |
+| **Error Logging** | Optional MongoDB                                                      | Drop, use Logpush            |
+| **Legacy Queue**  | Bull + Redis (disabled, `ENABLE_LEGACY_BULL_QUEUE=false`)             | Remove                       |
+| **Legacy AI**     | Python API on DigitalOcean (fallback grader)                          | Remove                       |
+
+---
+
+## Target Architecture
+
+```
+                    ┌-────────────────────────────────-─┐
+                    │       Cloudflare Edge             │
+                    │                                   │
+   Mobile App ─────-┤  ┌-──────────────────────────┐    │
+   (Expo)           │  │  Workers (Hono API)       │    │
+                    │  │  - Auth middleware (JWT)  │    │
+   Web Browser ────-┤  │  - Route handlers         │    │
+                    │  │  - Prisma + Hyperdrive    │    │
+                    │  │  - Zod validation         │    │
+                    │  └──────┬───────┬────────────┘    │
+                    │         │       │                 │
+                    │    ┌────▼──┐ ┌──▼───────────--─┐  │
+                    │    │Queues │ │KV (cache/       │  │
+                    │    │       │ │ sessions/config)│  │
+                    │    └───┬───┘ └───────────────--┘  │
+                    │        │                          │
+                    │  ┌─────▼─────────────────── ─┐    │
+                    │  │ Grading Worker            │    │
+                    │  │ (existing consumer)       │    │
+                    │  │ → migrate to Workflows    │    │
+                    │  └─────┬──────────────────── ┘    │
+                    │        │                          │
+                    │  ┌─────▼──┐  ┌─────────────── ┐   │
+                    │  │AI Gate │  │      R2        │   │
+                    │  │(Gemini)│  │  (images)      │   │
+                    │  └────────┘  └─────────────── ┘   │
+                    │                                   │
+                    │  ┌─────────────────────────-─┐    │
+                    │  │ Workers + Static Assets   │    │
+                    │  │ (Next.js via OpenNext)    │    │
+                    │  └──────────────────────────-┘    │
+                    └──────────────┬────────────────────┘
+                                   │ Hyperdrive
+                           ┌─────-─▼──────┐
+                           │ PostgreSQL   │
+                           │ (managed DB) │
+                           └──────-───────┘
+```
+
+---
+
+## Cloudflare Services Mapping
+
+### Workers (Serverless Compute) — Backend API
+
+**Purpose:** Replace Express.js on DigitalOcean App Platform.
+
+**Framework:** Hono (Express-like API, built for Workers)
+
+**Why Hono over Express:**
+
+- Hono is built for Workers/edge runtimes; Express relies on `node:http` server model
+- Express-like API — middleware, routing, context — so the port is mechanical
+- Sub-millisecond cold starts vs. Containers' multi-second cold starts
+- Same middleware pattern (auth, validation, CORS)
+
+**Why not Cloudflare Containers:**
+
+- The codebase has no `child_process`, native addons, or other Workers-incompatible deps
+- Containers have cold start overhead and higher cost
+- Only use Containers if Workers limits are hit (128 MB memory, 30s CPU)
+
+**Pricing (Paid $5/month):**
+
+- 10M requests/month included, $0.30/additional million
+- 30M CPU-ms included, $0.02/additional million
+- Zero egress charges
+
+**Limits:**
+
+- 30s CPU time per request (up to 15 min for Queue/Cron consumers)
+- 128 MB memory per isolate
+- 10 MB compressed script size
+- 10,000 subrequests per invocation
+
+**Key migration notes:**
+
+- Enable `nodejs_compat` flag (date >= 2024-09-23) for Node.js built-in modules
+- `jsonwebtoken` works on Workers with `nodejs_compat`
+- Replace `multer` with Workers-native `FormData` parsing
+- Replace `express-validator` with Zod (already used on frontend)
+- Never store request-scoped data in module-level variables (isolates are reused)
+- Use `ctx.waitUntil()` for fire-and-forget work (analytics, cache writes)
+
+---
+
+### Hyperdrive — Database Connection Pooling
+
+**Purpose:** Connect Workers to the existing PostgreSQL database.
+
+**Why:** Workers are stateless V8 isolates — they can't maintain persistent TCP connections. Hyperdrive solves this by managing a regional connection pool + query cache.
+
+**Prisma compatibility:** Use `@prisma/adapter-pg` driver adapter for Workers support.
+
+**Pricing:** Free (included with Workers plan).
+
+**Setup:**
+
+```bash
+npx wrangler hyperdrive create my-hyperdrive \
+  --connection-string="postgres://user:pass@host:5432/dbname"
+```
+
+**Why not D1 (SQLite):**
+
+- 20+ Prisma migrations would need rewriting for SQLite dialect
+- PostgreSQL-specific features (JSONB, arrays, full-text search) would be lost
+- High risk, low reward for an established schema
+- D1 max size is 10 GB, may be limiting long-term
+
+**When D1 makes sense:** New microservices, per-worker config stores, feature flags.
+
+---
+
+### Workers with Static Assets — Frontend
+
+**Purpose:** Deploy Next.js 14 on Cloudflare's edge.
+
+**Approach:** Use `@opennextjs/cloudflare` (OpenNext adapter).
+
+- Static assets served for free from Workers
+- SSR runs in Workers with edge-fast response times
+- Single deployment artifact
+
+**Considerations:**
+
+- Next.js image optimization needs Cloudflare Images or a custom image loader
+- ISR (`revalidate`) may need KV or R2 for caching
+- Test SSR routes thoroughly — OpenNext is mature but not 100% feature-complete
+- `next/font` and `next/image` may need configuration adjustments
+
+**Why not Cloudflare Pages:**
+
+- Cloudflare is merging Pages into Workers; all new features land on Workers first
+- Workers with Static Assets has full feature parity
+- Single deployment model for both frontend and API
+
+---
+
+### AI Gateway — AI API Proxy
+
+**Purpose:** Proxy Google Gemini API calls for observability, caching, and cost control.
+
+**Benefits:**
+
+- Free analytics dashboard — cost, latency, error rates for all AI calls
+- Response caching — avoid paying Gemini for identical prompts (e.g., same worksheet)
+- Rate limiting — protect against runaway API costs
+- Fallback providers — route to backup model if Gemini is down
+- No code change in grading worker — just change the base URL
+
+**Pricing:** Core features free. Logs: 100K/month free, 10M/gateway on paid.
+
+**Implementation:** Change `GEMINI_API_KEY` base URL in the grading worker's `gemini.ts` to point through AI Gateway endpoint.
+
+---
+
+### Queues — Message Queue (Already Deployed)
+
+**Current config:**
+
+- Queue: `grading-fast`
+- Dead-letter queue: `grading-fast-dlq`
+- Batch size: 3, max concurrency: 250
+- REST API integration via `CloudflareQueueClient`
+
+**No changes needed.** Already production.
+
+---
+
+### Workflows — Durable Execution
+
+**Purpose:** Replace custom heartbeat/stale-processing logic in the grading pipeline with built-in durability.
+
+**Use cases:**
+
+- Multi-step grading: OCR → grade → store results → notify
+- Automatic retries with backoff on Gemini failures
+- Long-running jobs exceeding 15-minute Queue consumer limit
+- Wait for external events (e.g., human review approval)
+
+**Pricing:** Same as Workers (CPU time + requests). Zero cost while waiting/sleeping.
+
+**Migration path:** Wrap existing grading worker logic in Workflow steps. Each step auto-retries on failure and persists state.
+
+---
+
+### R2 — Object Storage (Already Deployed)
+
+**Current config:**
+
+- Primary bucket: `worksheet-grading-files`
+- Assets bucket: `worksheet-grading-assets`
+- Public base URL configured via `R2_PUBLIC_BASE_URL`
+
+**Action items:**
+
+- Migrate remaining AWS S3 images to R2 (one-time script)
+- Remove S3 fallback code path and `aws-sdk` dependency
+- Add R2 lifecycle rules for automatic cleanup of old/temporary files
+
+**Pricing:** $0.015/GB-month storage, zero egress. Class A ops $4.50/million, Class B $0.36/million.
+
+---
+
+### KV — Key-Value Store
+
+**Purpose:** Caching layer for read-heavy, eventually-consistent data.
+
+**Use cases:**
+
+- JWT session/refresh token storage
+- Feature flags and app configuration
+- Grading prompt templates
+- Cached database query results with TTL
+- Rate limiting counters
+
+**Pricing (Paid):** 10M reads/month, 1M writes/month included. $0.50/million additional reads.
+
+**Note:** Eventually consistent (up to 60s propagation). Not for strongly consistent data — use D1 or Durable Objects for that.
+
+---
+
+### Cloudflare Access (Zero Trust) — Auth Enhancement
+
+**For internal/admin tools only:**
+
+- Protect admin panels with SSO (Google, Okta, etc.)
+- No code changes needed — reverse proxy authentication
+- Free for up to 50 users
+
+**For student/teacher API:** Keep JWT-based auth (port middleware to Hono).
+
+---
+
+### Observability
+
+| Current                     | Target                                                   |
+| --------------------------- | -------------------------------------------------------- |
+| PostHog (product analytics) | Keep as-is                                               |
+| MongoDB (error logging)     | Drop — use Logpush                                       |
+| Custom diagnostics          | Workers Analytics Engine (free)                          |
+| Console logs                | Workers `console.log` + Logpush to preferred destination |
+
+---
+
+## Migration Phases
+
+### Phase 1 — AI Gateway for Gemini (Quick Win)
+
+**Effort:** Low | **Risk:** Very Low | **Duration:** 1 day
+
+- [ ] Create AI Gateway in Cloudflare dashboard
+- [ ] Update `GEMINI_API_KEY` base URL in grading worker
+- [ ] Verify grading still works end-to-end
+- [ ] Enable caching for repeated prompts
+- [ ] Set up rate limiting
+
+### Phase 2 — Drop AWS S3 Fallback
+
+**Effort:** Low | **Risk:** Low | **Duration:** 1-2 days
+
+- [ ] Audit remaining S3-only images, write migration script
+- [ ] Run migration: copy all S3 images to R2
+- [ ] Verify all image URLs resolve from R2
+- [ ] Remove S3 fallback code in storage layer
+- [ ] Remove `aws-sdk` from `package.json`
+- [ ] Remove S3 environment variables
+
+### Phase 3 — Drop MongoDB Error Logging
+
+**Effort:** Low | **Risk:** Low | **Duration:** 1 day
+
+- [ ] Set up Logpush for Workers logs
+- [ ] Remove `errorLogService.ts` MongoDB integration
+- [ ] Remove `mongodb` from `package.json`
+- [ ] Remove `MONGO_URL` environment variable
+
+### Phase 4 — Remove Legacy Bull/Redis Queue
+
+**Effort:** Low | **Risk:** Low | **Duration:** 1 day
+
+- [ ] Remove Bull queue code (already disabled)
+- [ ] Remove `bull` from `package.json`
+- [ ] Remove `REDIS_URL`, `ENABLE_LEGACY_BULL_QUEUE` env vars
+- [ ] Remove Python API fallback code
+- [ ] Remove `PYTHON_API_URL` and related env vars
+- [ ] Remove `bottleneck` dependency (rate limiter for Python API)
+
+### Phase 5 — Port Backend to Hono + Hyperdrive (Major)
+
+**Effort:** High | **Risk:** Medium | **Duration:** 2-4 weeks
+
+**Substeps:**
+
+#### 5a. Setup & Infrastructure
+
+- [ ] Create new Worker project with Hono
+- [ ] Set up Hyperdrive connection to PostgreSQL
+- [ ] Configure Prisma with `@prisma/adapter-pg` for Workers
+- [ ] Set up `wrangler.toml` with bindings (R2, KV, Queues, Hyperdrive)
+- [ ] Set up local dev with `wrangler dev`
+
+#### 5b. Port Middleware
+
+- [ ] Port CORS middleware to Hono
+- [ ] Port JWT auth middleware to Hono
+- [ ] Port role-based authorization middleware
+- [ ] Replace `express-validator` with Zod schemas
+- [ ] Port error handling middleware
+- [ ] Port request logging/diagnostics
+
+#### 5c. Port Routes (route-by-route)
+
+- [ ] Port auth routes (login, register, token refresh)
+- [ ] Port user management routes
+- [ ] Port worksheet/grading routes
+- [ ] Port file upload routes (replace multer with FormData)
+- [ ] Port admin routes
+- [ ] Port any remaining routes
+
+#### 5d. Integration & Cutover
+
+- [ ] Set up service bindings for gradual traffic migration
+- [ ] Run both Express and Hono in parallel
+- [ ] Shift traffic route-by-route
+- [ ] Full cutover — decommission DigitalOcean App Platform
+- [ ] Update mobile app API base URL
+
+### Phase 6 — Deploy Next.js on Workers
+
+**Effort:** Medium | **Risk:** Medium | **Duration:** 1 week
+
+- [ ] Install `@opennextjs/cloudflare` adapter
+- [ ] Configure `wrangler.toml` for static assets
+- [ ] Test all SSR routes
+- [ ] Configure image optimization (Cloudflare Images or custom loader)
+- [ ] Test ISR/revalidation behavior
+- [ ] Set up custom domain
+- [ ] Deploy and verify
+
+### Phase 7 — Add Workflows for Grading Pipeline
+
+**Effort:** Medium | **Risk:** Low | **Duration:** 1 week
+
+- [ ] Define Workflow steps: OCR → grade → store → notify
+- [ ] Add retry logic with exponential backoff per step
+- [ ] Replace custom heartbeat/stale-processing logic
+- [ ] Add human-review wait step (optional)
+- [ ] Test failure scenarios and DLQ behavior
+- [ ] Deploy alongside existing Queue consumer
+
+### Phase 8 — Add KV Caching Layer
+
+**Effort:** Low | **Risk:** Low | **Duration:** 2-3 days
+
+- [ ] Create KV namespaces (sessions, config, cache)
+- [ ] Add KV bindings to `wrangler.toml`
+- [ ] Cache grading prompt templates in KV
+- [ ] Cache frequently-accessed DB queries with TTL
+- [ ] Add feature flag support via KV
+- [ ] Store app configuration in KV
+
+---
+
+## Cost Comparison
+
+### Current (Estimated)
+
+| Service                             | Monthly Cost  |
+| ----------------------------------- | ------------- |
+| DigitalOcean App Platform (backend) | $12-24+       |
+| PostgreSQL (managed)                | $15-50+       |
+| AWS S3 (storage + egress)           | Variable      |
+| Cloudflare Workers (grading)        | $5 base       |
+| Redis (Bull queue)                  | $0 (disabled) |
+
+### Target (Estimated)
+
+| Service                                    | Monthly Cost                 |
+| ------------------------------------------ | ---------------------------- |
+| Cloudflare Workers Paid Plan (all compute) | $5 base                      |
+| Workers usage (API + frontend + grading)   | Pay-per-use above free tier  |
+| R2 storage                                 | $0.015/GB-month, zero egress |
+| Hyperdrive                                 | Free                         |
+| AI Gateway                                 | Free (core features)         |
+| KV                                         | Included in base             |
+| Queues                                     | Included in base             |
+| PostgreSQL (managed, external)             | $15-50+ (unchanged)          |
+
+**Net savings:** DigitalOcean App Platform cost eliminated, S3 egress eliminated, Redis cost eliminated. Single $5/month base with pay-per-use scaling.
+
+---
+
+## Key Technical Constraints
+
+1. **Workers memory limit:** 128 MB per isolate — stream large files, don't buffer
+2. **Workers CPU limit:** 30s per request (15 min for Queue/Cron consumers)
+3. **No persistent filesystem:** Use R2 for all file storage
+4. **No persistent TCP connections:** Use Hyperdrive for database access
+5. **KV is eventually consistent:** Up to 60s propagation — don't use for strongly consistent data
+6. **Some npm packages won't work:** Anything using `child_process`, `cluster`, or native addons
+7. **Prisma on Workers:** Requires `@prisma/adapter-pg` driver adapter, not the default Prisma client
+8. **Next.js on Workers:** Some features may behave differently — test ISR, middleware, image optimization
+
+---
+
+## Rollback Strategy
+
+Each phase is independent and reversible:
+
+- **Phases 1-4:** Code removal — revert via git if needed
+- **Phase 5:** Run Express and Hono in parallel via service bindings; roll back by routing traffic back to Express
+- **Phase 6:** Keep existing frontend deployment running until Workers deployment is verified
+- **Phases 7-8:** Additive features — disable by removing bindings
+
+---
+
+## Dependencies to Add
+
+```
+hono                        # Express replacement for Workers
+@prisma/adapter-pg          # Prisma driver adapter for Workers
+@opennextjs/cloudflare      # Next.js adapter for Workers
+@cloudflare/vitest-pool-workers  # Testing in Workers runtime
+```
+
+## Dependencies to Remove
+
+```
+aws-sdk                     # S3 fallback (Phase 2)
+mongodb                     # Error logging (Phase 3)
+bull                        # Legacy queue (Phase 4)
+bottleneck                  # Python API rate limiter (Phase 4)
+multer                      # File uploads — use native FormData (Phase 5)
+express-validator           # Replace with Zod (Phase 5)
+express                     # Replace with Hono (Phase 5)
+cors                        # Built into Hono (Phase 5)
+form-data                   # Native in Workers (Phase 5)
+```
