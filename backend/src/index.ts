@@ -111,6 +111,11 @@ process.on('uncaughtException', (err) => {
     } catch {
         // never block crash handling
     }
+    // Node is in an undefined state after an uncaught exception — the event
+    // loop may be corrupted and continuing execution is more dangerous than
+    // restarting. Exit so the process manager (PM2 / Docker / DO App Platform)
+    // can spin up a clean instance.
+    process.exit(1);
 });
 
 const APP_PORT = config.port;
