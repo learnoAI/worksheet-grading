@@ -32,7 +32,7 @@ export const authenticate: MiddlewareHandler<AppBindings> = async (c, next) => {
     return c.json({ message: 'Authentication required' }, 401);
   }
 
-  const secret = c.env.JWT_SECRET;
+  const secret = c.env?.JWT_SECRET;
   if (!secret) {
     return c.json({ message: 'JWT_SECRET is not configured' }, 500);
   }
