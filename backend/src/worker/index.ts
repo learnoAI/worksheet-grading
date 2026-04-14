@@ -1,8 +1,7 @@
 import { Hono } from 'hono';
+import type { AppBindings } from './types';
 
-type Bindings = Record<string, unknown>;
-
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<AppBindings>();
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
