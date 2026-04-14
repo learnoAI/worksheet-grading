@@ -1,0 +1,7 @@
+name = "worksheet-grading-api"
+main = "src/worker/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# Account ID is sourced from CLOUDFLARE_ACCOUNT_ID env var (see .dev.vars / .env.local)
+# Bindings (Hyperdrive, R2, secrets) will be added in later phases.

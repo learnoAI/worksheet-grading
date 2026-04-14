@@ -15,7 +15,10 @@
     "prisma:deploy": "prisma migrate deploy",
     "import-learning-outcomes": "npm run prisma:generate && ts-node src/scripts/import-learning-outcomes.ts",
     "archive-dropouts": "ts-node src/scripts/archive-dropout-students.ts",
-    "export-admin-comments": "ts-node src/scripts/export-admin-comments.ts"
+    "export-admin-comments": "ts-node src/scripts/export-admin-comments.ts",
+    "worker:dev": "wrangler dev",
+    "worker:build": "wrangler deploy --dry-run --outdir=dist-worker",
+    "worker:deploy": "wrangler deploy"
   },
   "keywords": [],
   "author": "",

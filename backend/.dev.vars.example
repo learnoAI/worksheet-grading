@@ -1,0 +1,12 @@
+# Local dev vars for `wrangler dev` — copy to .dev.vars (gitignored) and fill in.
+# These are injected into the Worker's `env` at runtime.
+
+# Local Postgres connection (never use production DB here)
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/saarthi_test?schema=public
+
+JWT_SECRET=dev-only-secret-change-me
+CORS_ORIGINS=*
+
+# Internal worker shared secrets (match backend/.env)
+GRADING_WORKER_TOKEN=dev-grading-worker-token
+WORKSHEET_CREATION_WORKER_TOKEN=dev-worksheet-creation-token
