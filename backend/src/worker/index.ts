@@ -1,7 +1,13 @@
 import { Hono } from 'hono';
 import type { AppBindings } from './types';
+import { corsMiddleware } from './middleware/cors';
+import { requestContext } from './middleware/requestContext';
 
 const app = new Hono<AppBindings>();
+
+// Ordering matters: requestContext first so the ID is available in CORS/other logs.
+app.use('*', requestContext);
+app.use('*', corsMiddleware());
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
