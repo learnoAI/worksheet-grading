@@ -37,6 +37,7 @@
     "@types/jsonwebtoken": "^9.0.9",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.13.10",
+    "@types/pg": "^8.20.0",
     "eslint": "^9.22.0",
     "globals": "^16.0.0",
     "nodemon": "^3.1.9",
@@ -47,6 +48,7 @@
     "wrangler": "^4.82.2"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^6.19.3",
     "@prisma/client": "6.19.1",
     "@tanstack/react-table": "^8.21.2",
     "@types/form-data": "^2.2.1",
@@ -66,6 +68,7 @@
     "mongodb": "^7.0.0",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^2.7.0",
+    "pg": "^8.20.0",
     "prisma": "6.19.1",
     "puppeteer": "^24.38.0",
     "xlsx": "^0.18.5"
