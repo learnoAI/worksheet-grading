@@ -15,6 +15,7 @@ import {
 } from './routes/worksheetTemplates';
 import masteryRoutes from './routes/mastery';
 import analyticsRoutes from './routes/analytics';
+import internalWorksheetGenerationRoutes from './routes/internalWorksheetGeneration';
 
 const app = new Hono<AppBindings>();
 
@@ -37,6 +38,7 @@ app.route('/api/math-skills', mathSkillReadRoutes);
 app.route('/api/worksheet-curriculum', worksheetCurriculumReadRoutes);
 app.route('/api/mastery', masteryRoutes);
 app.route('/api/analytics', analyticsRoutes);
+app.route('/internal/worksheet-generation', internalWorksheetGenerationRoutes);
 
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
 
