@@ -242,3 +242,265 @@ describe('GET /api/worksheets/class/:classId/students', () => {
     ]);
   });
 });
+
+// ---------- Mutation tests ----------
+
+async function jsonRequest(
+  app: Hono<AppBindings>,
+  path: string,
+  method: string,
+  body: unknown,
+  role = 'TEACHER'
+) {
+  const token = await tokenAs(role);
+  return app.request(
+    path,
+    {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+    { JWT_SECRET: SECRET }
+  );
+}
+
+describe('POST /api/worksheets/grade — absent students', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('upserts an absent record with worksheetNumber=0 and grade=0', async () => {
+    const upsert = vi.fn().mockResolvedValue({ id: 'w1', isAbsent: true });
+    const app = mountApp({ worksheet: { upsert, findUnique: vi.fn() } });
+    const res = await jsonRequest(app, '/api/worksheets/grade', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      isAbsent: true,
+      submittedOn: '2026-04-10T00:00:00Z',
+    });
+    expect(res.status).toBe(201);
+    const call = upsert.mock.calls[0][0];
+    expect(call.where.unique_worksheet_per_student_day.worksheetNumber).toBe(0);
+    expect(call.create.isAbsent).toBe(true);
+    expect(call.create.grade).toBe(0);
+  });
+});
+
+describe('POST /api/worksheets/grade — non-absent validation', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('rejects invalid worksheetNumber', async () => {
+    const app = mountApp({ worksheet: { upsert: vi.fn() } });
+    const res = await jsonRequest(app, '/api/worksheets/grade', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 0,
+      grade: 10,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects grade out of range', async () => {
+    const app = mountApp({ worksheet: { upsert: vi.fn() } });
+    const res = await jsonRequest(app, '/api/worksheets/grade', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 41,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('connects template when one matches the worksheetNumber', async () => {
+    const upsert = vi.fn().mockResolvedValue({ id: 'w1' });
+    const app = mountApp({
+      worksheet: { upsert },
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue({ id: 't1' }) },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 32,
+    });
+    expect(res.status).toBe(201);
+    const call = upsert.mock.calls[0][0];
+    expect(call.create.templateId).toBe('t1');
+    expect(call.create.worksheetNumber).toBe(5);
+    expect(call.create.grade).toBe(32);
+  });
+});
+
+describe('PUT /api/worksheets/grade/:id', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 404 when the worksheet does not exist', async () => {
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        update: vi.fn(),
+      },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade/missing', 'PUT', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 30,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('clears grade state when flipping to absent', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'w1', isAbsent: true });
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'w1' }),
+        update,
+      },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade/w1', 'PUT', {
+      classId: 'c1',
+      studentId: 'st1',
+      isAbsent: true,
+    });
+    expect(res.status).toBe(200);
+    const call = update.mock.calls[0][0];
+    expect(call.data.grade).toBe(0);
+    expect(call.data.isAbsent).toBe(true);
+    expect(call.data.isRepeated).toBe(false);
+    expect(call.data.isIncorrectGrade).toBe(false);
+  });
+
+  it('returns 400 on invalid grade when not absent', async () => {
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'w1' }),
+        update: vi.fn(),
+      },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade/w1', 'PUT', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 100,
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('DELETE /api/worksheets/:id', () => {
+  it('deletes by id', async () => {
+    const del = vi.fn().mockResolvedValue({});
+    const app = mountApp({ worksheet: { delete: del } });
+    const token = await tokenAs('TEACHER');
+    const res = await app.request(
+      '/api/worksheets/w1',
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(200);
+    expect(del).toHaveBeenCalledWith({ where: { id: 'w1' } });
+  });
+
+  it('returns 403 for STUDENT', async () => {
+    const app = mountApp({ worksheet: { delete: vi.fn() } });
+    const token = await tokenAs('STUDENT');
+    const res = await app.request(
+      '/api/worksheets/w1',
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('PATCH /api/worksheets/:id/admin-comments', () => {
+  it('returns 403 for non-SUPERADMIN', async () => {
+    const app = mountApp({ worksheet: { findUnique: vi.fn(), update: vi.fn() } });
+    const res = await jsonRequest(
+      app,
+      '/api/worksheets/w1/admin-comments',
+      'PATCH',
+      { adminComments: 'hi' },
+      'TEACHER'
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('updates adminComments when SUPERADMIN', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'w1', adminComments: 'ok' });
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'w1' }),
+        update,
+      },
+    });
+    const res = await jsonRequest(
+      app,
+      '/api/worksheets/w1/admin-comments',
+      'PATCH',
+      { adminComments: 'ok' },
+      'SUPERADMIN'
+    );
+    expect(res.status).toBe(200);
+    const call = update.mock.calls[0][0];
+    expect(call.data.adminComments).toBe('ok');
+  });
+
+  it('normalizes empty string to null', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'w1' });
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'w1' }),
+        update,
+      },
+    });
+    await jsonRequest(
+      app,
+      '/api/worksheets/w1/admin-comments',
+      'PATCH',
+      { adminComments: '' },
+      'SUPERADMIN'
+    );
+    expect(update.mock.calls[0][0].data.adminComments).toBeNull();
+  });
+});
+
+describe('PATCH /api/worksheets/:id/mark-correct', () => {
+  it('returns 404 when worksheet missing', async () => {
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        update: vi.fn(),
+      },
+    });
+    const res = await jsonRequest(
+      app,
+      '/api/worksheets/w1/mark-correct',
+      'PATCH',
+      {},
+      'SUPERADMIN'
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('sets isIncorrectGrade=false', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'w1' });
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'w1' }),
+        update,
+      },
+    });
+    const res = await jsonRequest(
+      app,
+      '/api/worksheets/w1/mark-correct',
+      'PATCH',
+      {},
+      'SUPERADMIN'
+    );
+    expect(res.status).toBe(200);
+    expect(update.mock.calls[0][0].data.isIncorrectGrade).toBe(false);
+  });
+});

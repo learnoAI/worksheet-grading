@@ -1,10 +1,12 @@
 import { Hono } from 'hono';
-import { ProcessingStatus, UserRole } from '@prisma/client';
+import { ProcessingStatus, UserRole, Prisma } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
-import { validateQuery } from '../validation';
+import { validateQuery, validateJson } from '../validation';
 import {
   findWorksheetQuerySchema,
   historyQuerySchema,
+  gradeWorksheetSchema,
+  updateAdminCommentsSchema,
 } from '../schemas/worksheets';
 import type { AppBindings } from '../types';
 
@@ -235,6 +237,302 @@ worksheets.get('/:id', async (c) => {
   } catch (error) {
     console.error('Get worksheet by ID error:', error);
     return c.json({ message: 'Server error while retrieving worksheet' }, 500);
+  }
+});
+
+// ---------- Mutations ----------
+
+const requireSuperadmin = authorize([UserRole.SUPERADMIN]);
+
+worksheets.post(
+  '/grade',
+  requireAuthoringRole,
+  validateJson(gradeWorksheetSchema),
+  async (c) => {
+    const prisma = c.get('prisma');
+    if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+    const body = c.req.valid('json');
+    const user = c.get('user')!;
+    const submittedById = user.userId;
+
+    const submittedOnDate = body.submittedOn ? new Date(body.submittedOn) : new Date();
+    submittedOnDate.setUTCHours(0, 0, 0, 0);
+
+    try {
+      if (body.isAbsent) {
+        const row = await prisma.worksheet.upsert({
+          where: {
+            unique_worksheet_per_student_day: {
+              studentId: body.studentId,
+              classId: body.classId,
+              worksheetNumber: 0,
+              submittedOn: submittedOnDate,
+            },
+          },
+          update: {
+            grade: 0,
+            notes: body.notes || 'Student absent',
+            status: ProcessingStatus.COMPLETED,
+            isAbsent: true,
+            worksheetNumber: 0,
+          },
+          create: {
+            classId: body.classId,
+            studentId: body.studentId,
+            submittedById,
+            worksheetNumber: 0,
+            grade: 0,
+            notes: body.notes || 'Student absent',
+            status: ProcessingStatus.COMPLETED,
+            outOf: 40,
+            submittedOn: submittedOnDate,
+            isAbsent: true,
+            isRepeated: false,
+            isIncorrectGrade: false,
+          },
+        });
+        return c.json(row, 201);
+      }
+
+      const worksheetNum = Number(body.worksheetNumber);
+      if (!Number.isFinite(worksheetNum) || worksheetNum <= 0) {
+        return c.json(
+          { message: 'Valid worksheet number is required for non-absent students' },
+          400
+        );
+      }
+      const gradeValue = Number(body.grade);
+      if (!Number.isFinite(gradeValue) || gradeValue < 0 || gradeValue > 40) {
+        return c.json(
+          { message: 'Valid grade between 0 and 40 is required for non-absent students' },
+          400
+        );
+      }
+
+      const template = await prisma.worksheetTemplate.findFirst({
+        where: { worksheetNumber: worksheetNum },
+      });
+
+      const row = await prisma.worksheet.upsert({
+        where: {
+          unique_worksheet_per_student_day: {
+            studentId: body.studentId,
+            classId: body.classId,
+            worksheetNumber: worksheetNum,
+            submittedOn: submittedOnDate,
+          },
+        },
+        update: {
+          grade: gradeValue,
+          notes: body.notes ?? undefined,
+          status: ProcessingStatus.COMPLETED,
+          isIncorrectGrade: body.isIncorrectGrade ?? false,
+          isRepeated: body.isRepeated ?? false,
+          gradingDetails:
+            body.gradingDetails === undefined
+              ? undefined
+              : (body.gradingDetails as Prisma.InputJsonValue) || Prisma.DbNull,
+          wrongQuestionNumbers: body.wrongQuestionNumbers ?? null,
+          worksheetNumber: worksheetNum,
+        },
+        create: {
+          classId: body.classId,
+          studentId: body.studentId,
+          submittedById,
+          templateId: template?.id,
+          worksheetNumber: worksheetNum,
+          grade: gradeValue,
+          notes: body.notes ?? undefined,
+          status: ProcessingStatus.COMPLETED,
+          outOf: 40,
+          submittedOn: submittedOnDate,
+          isAbsent: false,
+          isRepeated: body.isRepeated ?? false,
+          isIncorrectGrade: body.isIncorrectGrade ?? false,
+          gradingDetails:
+            body.gradingDetails === undefined
+              ? undefined
+              : (body.gradingDetails as Prisma.InputJsonValue) || Prisma.DbNull,
+          wrongQuestionNumbers: body.wrongQuestionNumbers ?? null,
+        },
+      });
+      return c.json(row, 201);
+    } catch (error) {
+      console.error('Create graded worksheet error:', error);
+      return c.json({ message: 'Server error while creating worksheet' }, 500);
+    }
+  }
+);
+
+worksheets.put(
+  '/grade/:id',
+  requireAuthoringRole,
+  validateJson(gradeWorksheetSchema),
+  async (c) => {
+    const prisma = c.get('prisma');
+    if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+    const user = c.get('user')!;
+    const submittedById = user.userId;
+
+    try {
+      const existing = await prisma.worksheet.findUnique({ where: { id } });
+      if (!existing) return c.json({ message: 'No worksheet found to update' }, 404);
+
+      if (body.isAbsent) {
+        const row = await prisma.worksheet.update({
+          where: { id },
+          data: {
+            class: { connect: { id: body.classId } },
+            student: { connect: { id: body.studentId } },
+            submittedBy: { connect: { id: submittedById } },
+            grade: 0,
+            notes: body.notes || 'Student absent',
+            status: ProcessingStatus.COMPLETED,
+            outOf: 40,
+            template: { disconnect: true },
+            submittedOn: body.submittedOn ? new Date(body.submittedOn) : undefined,
+            isAbsent: true,
+            isRepeated: false,
+            isIncorrectGrade: false,
+            gradingDetails: Prisma.DbNull,
+            wrongQuestionNumbers: null,
+          },
+        });
+        return c.json(row, 200);
+      }
+
+      const worksheetNum = Number(body.worksheetNumber);
+      if (!Number.isFinite(worksheetNum) || worksheetNum <= 0) {
+        return c.json(
+          { message: 'Valid worksheet number is required for non-absent students' },
+          400
+        );
+      }
+      const gradeValue = Number(body.grade);
+      if (!Number.isFinite(gradeValue) || gradeValue < 0 || gradeValue > 40) {
+        return c.json(
+          { message: 'Valid grade between 0 and 40 is required for non-absent students' },
+          400
+        );
+      }
+
+      const template = await prisma.worksheetTemplate.findFirst({
+        where: { worksheetNumber: worksheetNum },
+      });
+
+      // Preserve prior values when the caller omits gradingDetails /
+      // wrongQuestionNumbers — mirrors the Express semantics where
+      // `undefined` means "no change" and explicit `null` means "clear".
+      const gradingDetails =
+        body.gradingDetails === undefined
+          ? undefined
+          : (body.gradingDetails as Prisma.InputJsonValue) || Prisma.DbNull;
+      const wrongQuestionNumbers =
+        body.wrongQuestionNumbers === undefined
+          ? undefined
+          : body.wrongQuestionNumbers;
+
+      const row = await prisma.worksheet.update({
+        where: { id },
+        data: {
+          class: { connect: { id: body.classId } },
+          student: { connect: { id: body.studentId } },
+          submittedBy: { connect: { id: submittedById } },
+          grade: gradeValue,
+          worksheetNumber: worksheetNum,
+          notes: body.notes ?? undefined,
+          status: ProcessingStatus.COMPLETED,
+          outOf: 40,
+          ...(template ? { template: { connect: { id: template.id } } } : {}),
+          submittedOn: body.submittedOn ? new Date(body.submittedOn) : undefined,
+          isAbsent: false,
+          isRepeated: body.isRepeated ?? false,
+          isIncorrectGrade: body.isIncorrectGrade ?? false,
+          gradingDetails,
+          wrongQuestionNumbers,
+        },
+      });
+      return c.json(row, 200);
+    } catch (error) {
+      console.error('Update graded worksheet error:', error);
+      return c.json({ message: 'Server error while updating worksheet' }, 500);
+    }
+  }
+);
+
+worksheets.delete('/:id', requireAuthoringRole, async (c) => {
+  const prisma = c.get('prisma');
+  if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+  const id = c.req.param('id');
+  try {
+    await prisma.worksheet.delete({ where: { id } });
+    return c.json({ message: 'Worksheet deleted successfully' }, 200);
+  } catch (error) {
+    console.error('Delete graded worksheet error:', error);
+    return c.json({ message: 'Server error while deleting worksheet' }, 500);
+  }
+});
+
+worksheets.patch(
+  '/:id/admin-comments',
+  requireSuperadmin,
+  validateJson(updateAdminCommentsSchema),
+  async (c) => {
+    const prisma = c.get('prisma');
+    if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+    const id = c.req.param('id');
+    const { adminComments } = c.req.valid('json');
+
+    try {
+      const existing = await prisma.worksheet.findUnique({ where: { id } });
+      if (!existing) return c.json({ message: 'Worksheet not found' }, 404);
+
+      const updated = await prisma.worksheet.update({
+        where: { id },
+        data: {
+          adminComments: adminComments || null,
+          updatedAt: new Date(),
+        },
+      });
+      return c.json(
+        { message: 'Admin comments updated successfully', worksheet: updated },
+        200
+      );
+    } catch (error) {
+      console.error('Update worksheet admin comments error:', error);
+      return c.json({ message: 'Server error while updating admin comments' }, 500);
+    }
+  }
+);
+
+worksheets.patch('/:id/mark-correct', requireSuperadmin, async (c) => {
+  const prisma = c.get('prisma');
+  if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+  const id = c.req.param('id');
+  try {
+    const existing = await prisma.worksheet.findUnique({ where: { id } });
+    if (!existing) return c.json({ message: 'Worksheet not found' }, 404);
+
+    const updated = await prisma.worksheet.update({
+      where: { id },
+      data: { isIncorrectGrade: false, updatedAt: new Date() },
+    });
+    return c.json(
+      { message: 'Worksheet marked as correctly graded', worksheet: updated },
+      200
+    );
+  } catch (error) {
+    console.error('Mark worksheet as correctly graded error:', error);
+    return c.json(
+      { message: 'Server error while updating worksheet grading status' },
+      500
+    );
   }
 });
 
