@@ -46,3 +46,16 @@ export const gradeWorksheetSchema = z.object({
 export const updateAdminCommentsSchema = z.object({
   adminComments: z.string().nullable().optional(),
 });
+
+export const checkRepeatedSchema = z.object({
+  classId: z.string().min(1, { message: 'Class ID is required' }),
+  studentId: z.string().min(1, { message: 'Student ID is required' }),
+  worksheetNumber: z.union([z.number(), z.string()]),
+  beforeDate: z.string().datetime({ message: 'beforeDate must be a valid ISO date' }).optional(),
+});
+
+export const batchSaveSchema = z.object({
+  classId: z.string().min(1, { message: 'Class ID is required' }),
+  submittedOn: z.string().datetime({ message: 'submittedOn must be a valid ISO date' }),
+  worksheets: z.array(z.record(z.string(), z.unknown())),
+});

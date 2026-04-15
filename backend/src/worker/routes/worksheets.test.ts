@@ -467,6 +467,135 @@ describe('PATCH /api/worksheets/:id/admin-comments', () => {
   });
 });
 
+describe('POST /api/worksheets/check-repeated', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('rejects invalid worksheetNumber with 400', async () => {
+    const app = mountApp({
+      worksheetTemplate: { findFirst: vi.fn() },
+      worksheet: { findFirst: vi.fn() },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/check-repeated', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 0,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns isRepeated=false when template not found', async () => {
+    const app = mountApp({
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
+      worksheet: { findFirst: vi.fn() },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/check-repeated', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { isRepeated: boolean };
+    expect(body.isRepeated).toBe(false);
+  });
+
+  it('returns isRepeated=true with previous worksheet details when found', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'w-prev',
+      grade: 30,
+      submittedOn: new Date('2026-03-01'),
+    });
+    const app = mountApp({
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue({ id: 't1' }) },
+      worksheet: { findFirst },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/check-repeated', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { isRepeated: boolean; previousWorksheet: { id: string } };
+    expect(body.isRepeated).toBe(true);
+    expect(body.previousWorksheet.id).toBe('w-prev');
+  });
+
+  it('applies beforeDate filter when provided', async () => {
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const app = mountApp({
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue({ id: 't1' }) },
+      worksheet: { findFirst },
+    });
+    await jsonRequest(app, '/api/worksheets/check-repeated', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      beforeDate: '2026-04-10T00:00:00Z',
+    });
+    const where = findFirst.mock.calls[0][0].where;
+    expect(where.submittedOn.lt).toBeInstanceOf(Date);
+  });
+});
+
+describe('POST /api/worksheets/batch-save', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('deletes rows marked with action=delete', async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 2 });
+    const app = mountApp({ worksheet: { deleteMany } });
+    const res = await jsonRequest(app, '/api/worksheets/batch-save', 'POST', {
+      classId: 'c1',
+      submittedOn: '2026-04-10T00:00:00Z',
+      worksheets: [{ studentId: 'st1', action: 'delete' }],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: number };
+    expect(body.deleted).toBe(2);
+    expect(deleteMany).toHaveBeenCalled();
+  });
+
+  it('upserts absent rows with worksheetNumber 0', async () => {
+    const upsert = vi.fn().mockResolvedValue({});
+    const app = mountApp({ worksheet: { upsert } });
+    const res = await jsonRequest(app, '/api/worksheets/batch-save', 'POST', {
+      classId: 'c1',
+      submittedOn: '2026-04-10T00:00:00Z',
+      worksheets: [{ studentId: 'st1', isAbsent: true }],
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json() as { saved: number }).saved).toBe(1);
+    const call = upsert.mock.calls[0][0];
+    expect(call.where.unique_worksheet_per_student_day.worksheetNumber).toBe(0);
+  });
+
+  it('captures per-row errors without aborting the batch', async () => {
+    const upsert = vi.fn().mockResolvedValue({});
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const app = mountApp({
+      worksheet: { upsert, findFirst },
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/batch-save', 'POST', {
+      classId: 'c1',
+      submittedOn: '2026-04-10T00:00:00Z',
+      worksheets: [
+        { studentId: 'st1', worksheetNumber: 5, grade: 30 },
+        { /* missing studentId */ worksheetNumber: 5, grade: 30 },
+        { studentId: 'st2', worksheetNumber: 0, grade: 30 },
+        { studentId: 'st3', worksheetNumber: 5, grade: 50 }, // out of range
+      ],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      saved: number;
+      failed: number;
+      errors: Array<{ studentId: string; error: string }>;
+    };
+    expect(body.saved).toBe(1);
+    expect(body.failed).toBe(3);
+    expect(body.errors.length).toBe(3);
+  });
+});
+
 describe('PATCH /api/worksheets/:id/mark-correct', () => {
   it('returns 404 when worksheet missing', async () => {
     const app = mountApp({

@@ -7,6 +7,8 @@ import {
   historyQuerySchema,
   gradeWorksheetSchema,
   updateAdminCommentsSchema,
+  checkRepeatedSchema,
+  batchSaveSchema,
 } from '../schemas/worksheets';
 import type { AppBindings } from '../types';
 
@@ -535,5 +537,243 @@ worksheets.patch('/:id/mark-correct', requireSuperadmin, async (c) => {
     );
   }
 });
+
+// ---------- Derived queries + batch operations ----------
+
+worksheets.post(
+  '/check-repeated',
+  requireAuthoringRole,
+  validateJson(checkRepeatedSchema),
+  async (c) => {
+    const prisma = c.get('prisma');
+    if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+    const { classId, studentId, worksheetNumber, beforeDate } = c.req.valid('json');
+    const worksheetNum =
+      typeof worksheetNumber === 'number' ? worksheetNumber : parseInt(worksheetNumber, 10);
+    if (!Number.isFinite(worksheetNum) || worksheetNum <= 0) {
+      return c.json({ message: 'Invalid worksheet number' }, 400);
+    }
+
+    try {
+      const template = await prisma.worksheetTemplate.findFirst({
+        where: { worksheetNumber: worksheetNum },
+      });
+
+      if (!template) {
+        return c.json(
+          { isRepeated: false, reason: 'Template not found for this worksheet number' },
+          200
+        );
+      }
+
+      const dateFilter: { lt?: Date } = {};
+      if (beforeDate) {
+        const d = new Date(beforeDate);
+        d.setUTCHours(23, 59, 59, 999);
+        dateFilter.lt = d;
+      }
+
+      const existing = await prisma.worksheet.findFirst({
+        where: {
+          classId,
+          studentId,
+          templateId: template.id,
+          status: ProcessingStatus.COMPLETED,
+          isAbsent: false,
+          grade: { not: null },
+          ...(beforeDate ? { submittedOn: dateFilter } : {}),
+        },
+        select: { id: true, grade: true, submittedOn: true },
+        orderBy: { submittedOn: 'desc' },
+      });
+
+      return c.json(
+        {
+          isRepeated: !!existing,
+          previousWorksheet: existing
+            ? { id: existing.id, grade: existing.grade, submittedOn: existing.submittedOn }
+            : null,
+        },
+        200
+      );
+    } catch (error) {
+      console.error('Check is repeated error:', error);
+      return c.json({ message: 'Server error while checking repeated status' }, 500);
+    }
+  }
+);
+
+/**
+ * Batch save worksheets for a class on a given day. Each row can be a
+ * grade save, an absent marker, or a delete. Mirrors the Express
+ * implementation 1:1 — failures on individual rows are captured in the
+ * per-row `errors` array and the rest of the batch continues.
+ */
+worksheets.post(
+  '/batch-save',
+  requireAuthoringRole,
+  validateJson(batchSaveSchema),
+  async (c) => {
+    const prisma = c.get('prisma');
+    if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+    const { classId, submittedOn, worksheets: rows } = c.req.valid('json');
+    const user = c.get('user')!;
+    const submittedById = user.userId;
+
+    const submittedOnDate = new Date(submittedOn);
+    submittedOnDate.setUTCHours(0, 0, 0, 0);
+
+    const results = {
+      saved: 0,
+      updated: 0,
+      deleted: 0,
+      failed: 0,
+      errors: [] as { studentId: string; error: string }[],
+    };
+
+    try {
+      for (const raw of rows) {
+        const ws = raw as Record<string, unknown>;
+        const studentId = typeof ws.studentId === 'string' ? ws.studentId : undefined;
+        if (!studentId) {
+          results.failed++;
+          results.errors.push({ studentId: 'unknown', error: 'Missing studentId' });
+          continue;
+        }
+        const action = ws.action;
+        const isAbsent = Boolean(ws.isAbsent);
+        const isRepeated = Boolean(ws.isRepeated);
+        const isIncorrectGrade = Boolean(ws.isIncorrectGrade);
+        const gradingDetails = ws.gradingDetails;
+        const wrongQuestionNumbers = ws.wrongQuestionNumbers as number[] | null | undefined;
+
+        try {
+          if (action === 'delete') {
+            const del = await prisma.worksheet.deleteMany({
+              where: { classId, studentId, submittedOn: submittedOnDate },
+            });
+            if (del.count > 0) results.deleted += del.count;
+            continue;
+          }
+
+          if (isAbsent) {
+            await prisma.worksheet.upsert({
+              where: {
+                unique_worksheet_per_student_day: {
+                  studentId,
+                  classId,
+                  worksheetNumber: 0,
+                  submittedOn: submittedOnDate,
+                },
+              },
+              update: {
+                grade: 0,
+                isAbsent: true,
+                status: ProcessingStatus.COMPLETED,
+                worksheetNumber: 0,
+              },
+              create: {
+                classId,
+                studentId,
+                submittedById,
+                worksheetNumber: 0,
+                grade: 0,
+                isAbsent: true,
+                isRepeated: false,
+                status: ProcessingStatus.COMPLETED,
+                outOf: 40,
+                submittedOn: submittedOnDate,
+              },
+            });
+            results.saved++;
+            continue;
+          }
+
+          const worksheetNum =
+            typeof ws.worksheetNumber === 'number'
+              ? ws.worksheetNumber
+              : parseInt(String(ws.worksheetNumber ?? ''), 10);
+          if (!Number.isFinite(worksheetNum) || worksheetNum <= 0) {
+            results.failed++;
+            results.errors.push({ studentId, error: 'Invalid worksheet number' });
+            continue;
+          }
+
+          const gradeValue = parseFloat(String(ws.grade ?? ''));
+          if (!Number.isFinite(gradeValue) || gradeValue < 0 || gradeValue > 40) {
+            results.failed++;
+            results.errors.push({ studentId, error: 'Invalid grade (must be 0-40)' });
+            continue;
+          }
+
+          const template = await prisma.worksheetTemplate.findFirst({
+            where: { worksheetNumber: worksheetNum },
+          });
+
+          const existing = await prisma.worksheet.findFirst({
+            where: {
+              studentId,
+              classId,
+              worksheetNumber: worksheetNum,
+              submittedOn: submittedOnDate,
+            },
+          });
+
+          await prisma.worksheet.upsert({
+            where: {
+              unique_worksheet_per_student_day: {
+                studentId,
+                classId,
+                worksheetNumber: worksheetNum,
+                submittedOn: submittedOnDate,
+              },
+            },
+            update: {
+              grade: gradeValue,
+              status: ProcessingStatus.COMPLETED,
+              isRepeated,
+              isIncorrectGrade,
+              gradingDetails: (gradingDetails as Prisma.InputJsonValue) || undefined,
+              wrongQuestionNumbers: wrongQuestionNumbers || undefined,
+              worksheetNumber: worksheetNum,
+            },
+            create: {
+              classId,
+              studentId,
+              submittedById,
+              templateId: template?.id,
+              worksheetNumber: worksheetNum,
+              grade: gradeValue,
+              status: ProcessingStatus.COMPLETED,
+              outOf: 40,
+              submittedOn: submittedOnDate,
+              isAbsent: false,
+              isRepeated,
+              isIncorrectGrade,
+              gradingDetails: (gradingDetails as Prisma.InputJsonValue) || undefined,
+              wrongQuestionNumbers: wrongQuestionNumbers || undefined,
+            },
+          });
+
+          if (existing) results.updated++;
+          else results.saved++;
+        } catch (rowErr) {
+          results.failed++;
+          results.errors.push({
+            studentId,
+            error: rowErr instanceof Error ? rowErr.message : 'Unknown error',
+          });
+        }
+      }
+
+      return c.json({ success: true, ...results }, 200);
+    } catch (error) {
+      console.error('Batch save worksheets error:', error);
+      return c.json({ message: 'Server error while saving worksheets' }, 500);
+    }
+  }
+);
 
 export default worksheets;
