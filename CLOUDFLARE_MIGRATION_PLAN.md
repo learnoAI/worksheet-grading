@@ -608,6 +608,36 @@ They were not ported in Phase 5.8 and are tracked for Phase 5.10/5.11.
 
 **When to address:** Phase 5.11, bundled with the Multer-using routes.
 
+### C8 — Internal grading-worker + question-bank routes deferred past 5.9
+
+**Discovered:** Phase 5.9 (internal worker routes).
+
+**Observation:** Phase 5.9 ported `/internal/worksheet-generation/*` (3
+routes) but deferred the other two internal route groups because their
+controllers pull in heavy service dependencies that have not yet been made
+Workers-compatible:
+
+- `/internal/grading-worker/*` (5 routes, 507-line controller) depends on
+  `gradingJobLifecycleService`, `gradingWorksheetPersistenceService`,
+  `gradingDiagnostics`, `errorLogService` (MongoDB), `logger`,
+  `posthogService`, `masteryService` — all reading Prisma via the module
+  singleton, plus raw `$queryRaw` for `SELECT NOW()` and `FOR UPDATE`.
+- `/internal/question-bank/*` (2 routes) depends on
+  `worksheetBatchService.onSkillQuestionsReady` which in turn pulls in
+  `buildSections`, `enqueuePdfRendering`, `createPdfRenderMessage` and the
+  whole CF Queues HTTP client.
+
+**Pragmatic note — duplication in C8a:** For
+`/internal/worksheet-generation/*` we chose to **inline** the 15-line
+`onWorksheetPdfComplete` helper inside the worker route rather than refactor
+`worksheetBatchService` now. The Express path still uses the original
+service file. Both paths write to the same `WorksheetBatch` rows, so staying
+in sync during the parallel-run window is OK — but the duplication must be
+collapsed when the service layer is adapted in Phase 5.10.
+
+**When to address:** Phase 5.11 (complex routes), after Phase 5.10 lands
+prisma-injected service helpers and a Workers-compatible CF Queues client.
+
 ### C5 — Production credentials currently in `backend/.env`
 
 **Discovered:** Phase 5 planning (env file review).
