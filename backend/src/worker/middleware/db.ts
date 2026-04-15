@@ -30,13 +30,20 @@ function getOrCreateClient(env: WorkerEnv): PrismaClient {
 /**
  * Injects a Prisma client into `c.var.prisma` for downstream handlers.
  *
- * Tests can bypass this middleware by setting `c.set('prisma', mockClient)`
- * in an earlier middleware — this handler is a no-op when a prisma client
- * is already present.
+ * Behavior:
+ *   - If a prisma client is already on the context (e.g. set by tests), skip.
+ *   - Otherwise, attempt to build one from `env`. If the env lacks a
+ *     connection string (e.g. the /health endpoint running in a smoke test),
+ *     leave `c.var.prisma` unset and let downstream handlers decide — routes
+ *     that need the DB check for its presence and return 500 with a clear
+ *     message. Health / readiness endpoints that don't need a DB still work.
  */
 export const withDb: MiddlewareHandler<AppBindings> = async (c, next) => {
   if (!c.get('prisma')) {
-    c.set('prisma', getOrCreateClient(c.env ?? ({} as WorkerEnv)));
+    const env = c.env ?? ({} as WorkerEnv);
+    if (env.HYPERDRIVE?.connectionString || env.DATABASE_URL) {
+      c.set('prisma', getOrCreateClient(env));
+    }
   }
   await next();
 };

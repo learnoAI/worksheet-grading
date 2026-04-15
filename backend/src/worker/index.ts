@@ -2,16 +2,21 @@ import { Hono } from 'hono';
 import type { AppBindings } from './types';
 import { corsMiddleware } from './middleware/cors';
 import { requestContext } from './middleware/requestContext';
+import { withDb } from './middleware/db';
+import authRoutes from './routes/auth';
 
 const app = new Hono<AppBindings>();
 
 // Ordering matters: requestContext first so the ID is available in CORS/other logs.
 app.use('*', requestContext);
 app.use('*', corsMiddleware());
+app.use('*', withDb);
 
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
 app.get('/', (c) => c.text('AssessWise API (hono worker)'));
+
+app.route('/api/auth', authRoutes);
 
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
 
