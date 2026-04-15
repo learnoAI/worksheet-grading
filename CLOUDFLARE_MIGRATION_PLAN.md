@@ -468,3 +468,124 @@ express                     # Replace with Hono (Phase 5)
 cors                        # Built into Hono (Phase 5)
 form-data                   # Native in Workers (Phase 5)
 ```
+
+---
+
+## Known Concerns / Tracked Issues
+
+Items discovered during migration that do not block current progress but must
+be revisited before full cutover (Phase 5.12) or soon after.
+
+### C1 — Worker bundle size inflated by Prisma client
+
+**Discovered:** Phase 5.5 (auth routes on Hono worker).
+
+**Observation:** Before mounting Prisma-using routes, the worker bundle is
+~87 KiB. After importing `@prisma/client` for the auth route, the bundle
+jumps to ~3.4 MB uncompressed / ~1.1 MB gzipped. Cloudflare Workers paid
+plan allows up to 10 MB compressed, so we are under the limit but with
+only ~9 MB of headroom — and we have not yet ported the other 14 route
+groups that will pull in more Prisma model code.
+
+**Why it matters:**
+
+- Larger bundles increase Worker cold-start time (isolate boot + JS parse).
+- We risk hitting the 10 MB cap as more models and business logic ship.
+- Prisma's default client bundles the entire query engine, including code
+  paths we do not use (e.g. MongoDB adapter, Data Proxy transport).
+
+**Mitigation options (in preference order):**
+
+1. **Prisma `client` generator with Workers target.** Regenerate the client
+   with `generator client { provider = "prisma-client"; runtime = "workerd"; moduleFormat = "esm"; output = "..." }`.
+   The new-style generator emits a smaller Workers-optimized client and
+   supports tree-shaking per-model code. Requires Prisma 6.7+ (we are on
+   6.19, so supported).
+2. **Scope Prisma imports.** Import `PrismaClient` only where needed and
+   audit route files to avoid accidental re-exports that pull the whole
+   client into every route's tree.
+3. **Prisma Accelerate (paid service).** Moves query execution to
+   Cloudflare-adjacent proxies, leaving the Worker with a thin HTTP client
+   (<50 KiB). Adds vendor dependency and per-query cost; treat as fallback.
+4. **Split deploys.** If the bundle keeps growing, split into multiple
+   Workers (e.g. public API worker vs internal worker) routed via service
+   bindings or path-based routing.
+
+**When to address:** Before Phase 5.11 (complex route batch), or earlier
+if dev builds approach 7 MB compressed. Track bundle size after every
+phase as a smoke check.
+
+**Tracking:** Re-measure at end of each sub-phase with
+`cd backend && npx wrangler deploy --dry-run --outdir=dist-worker` and
+record the `Total Upload` size.
+
+### C2 — Pre-existing Express test flake: `internalGradingWorkerController.test.ts`
+
+**Discovered:** Phase 5.1, self-resolved in Phase 5.2.
+
+**Observation:** On first run the test failed with
+`TypeError: Cannot read properties of undefined (reading 'NOT_STARTED')` at
+`masteryService.ts:192`. Re-ran after `npx prisma generate` in Phase 5.2
+and it passed; has been stable since. Root cause was a stale generated
+Prisma client where the `MasteryLevel` enum had not been regenerated after
+a recent schema change.
+
+**Action:** Add a `postinstall` guard that runs `prisma generate` (already
+present) and ensure CI does the same. No code change needed now.
+
+### C3 — Node engine mismatch in local dev
+
+**Discovered:** Phase 5.2 (npm install warnings).
+
+**Observation:** `backend/package.json` declares `"engines": { "node": "22.x" }`
+but the local machine runs Node 25. npm emits `EBADENGINE` warnings and
+some transitive packages (notably `jsonwebtoken`'s `buffer-equal-constant-time`)
+fail to initialize in the Vitest runtime. We worked around this in the
+worker by using `hono/jwt` instead.
+
+**Why it matters:** The Express server still uses `jsonwebtoken`. If
+production runs on Node 22.x (per `engines`), this is invisible there, but
+any developer running on a newer Node version gets a broken test suite for
+Express code paths.
+
+**Mitigation:** Either (a) loosen the engines range to `">=22"` after
+validating Node 24/25 compatibility for the Express stack, or (b) document
+that contributors must use Node 22.x locally (e.g. via `.nvmrc`).
+
+**When to address:** Opportunistically. Not urgent while Express is being
+deprecated.
+
+### C4 — `GRADING_DISPATCH_LOOP_ON_WEB=true` on current Express
+
+**Discovered:** Background knowledge during exploration (Phase 5 planning).
+
+**Observation:** The current Express server runs the grading dispatch loop
+in-process (`GRADING_DISPATCH_LOOP_ON_WEB=true` in `backend/.env`). When
+we cut Hono over, the Hono Worker is request-scoped and cannot host a
+long-running interval loop. The dispatch loop needs to move to either (a)
+a Cloudflare Cron-triggered Worker, (b) a Durable Object with alarms, or
+(c) stay on a small Node host during a transition window.
+
+**Why it matters:** Cutover plan must not decommission the Express web
+server until a replacement dispatch loop is running, or grading jobs will
+stop being picked up.
+
+**When to address:** Phase 5.12 (cutover). Pre-requisite for turning off
+the DO App Platform instance.
+
+### C5 — Production credentials currently in `backend/.env`
+
+**Discovered:** Phase 5 planning (env file review).
+
+**Observation:** `backend/.env` contains live production secrets
+(database URL, JWT secret, CF API tokens, R2 keys, Mongo URL) — fine for
+single-developer local dev with a `.gitignore`'d file, but risky if the
+backend worker inherits the same resolution chain. The worker reads from
+`.dev.vars` / wrangler secrets, not `backend/.env`, so this is already
+isolated, but the principle stands.
+
+**Action:** Before deploying the Hono worker to production, migrate all
+secrets to `wrangler secret put`. Never copy production values into
+`.dev.vars`.
+
+**When to address:** Phase 5.12 (deployment prep).
