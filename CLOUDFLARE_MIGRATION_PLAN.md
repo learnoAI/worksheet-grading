@@ -573,6 +573,41 @@ stop being picked up.
 **When to address:** Phase 5.12 (cutover). Pre-requisite for turning off
 the DO App Platform instance.
 
+### C6 — Multer-using routes deferred past Phase 5.8
+
+**Discovered:** Phase 5.8 (file upload routes).
+
+**Observation:** Only two endpoints in the Express backend actually use
+Multer: `POST /api/worksheets/upload` and `POST /api/worksheet-processing/process`.
+Phase 5.8 delivered the `parseMultipartFiles` helper (a Multer replacement
+for Workers) but did not port the two routes themselves, because both also
+depend on service-layer code that is not yet Workers-compatible:
+
+- `POST /api/worksheets/upload` — calls `s3Service.uploadToS3`, which uses
+  `aws-sdk` v2 (Node-only). Must migrate to `aws4fetch` or AWS SDK v3 in
+  Phase 5.10.
+- `POST /api/worksheet-processing/process` — calls the Python API with
+  `node-fetch` and `form-data`. Must migrate to native `fetch` + native
+  `FormData` in Phase 5.10.
+
+**When to address:** Phase 5.11 (complex routes), after service adaptations
+in Phase 5.10 land. The `parseMultipartFiles` helper is ready and tested;
+the routes are thin layers on top of it.
+
+### C7 — Worksheet-processing direct-upload session routes pending
+
+**Discovered:** Phase 5.8 scope review.
+
+**Observation:** The direct-upload session routes
+(`POST /api/worksheet-processing/upload-session`,
+`GET /api/worksheet-processing/upload-session/:batchId`,
+`POST /api/worksheet-processing/upload-session/:batchId/finalize`) are
+pure JSON endpoints (no Multer), but they still depend on
+`s3Service.getPresignedUrl` and the Cloudflare Queue publisher service.
+They were not ported in Phase 5.8 and are tracked for Phase 5.10/5.11.
+
+**When to address:** Phase 5.11, bundled with the Multer-using routes.
+
 ### C5 — Production credentials currently in `backend/.env`
 
 **Discovered:** Phase 5 planning (env file review).
