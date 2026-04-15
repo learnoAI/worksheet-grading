@@ -6,6 +6,7 @@ import { withDb } from './middleware/db';
 import authRoutes from './routes/auth';
 import notificationRoutes from './routes/notifications';
 import schoolRoutes from './routes/schools';
+import userRoutes from './routes/users';
 
 const app = new Hono<AppBindings>();
 
@@ -21,6 +22,7 @@ app.get('/', (c) => c.text('AssessWise API (hono worker)'));
 app.route('/api/auth', authRoutes);
 app.route('/api/notifications', notificationRoutes);
 app.route('/api/schools', schoolRoutes);
+app.route('/api/users', userRoutes);
 
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
 
