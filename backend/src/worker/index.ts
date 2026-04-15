@@ -7,6 +7,7 @@ import authRoutes from './routes/auth';
 import notificationRoutes from './routes/notifications';
 import schoolRoutes from './routes/schools';
 import userRoutes from './routes/users';
+import classRoutes from './routes/classes';
 
 const app = new Hono<AppBindings>();
 
@@ -23,6 +24,7 @@ app.route('/api/auth', authRoutes);
 app.route('/api/notifications', notificationRoutes);
 app.route('/api/schools', schoolRoutes);
 app.route('/api/users', userRoutes);
+app.route('/api/classes', classRoutes);
 
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
 
