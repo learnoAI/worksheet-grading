@@ -3,5 +3,58 @@ main = "src/worker/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
-# Account ID is sourced from CLOUDFLARE_ACCOUNT_ID env var (see .dev.vars / .env.local)
-# Bindings (Hyperdrive, R2, secrets) will be added in later phases.
+# Account ID comes from CLOUDFLARE_ACCOUNT_ID in the shell env (see
+# `.dev.vars.example`). Secrets are set with `wrangler secret put`.
+
+# ── Bindings ───────────────────────────────────────────────────────────────
+#
+# Every production binding is commented out by default. Uncomment a block
+# only after you have (a) created the resource in the Cloudflare dashboard,
+# and (b) populated the matching id/name fields. `npm run worker:build`
+# works without any bindings — it just won't be able to query the DB, read
+# R2 files, or publish to queues.
+
+# ── Hyperdrive (Postgres) ─────────────────────────────────────────────────
+# Create with:
+#   wrangler hyperdrive create worksheet-grading-pg \
+#     --connection-string="postgres://user:pass@host:5432/db"
+#
+# [[hyperdrive]]
+# binding = "HYPERDRIVE"
+# id = "<hyperdrive-id-from-dashboard>"
+# localConnectionString = "postgresql://postgres:postgres@localhost:5432/saarthi_test?schema=public"
+
+# ── R2 (Object Storage) ───────────────────────────────────────────────────
+# Reuses the existing production bucket — matches R2_BUCKET_NAME in the
+# Express backend so files written by the grading consumer stay readable.
+#
+# [[r2_buckets]]
+# binding = "WORKSHEET_FILES"
+# bucket_name = "worksheet-grading-files"
+
+# ── Static variables ──────────────────────────────────────────────────────
+# Non-secret config goes in [vars]; secrets (DB URL, API tokens, JWT
+# secret) go through `wrangler secret put`. See DEPLOYMENT.md.
+#
+# [vars]
+# NODE_ENV = "production"
+# CORS_ORIGINS = "https://worksheet-grading-web.madhav-2ff.workers.dev,https://app.saarthi.ai"
+# CF_API_BASE_URL = "https://api.cloudflare.com/client/v4"
+# POSTHOG_HOST = "https://us.i.posthog.com"
+# EXPRESS_FALLBACK_URL = "https://king-prawn-app-k2urh.ondigitalocean.app/worksheet-grading-backend"
+
+# ── Secrets (set via `wrangler secret put` — never in this file) ─────────
+#   DATABASE_URL                    — Postgres URL (fallback when no
+#                                      Hyperdrive binding; not needed in
+#                                      production once Hyperdrive is live)
+#   JWT_SECRET                      — matches the Express backend
+#   GRADING_WORKER_TOKEN            — shared secret with the grading CF worker
+#   WORKSHEET_CREATION_WORKER_TOKEN — shared secret with the PDF renderer
+#   CF_ACCOUNT_ID                   — account that owns the grading queue
+#   CF_API_TOKEN                    — token with queues:write scope
+#   CF_QUEUE_ID                     — ID of grading-fast queue
+#   POSTHOG_API_KEY                 — only set when analytics is enabled
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
+#   R2_BUCKET_NAME, R2_ENDPOINT, R2_PUBLIC_BASE_URL
+#                                   — needed by aws4fetch for presigned
+#                                     upload URLs

@@ -4,9 +4,33 @@
 # Local Postgres connection (never use production DB here)
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/saarthi_test?schema=public
 
+# JWT — match the secret your Express backend uses if you want a single
+# token to work across both.
 JWT_SECRET=dev-only-secret-change-me
+
+# CORS: accept everything in dev; narrow down in production [vars] block.
 CORS_ORIGINS=*
 
-# Internal worker shared secrets (match backend/.env)
+# Internal worker shared secrets (match backend/.env when running both sides)
 GRADING_WORKER_TOKEN=dev-grading-worker-token
 WORKSHEET_CREATION_WORKER_TOKEN=dev-worksheet-creation-token
+
+# Express fallback — point at your local Express server so unported routes
+# still work during wrangler dev. Leave unset to force 404 on unknown paths
+# (useful when validating that Hono really handles every expected route).
+# EXPRESS_FALLBACK_URL=http://localhost:5100
+
+# Cloudflare Queues publishing (only needed if your local worker enqueues
+# grading jobs — usually you leave this blank locally).
+# CF_ACCOUNT_ID=...
+# CF_API_TOKEN=...
+# CF_QUEUE_ID=...
+
+# Object storage — aws4fetch presigned URLs (only needed for the direct
+# upload flow once it ships in Phase 5.13).
+# R2_ACCOUNT_ID=...
+# R2_ACCESS_KEY_ID=...
+# R2_SECRET_ACCESS_KEY=...
+# R2_BUCKET_NAME=worksheet-grading-files
+# R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+# R2_PUBLIC_BASE_URL=https://pub-<id>.r2.dev
