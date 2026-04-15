@@ -24,6 +24,9 @@ export interface WorkerEnv {
   GRADING_WORKER_TOKEN?: string;
   WORKSHEET_CREATION_WORKER_TOKEN?: string;
 
+  // Fallback URL for routes not yet ported to Hono (Phase 5.13 scope).
+  EXPRESS_FALLBACK_URL?: string;
+
   // Object storage — native R2 binding (preferred) and S3-compatible
   // endpoint config used by aws4fetch for presigned URLs.
   WORKSHEET_FILES?: R2Bucket;

@@ -14,9 +14,12 @@ describe('hono worker', () => {
     expect(await res.text()).toContain('AssessWise API');
   });
 
-  it('GET /missing returns 404 json', async () => {
+  it('GET /missing falls through to the Express fallback (or 404 when unset)', async () => {
+    // No EXPRESS_FALLBACK_URL in env → the fallback responds 404 with a
+    // configuration-hint message. This proves the catch-all is wired.
     const res = await app.request('/missing');
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: 'Not Found' });
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('EXPRESS_FALLBACK_URL');
   });
 });

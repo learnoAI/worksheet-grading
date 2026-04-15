@@ -17,6 +17,7 @@ import masteryRoutes from './routes/mastery';
 import analyticsRoutes from './routes/analytics';
 import internalWorksheetGenerationRoutes from './routes/internalWorksheetGeneration';
 import worksheetRoutes from './routes/worksheets';
+import { expressFallback } from './fallback';
 
 const app = new Hono<AppBindings>();
 
@@ -41,6 +42,12 @@ app.route('/api/mastery', masteryRoutes);
 app.route('/api/analytics', analyticsRoutes);
 app.route('/internal/worksheet-generation', internalWorksheetGenerationRoutes);
 app.route('/api/worksheets', worksheetRoutes);
+
+// Catch-all fallback: any path not handled above is proxied to the Express
+// service. Must stay LAST. Once Phase 5.13 lands and every route is on
+// Hono, unset `EXPRESS_FALLBACK_URL` (the fallback then returns 404 for
+// unknown paths, which is the desired terminal behavior).
+app.all('*', expressFallback());
 
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
 
