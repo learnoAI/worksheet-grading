@@ -201,3 +201,52 @@ describe('GET /api/mastery/class/:classId', () => {
     );
   });
 });
+
+describe('GET /api/mastery/student/:studentId/recommendations', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns an empty list when the student has no eligible skills', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const app = mountApp({ studentSkillMastery: { findMany } });
+    const res = await authed(app, '/api/mastery/student/st1/recommendations');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      success: true,
+      data: { studentId: 'st1', recommendations: [] },
+    });
+  });
+
+  it('returns ranked recommendations from the adapter', async () => {
+    const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 60 * 60 * 1000);
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        mathSkillId: 'sk1',
+        masteryLevel: 'FAMILIAR',
+        stability: 1,
+        lastPracticeAt: daysAgo(30),
+        mathSkill: {
+          name: 'Fractions',
+          mainTopic: { name: 'Numbers' },
+          worksheetSkillMaps: [{ worksheetNumber: 3 }],
+        },
+      },
+    ]);
+    const app = mountApp({ studentSkillMastery: { findMany } });
+    const res = await authed(app, '/api/mastery/student/st1/recommendations?limit=5');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { recommendations: Array<{ mathSkillId: string; worksheetNumbers: number[] }> };
+    };
+    expect(body.data.recommendations.length).toBe(1);
+    expect(body.data.recommendations[0]).toMatchObject({
+      mathSkillId: 'sk1',
+      worksheetNumbers: [3],
+    });
+  });
+
+  it('returns 403 for STUDENT role', async () => {
+    const app = mountApp({ studentSkillMastery: { findMany: vi.fn() } });
+    const res = await authed(app, '/api/mastery/student/st1/recommendations', 'STUDENT');
+    expect(res.status).toBe(403);
+  });
+});

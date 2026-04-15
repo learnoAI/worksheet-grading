@@ -1,16 +1,20 @@
 import { Hono } from 'hono';
 import { MasteryLevel, UserRole } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
+import { computeRecommendations } from '../adapters/mastery';
 import type { AppBindings } from '../types';
 
 /**
  * Mastery routes — port of `backend/src/routes/masteryRoutes.ts` (read-only).
  *
- * Mounted under `/api/mastery`. Three of the four GETs are ported here;
- * `GET /student/:studentId/recommendations` depends on `computeRecommendations`
- * in `services/masteryService.ts`, which reads Prisma via a module-level
- * singleton. That service will be adapted in Phase 5.10; the recommendations
- * endpoint (and `POST /backfill`, a mutation) ships alongside it.
+ * Mounted under `/api/mastery`. Covers:
+ *   GET /student/:studentId                  — full skill mastery list
+ *   GET /student/:studentId/by-topic         — rolled up by main topic
+ *   GET /student/:studentId/recommendations  — FSRS-ranked review list
+ *   GET /class/:classId                      — student × skill matrix
+ *
+ * `POST /backfill` (SUPERADMIN) is still on the Express side — it's a
+ * one-shot admin job that doesn't need to move to the worker.
  */
 const mastery = new Hono<AppBindings>();
 
@@ -69,6 +73,18 @@ mastery.get('/student/:studentId', async (c) => {
     },
     200
   );
+});
+
+mastery.get('/student/:studentId/recommendations', async (c) => {
+  const prisma = c.get('prisma');
+  if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+  const studentId = c.req.param('studentId');
+  const limitRaw = Number.parseInt(c.req.query('limit') ?? '', 10);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 10;
+
+  const recommendations = await computeRecommendations(prisma, studentId, limit);
+  return c.json({ success: true, data: { studentId, recommendations } }, 200);
 });
 
 mastery.get('/student/:studentId/by-topic', async (c) => {
