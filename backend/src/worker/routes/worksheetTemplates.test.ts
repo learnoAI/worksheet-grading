@@ -207,3 +207,338 @@ describe('GET /api/worksheet-curriculum', () => {
     expect(body[0].mainTopic).toBeNull();
   });
 });
+
+// ---------- Mutation tests ----------
+
+async function postJson(
+  app: Hono<AppBindings>,
+  path: string,
+  body: unknown,
+  token: string
+) {
+  return app.request(
+    path,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+    { JWT_SECRET: SECRET }
+  );
+}
+
+async function putJson(
+  app: Hono<AppBindings>,
+  path: string,
+  body: unknown,
+  token: string
+) {
+  return app.request(
+    path,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+    { JWT_SECRET: SECRET }
+  );
+}
+
+describe('POST /api/worksheet-templates', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 403 for TEACHER', async () => {
+    const app = mountApp({ worksheetTemplate: { findUnique: vi.fn(), create: vi.fn() } });
+    const token = await tokenAs('TEACHER');
+    const res = await postJson(app, '/api/worksheet-templates', {}, token);
+    expect(res.status).toBe(403);
+  });
+
+  it('creates without worksheetNumber', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 't-new' });
+    const app = mountApp({ worksheetTemplate: { findUnique: vi.fn(), create } });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await postJson(app, '/api/worksheet-templates', {}, token);
+    expect(res.status).toBe(201);
+    expect(create).toHaveBeenCalledWith({ data: {} });
+  });
+
+  it('returns 400 when worksheetNumber already exists', async () => {
+    const findUnique = vi.fn().mockResolvedValue({ id: 'existing' });
+    const create = vi.fn();
+    const app = mountApp({ worksheetTemplate: { findUnique, create } });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await postJson(app, '/api/worksheet-templates', { worksheetNumber: 5 }, token);
+    expect(res.status).toBe(400);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('creates with worksheetNumber when unique', async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const create = vi.fn().mockResolvedValue({ id: 't-new', worksheetNumber: 5 });
+    const app = mountApp({ worksheetTemplate: { findUnique, create } });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await postJson(app, '/api/worksheet-templates', { worksheetNumber: 5 }, token);
+    expect(res.status).toBe(201);
+    expect(create).toHaveBeenCalledWith({ data: { worksheetNumber: 5 } });
+  });
+});
+
+describe('PUT /api/worksheet-templates/:id', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 404 when template not found', async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const app = mountApp({ worksheetTemplate: { findUnique, update: vi.fn() } });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await putJson(app, '/api/worksheet-templates/missing', { worksheetNumber: 5 }, token);
+    expect(res.status).toBe(404);
+  });
+
+  it('rejects when new worksheetNumber conflicts with another template', async () => {
+    const findUnique = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 't1', worksheetNumber: 1 })
+      .mockResolvedValueOnce({ id: 't2', worksheetNumber: 5 });
+    const update = vi.fn();
+    const app = mountApp({ worksheetTemplate: { findUnique, update } });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await putJson(app, '/api/worksheet-templates/t1', { worksheetNumber: 5 }, token);
+    expect(res.status).toBe(400);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('updates worksheetNumber when unique', async () => {
+    const findUnique = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 't1', worksheetNumber: 1 })
+      .mockResolvedValueOnce(null);
+    const update = vi.fn().mockResolvedValue({ id: 't1', worksheetNumber: 5 });
+    const app = mountApp({ worksheetTemplate: { findUnique, update } });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await putJson(app, '/api/worksheet-templates/t1', { worksheetNumber: 5 }, token);
+    expect(res.status).toBe(200);
+    expect(update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { worksheetNumber: 5 } });
+  });
+});
+
+describe('DELETE /api/worksheet-templates/:id', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('deletes images then template', async () => {
+    const findUnique = vi.fn().mockResolvedValue({ id: 't1' });
+    const deleteMany = vi.fn().mockResolvedValue({ count: 2 });
+    const del = vi.fn().mockResolvedValue({});
+    const app = mountApp({
+      worksheetTemplate: { findUnique, delete: del },
+      worksheetTemplateImage: { deleteMany },
+    });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await app.request(
+      '/api/worksheet-templates/t1',
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(200);
+    expect(deleteMany).toHaveBeenCalledWith({ where: { worksheetTemplateId: 't1' } });
+    expect(del).toHaveBeenCalledWith({ where: { id: 't1' } });
+  });
+});
+
+describe('POST /api/worksheet-templates/:id/images', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 404 when template missing', async () => {
+    const app = mountApp({
+      worksheetTemplate: { findUnique: vi.fn().mockResolvedValue(null) },
+      worksheetTemplateImage: { create: vi.fn() },
+    });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await postJson(
+      app,
+      '/api/worksheet-templates/missing/images',
+      { imageUrl: 'http://x', pageNumber: 1 },
+      token
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('rejects body without imageUrl', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('SUPERADMIN');
+    const res = await postJson(
+      app,
+      '/api/worksheet-templates/t1/images',
+      { pageNumber: 1 },
+      token
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('creates the image with numeric pageNumber', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'i1' });
+    const app = mountApp({
+      worksheetTemplate: { findUnique: vi.fn().mockResolvedValue({ id: 't1' }) },
+      worksheetTemplateImage: { create },
+    });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await postJson(
+      app,
+      '/api/worksheet-templates/t1/images',
+      { imageUrl: 'http://x.png', pageNumber: '3' },
+      token
+    );
+    expect(res.status).toBe(201);
+    expect(create).toHaveBeenCalledWith({
+      data: { imageUrl: 'http://x.png', pageNumber: 3, worksheetTemplateId: 't1' },
+    });
+  });
+});
+
+describe('DELETE /api/worksheet-templates/images/:id', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 404 when not found', async () => {
+    const app = mountApp({
+      worksheetTemplateImage: { findUnique: vi.fn().mockResolvedValue(null), delete: vi.fn() },
+    });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await app.request(
+      '/api/worksheet-templates/images/i1',
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('deletes', async () => {
+    const del = vi.fn().mockResolvedValue({});
+    const app = mountApp({
+      worksheetTemplateImage: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'i1' }),
+        delete: del,
+      },
+    });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await app.request(
+      '/api/worksheet-templates/images/i1',
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(200);
+    expect(del).toHaveBeenCalledWith({ where: { id: 'i1' } });
+  });
+});
+
+describe('Template question routes', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('POST /api/worksheet-templates/:id/questions creates with skills + connect', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'q1' });
+    const app = mountApp({
+      worksheetTemplate: { findUnique: vi.fn().mockResolvedValue({ id: 't1' }) },
+      worksheetTemplateQuestion: { create },
+    });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await postJson(
+      app,
+      '/api/worksheet-templates/t1/questions',
+      {
+        question: '2+2?',
+        answer: '4',
+        outOf: 2,
+        skillIds: ['sk1', 'sk2'],
+      },
+      token
+    );
+    expect(res.status).toBe(201);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          question: '2+2?',
+          answer: '4',
+          outOf: 2,
+          worksheetTemplateId: 't1',
+          worksheetTemplates: { connect: { id: 't1' } },
+          skills: { connect: [{ id: 'sk1' }, { id: 'sk2' }] },
+        }),
+      })
+    );
+  });
+
+  it('PUT /api/worksheet-templates/questions/:id updates with skills.set', async () => {
+    const findUnique = vi.fn().mockResolvedValue({ id: 'q1', skills: [] });
+    const update = vi.fn().mockResolvedValue({ id: 'q1' });
+    const app = mountApp({ worksheetTemplateQuestion: { findUnique, update } });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await putJson(
+      app,
+      '/api/worksheet-templates/questions/q1',
+      { question: 'new?', skillIds: ['sk3'] },
+      token
+    );
+    expect(res.status).toBe(200);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          question: 'new?',
+          skills: { set: [{ id: 'sk3' }] },
+        }),
+      })
+    );
+  });
+
+  it('DELETE /api/worksheet-templates/questions/:id removes the question', async () => {
+    const findUnique = vi.fn().mockResolvedValue({ id: 'q1' });
+    const del = vi.fn().mockResolvedValue({});
+    const app = mountApp({ worksheetTemplateQuestion: { findUnique, delete: del } });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await app.request(
+      '/api/worksheet-templates/questions/q1',
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(200);
+    expect(del).toHaveBeenCalledWith({ where: { id: 'q1' } });
+  });
+});
+
+describe('POST /api/math-skills', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 403 for non-SUPERADMIN', async () => {
+    const app = mountApp({ mathSkill: { create: vi.fn() } });
+    const token = await tokenAs('TEACHER');
+    const res = await postJson(app, '/api/math-skills', { name: 'X' }, token);
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects empty name', async () => {
+    const app = mountApp({ mathSkill: { create: vi.fn() } });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await postJson(app, '/api/math-skills', { name: '' }, token);
+    expect(res.status).toBe(400);
+  });
+
+  it('creates the skill', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'sk1', name: 'Algebra' });
+    const app = mountApp({ mathSkill: { create } });
+    const token = await tokenAs('SUPERADMIN');
+    const res = await postJson(
+      app,
+      '/api/math-skills',
+      { name: 'Algebra', description: 'fun', mainTopicId: 'mt1' },
+      token
+    );
+    expect(res.status).toBe(201);
+    expect(create).toHaveBeenCalledWith({
+      data: { name: 'Algebra', description: 'fun', mainTopicId: 'mt1' },
+    });
+  });
+});
