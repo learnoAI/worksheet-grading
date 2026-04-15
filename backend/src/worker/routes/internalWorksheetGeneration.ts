@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { PrismaClient } from '@prisma/client';
 import { requireWorksheetCreationToken } from '../middleware/workerTokens';
 import { validateJson } from '../validation';
+import { onWorksheetPdfComplete } from '../adapters/batchProgress';
 import type { AppBindings } from '../types';
 
 /**
@@ -16,13 +16,10 @@ import type { AppBindings } from '../types';
  *   POST /:id/complete   — mark rendered + record pdfUrl
  *   POST /:id/fail       — mark rendering failed
  *
- * The Express controller delegates batch progress tracking to
- * `worksheetBatchService.onWorksheetPdfComplete`. That helper is small and
- * pure prisma, so we inline it here rather than introduce a service-layer
- * indirection. The logic is duplicated across Express and Worker during the
- * parallel-run window; both paths call the same tables so they stay
- * consistent. This duplication is tracked as C8 in the migration plan and
- * will be collapsed in Phase 5.10 (service adaptations).
+ * Batch progress tracking goes through `adapters/batchProgress`, a
+ * prisma-injected copy of the matching helper in `worksheetBatchService`.
+ * Express and Worker paths write to the same `WorksheetBatch` rows so
+ * progress stays consistent during the parallel-run window.
  */
 
 const completeSchema = z.object({
@@ -76,7 +73,7 @@ internalWorksheetGeneration.post(
 
     if (batchId) {
       try {
-        await onWorksheetPdfCompleteInline(c.get('prisma')!, batchId, false);
+        await onWorksheetPdfComplete(c.get('prisma')!, batchId, false);
       } catch (err) {
         console.error('[ws-gen] onWorksheetPdfComplete error:', err);
       }
@@ -103,7 +100,7 @@ internalWorksheetGeneration.post(
 
     if (batchId) {
       try {
-        await onWorksheetPdfCompleteInline(c.get('prisma')!, batchId, true);
+        await onWorksheetPdfComplete(c.get('prisma')!, batchId, true);
       } catch (err) {
         console.error('[ws-gen] onWorksheetPdfComplete error:', err);
       }
@@ -112,33 +109,5 @@ internalWorksheetGeneration.post(
     return c.json({ success: true }, 200);
   }
 );
-
-/**
- * Inlined copy of `services/worksheetBatchService.onWorksheetPdfComplete`
- * that accepts the caller's prisma client. Keep in sync until Phase 5.10
- * collapses both into a prisma-injected service helper.
- */
-async function onWorksheetPdfCompleteInline(
-  prisma: PrismaClient,
-  batchId: string,
-  failed: boolean
-): Promise<void> {
-  const updateData = failed
-    ? { failedWorksheets: { increment: 1 } }
-    : { completedWorksheets: { increment: 1 } };
-
-  const batch = await prisma.worksheetBatch.update({
-    where: { id: batchId },
-    data: updateData,
-  });
-
-  const totalDone = batch.completedWorksheets + batch.failedWorksheets;
-  if (totalDone >= batch.totalWorksheets) {
-    await prisma.worksheetBatch.update({
-      where: { id: batchId },
-      data: { status: 'COMPLETED' },
-    });
-  }
-}
 
 export default internalWorksheetGeneration;
