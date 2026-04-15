@@ -1,4 +1,4 @@
-import type { UserRole } from '@prisma/client';
+import type { PrismaClient, UserRole } from '@prisma/client';
 
 /**
  * Environment bindings exposed to the Hono worker.
@@ -36,6 +36,7 @@ export interface WorkerVariables {
     role: UserRole;
   };
   requestId?: string;
+  prisma?: PrismaClient;
 }
 
 export type AppBindings = { Bindings: WorkerEnv; Variables: WorkerVariables };
