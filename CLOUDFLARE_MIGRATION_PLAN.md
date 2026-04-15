@@ -638,6 +638,67 @@ collapsed when the service layer is adapted in Phase 5.10.
 **When to address:** Phase 5.11 (complex routes), after Phase 5.10 lands
 prisma-injected service helpers and a Workers-compatible CF Queues client.
 
+### C9 — Complex/stateful routes deferred past Phase 5.11
+
+**Discovered:** Phase 5.11 scoping.
+
+**Observation:** Phase 5.11 ported 20 worksheet routes (CRUD, grade save,
+check-repeated, batch-save, admin moderation, templates, teacher classes,
+class students). The remaining worksheet-area routes carry 500–1,100+
+lines of bespoke business logic each, plus dependencies on services that
+would require their own adapters. Porting these cleanly calls for a
+follow-up phase dedicated to each slice, not more of the same batch port:
+
+**Deferred to a follow-up "Phase 5.13 — Complex worksheet + grading":**
+
+- `POST /api/worksheets/upload` (Multer + R2) — helpers ready
+  (`uploads.ts` + `adapters/storage.ts`), but the controller also does
+  domain validation around page numbers and teacher↔class ownership that
+  belongs near the new route.
+- `POST /api/worksheet-processing/upload-session` (create, ~150 lines +
+  helpers), `GET .../upload-session/:batchId`,
+  `POST .../upload-session/:batchId/finalize` — 1,100-line controller.
+  Depends on bespoke helpers: `requireString`, `parseSubmittedOn`,
+  `normalizeDirectUploadItems`, `assertDirectUploadAccess`,
+  `buildDirectUploadKey`, `serializeUploadBatch`,
+  `toUploadFileResponse`, `loadUploadBatchForUser`, plus queue
+  publishing.
+- `POST /api/worksheet-processing/process` — Python API forwarding.
+  `pythonApi` adapter is ready; the route pieces multipart files +
+  fields together and surfaces upload telemetry.
+- Python utility endpoints on `/api/worksheets`:
+  `POST /images`, `POST /total-ai-graded`, `POST /student-grading-details`.
+  Small glue layer over `adapters/pythonApi`.
+- `GET /api/worksheets/class-date` (~285 lines) — complex fallback
+  chain for student progression recommendations; depends on
+  `services/worksheetRecommendation.ts` (already has tests, but reads
+  Prisma via the module singleton).
+- `GET /api/worksheets/incorrect-grading` (~350 lines) — paginated
+  moderation feed with filters.
+- `POST /api/worksheets/recommend-next` — same recommendation service.
+- `/internal/grading-worker/*` (5 routes, 507-line controller) — full
+  grading-job state machine with raw `$queryRaw`, `FOR UPDATE`,
+  transaction-wrapped persistence, mastery updates, diagnostics.
+  Depends on `gradingJobLifecycleService`,
+  `gradingWorksheetPersistenceService`, `errorLogService`
+  (MongoDB — already flagged in Phase 3 for removal).
+- `/internal/question-bank/*` (2 routes) — question generation pipeline.
+  `adapters/batchProgress.incrementBatchCompletedSkills` is ready for the
+  counter flip; still need a Workers-compatible `assembleAndEnqueuePdfs`
+  (current version depends on `buildSections` and the PDF rendering
+  queue publisher).
+- `GET /api/analytics/overall`, `GET /api/analytics/students`,
+  `GET /api/analytics/students/download` — 1,000+ lines of analytics
+  with an in-process cache + `setInterval` cleanup loop. Cache needs to
+  move to KV; `setInterval` is not available in Workers.
+
+**When to address:** Phase 5.13 (to be planned as its own scoped effort)
+before final cutover. Until then, Express continues to serve these
+routes — the Hono worker can ship in front of Express as a partial
+implementation, with a rule-based proxy (Cloudflare Worker route
+pattern or application-level fallback) sending the unported paths to
+Express. That proxy setup is part of **Phase 5.12 (cutover)**.
+
 ### C5 — Production credentials currently in `backend/.env`
 
 **Discovered:** Phase 5 planning (env file review).
