@@ -56,6 +56,7 @@
     "@types/form-data": "^2.2.1",
     "@types/node-fetch": "^2.6.12",
     "aws-sdk": "^2.1692.0",
+    "aws4fetch": "^1.0.20",
     "axios": "^1.9.0",
     "bcrypt": "^5.1.1",
     "bcryptjs": "^3.0.3",
