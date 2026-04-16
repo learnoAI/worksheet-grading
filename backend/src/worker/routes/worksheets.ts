@@ -8,10 +8,12 @@ import { parseMultipartFiles, imageOnlyFilter, UploadError } from '../uploads';
 import {
   buildWorksheetRecommendationFromHistory,
   getEffectiveWorksheetNumber,
+  type WorksheetHistoryEntry,
 } from '../adapters/worksheetRecommendation';
 import {
   findWorksheetQuerySchema,
   historyQuerySchema,
+  classDateQuerySchema,
   gradeWorksheetSchema,
   updateAdminCommentsSchema,
   checkRepeatedSchema,
@@ -160,6 +162,266 @@ worksheets.get(
     } catch (error) {
       console.error('Get previous worksheets error:', error);
       return c.json({ message: 'Server error while retrieving previous worksheets' }, 500);
+    }
+  }
+);
+
+/**
+ * `GET /api/worksheets/class-date` — batched class-day summary.
+ *
+ * For every student in a class, returns (a) their worksheets from the
+ * given calendar day, or (b) a progression recommendation computed from
+ * their history when they have no worksheets that day. The recommendation
+ * has a fallback chain: current-class history → any-class latest-day
+ * history, to keep students on track after academic-year class moves.
+ *
+ * All date math is UTC-anchored; the input `submittedOn` is treated as a
+ * local-date string and converted to `[startOfDay, startOfNextDay)` range
+ * against UTC — matching Express exactly.
+ */
+worksheets.get(
+  '/class-date',
+  requireAuthoringRole,
+  validateQuery(classDateQuerySchema),
+  async (c) => {
+    const prisma = c.get('prisma');
+    if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+    const { classId, submittedOn: dateStr } = c.req.valid('query');
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) {
+      return c.json({ message: 'submittedOn must be a valid date' }, 400);
+    }
+    const startDate = new Date(
+      Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+    );
+    const endDate = new Date(
+      Date.UTC(date.getFullYear(), date.getMonth(), date.getDate() + 1)
+    );
+
+    try {
+      // Students in the class (excluding archived)
+      const studentClasses = await prisma.studentClass.findMany({
+        where: { classId, student: { isArchived: false } },
+        include: {
+          student: { select: { id: true, name: true, tokenNumber: true } },
+        },
+      });
+      const students = studentClasses.map((sc) => sc.student);
+      const studentIds = students.map((s) => s.id);
+
+      // Worksheets for the day
+      const worksheetsOnDate = await prisma.worksheet.findMany({
+        where: {
+          classId,
+          studentId: { in: studentIds },
+          submittedOn: { gte: startDate, lt: endDate },
+        },
+        include: {
+          template: { select: { id: true, worksheetNumber: true } },
+          images: { orderBy: { pageNumber: 'asc' } },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      // Group by student
+      const worksheetsByStudent: Record<string, typeof worksheetsOnDate> = {};
+      for (const ws of worksheetsOnDate) {
+        if (!ws.studentId) continue;
+        if (!worksheetsByStudent[ws.studentId]) worksheetsByStudent[ws.studentId] = [];
+        worksheetsByStudent[ws.studentId].push(ws);
+      }
+
+      // Stats
+      const studentsWithWorksheets = new Set<string>();
+      let gradedCount = 0;
+      let absentCount = 0;
+      let pendingCount = 0;
+      for (const ws of worksheetsOnDate) {
+        if (ws.studentId) studentsWithWorksheets.add(ws.studentId);
+        if (ws.isAbsent) {
+          absentCount++;
+        } else if (ws.grade !== null && ws.status === ProcessingStatus.COMPLETED) {
+          gradedCount++;
+        } else if (
+          ws.status === ProcessingStatus.PENDING ||
+          ws.status === ProcessingStatus.PROCESSING
+        ) {
+          pendingCount++;
+        }
+      }
+      const stats = {
+        totalStudents: students.length,
+        studentsWithWorksheets: studentsWithWorksheets.size,
+        gradedCount,
+        absentCount,
+        pendingCount,
+      };
+
+      // Recommendations for students without worksheets today
+      const studentsWithoutWorksheets = studentIds.filter(
+        (id) => !worksheetsByStudent[id]
+      );
+
+      const studentSummaries: Record<
+        string,
+        {
+          lastWorksheetNumber: number | null;
+          lastGrade: number | null;
+          completedWorksheetNumbers: number[];
+          recommendedWorksheetNumber: number;
+          isRecommendedRepeated: boolean;
+        }
+      > = {};
+
+      if (studentsWithoutWorksheets.length > 0) {
+        const endDateForHistory = new Date(dateStr);
+        endDateForHistory.setHours(23, 59, 59, 999);
+        const progressionThresholdRaw = Number.parseInt(
+          c.env?.PROGRESSION_THRESHOLD ?? '',
+          10
+        );
+        const progressionThreshold =
+          Number.isFinite(progressionThresholdRaw) && progressionThresholdRaw > 0
+            ? progressionThresholdRaw
+            : 32;
+
+        // Current-class history
+        const historyData = await prisma.worksheet.findMany({
+          where: {
+            classId,
+            studentId: { in: studentsWithoutWorksheets },
+            submittedOn: { lt: endDateForHistory },
+            status: ProcessingStatus.COMPLETED,
+            isAbsent: false,
+            grade: { not: null },
+          },
+          select: {
+            studentId: true,
+            grade: true,
+            submittedOn: true,
+            createdAt: true,
+            worksheetNumber: true,
+            template: { select: { worksheetNumber: true } },
+          },
+          orderBy: [
+            { submittedOn: 'desc' },
+            { createdAt: 'desc' },
+            { worksheetNumber: 'desc' },
+          ],
+        });
+
+        // Students with NO current-class history need prior-class fallback.
+        const studentIdsWithHistory = new Set(historyData.map((h) => h.studentId));
+        const newStudentIds = studentsWithoutWorksheets.filter(
+          (id) => !studentIdsWithHistory.has(id)
+        );
+
+        const priorClassHistoryMap = new Map<string, WorksheetHistoryEntry[]>();
+        if (newStudentIds.length > 0) {
+          const latestDates = await Promise.all(
+            newStudentIds.map((sid) =>
+              prisma.worksheet.findFirst({
+                where: {
+                  studentId: sid,
+                  submittedOn: { lt: endDateForHistory },
+                  status: ProcessingStatus.COMPLETED,
+                  isAbsent: false,
+                  grade: { not: null },
+                },
+                select: { studentId: true, submittedOn: true },
+                orderBy: { submittedOn: 'desc' },
+              })
+            )
+          );
+
+          const dayQueries = latestDates
+            .filter(
+              (r): r is { studentId: string | null; submittedOn: Date } =>
+                r !== null && r.submittedOn !== null
+            )
+            .map((r) =>
+              prisma.worksheet.findMany({
+                where: {
+                  studentId: r.studentId!,
+                  submittedOn: r.submittedOn!,
+                  status: ProcessingStatus.COMPLETED,
+                  isAbsent: false,
+                  grade: { not: null },
+                },
+                select: {
+                  studentId: true,
+                  worksheetNumber: true,
+                  grade: true,
+                  submittedOn: true,
+                  createdAt: true,
+                  template: { select: { worksheetNumber: true } },
+                },
+              })
+            );
+          const dayResults = await Promise.all(dayQueries);
+
+          for (const worksheets of dayResults) {
+            if (worksheets.length > 0) {
+              const sid = worksheets[0].studentId!;
+              priorClassHistoryMap.set(
+                sid,
+                worksheets.map((w) => ({
+                  grade: w.grade,
+                  submittedOn: w.submittedOn,
+                  createdAt: w.createdAt,
+                  effectiveWorksheetNumber: getEffectiveWorksheetNumber(
+                    w.worksheetNumber,
+                    w.template?.worksheetNumber ?? null
+                  ),
+                }))
+              );
+            }
+          }
+        }
+
+        for (const studentId of studentsWithoutWorksheets) {
+          const studentHistory = historyData
+            .filter((h) => h.studentId === studentId)
+            .map((h) => ({
+              grade: h.grade,
+              submittedOn: h.submittedOn,
+              createdAt: h.createdAt,
+              effectiveWorksheetNumber: getEffectiveWorksheetNumber(
+                h.worksheetNumber,
+                h.template?.worksheetNumber ?? null
+              ),
+            }));
+
+          const priorHistory = priorClassHistoryMap.get(studentId);
+          const historyForRecommendation =
+            studentHistory.length > 0 ? studentHistory : (priorHistory ?? []);
+
+          const recommendation = buildWorksheetRecommendationFromHistory(
+            historyForRecommendation,
+            progressionThreshold
+          );
+
+          studentSummaries[studentId] = {
+            lastWorksheetNumber: recommendation.lastWorksheetNumber,
+            lastGrade: recommendation.lastGrade,
+            completedWorksheetNumbers: recommendation.completedWorksheetNumbers,
+            recommendedWorksheetNumber: recommendation.recommendedWorksheetNumber,
+            isRecommendedRepeated: recommendation.isRecommendedRepeated,
+          };
+        }
+      }
+
+      return c.json(
+        { students, worksheetsByStudent, studentSummaries, stats },
+        200
+      );
+    } catch (error) {
+      console.error('Get class worksheets for date error:', error);
+      return c.json(
+        { message: 'Server error while retrieving class worksheets' },
+        500
+      );
     }
   }
 );

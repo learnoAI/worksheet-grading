@@ -826,6 +826,189 @@ describe('POST /api/worksheets/student-grading-details', () => {
   });
 });
 
+describe('GET /api/worksheets/class-date', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('rejects missing required query params', async () => {
+    const app = mountApp({});
+    const res = await authed(app, '/api/worksheets/class-date?classId=c1');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 403 for STUDENT role', async () => {
+    const app = mountApp({});
+    const res = await authed(
+      app,
+      '/api/worksheets/class-date?classId=c1&submittedOn=2026-04-10',
+      'STUDENT'
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('returns empty shapes when class has no students', async () => {
+    const app = mountApp({
+      studentClass: { findMany: vi.fn().mockResolvedValue([]) },
+      worksheet: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn() },
+    });
+    const res = await authed(
+      app,
+      '/api/worksheets/class-date?classId=c1&submittedOn=2026-04-10'
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      students: unknown[];
+      worksheetsByStudent: Record<string, unknown>;
+      studentSummaries: Record<string, unknown>;
+      stats: { totalStudents: number };
+    };
+    expect(body.students).toEqual([]);
+    expect(body.worksheetsByStudent).toEqual({});
+    expect(body.studentSummaries).toEqual({});
+    expect(body.stats.totalStudents).toBe(0);
+  });
+
+  it('groups worksheets by student and computes stats', async () => {
+    const app = mountApp({
+      studentClass: {
+        findMany: vi.fn().mockResolvedValue([
+          { student: { id: 'st1', name: 'Alice', tokenNumber: 'A1' } },
+          { student: { id: 'st2', name: 'Bob', tokenNumber: 'B1' } },
+        ]),
+      },
+      worksheet: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'w1',
+            studentId: 'st1',
+            grade: 32,
+            isAbsent: false,
+            status: 'COMPLETED',
+          },
+          {
+            id: 'w2',
+            studentId: 'st2',
+            grade: null,
+            isAbsent: true,
+            status: 'COMPLETED',
+          },
+        ]),
+        findFirst: vi.fn(),
+      },
+    });
+    const res = await authed(
+      app,
+      '/api/worksheets/class-date?classId=c1&submittedOn=2026-04-10'
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      worksheetsByStudent: Record<string, Array<{ id: string }>>;
+      stats: { gradedCount: number; absentCount: number; pendingCount: number };
+    };
+    expect(body.worksheetsByStudent.st1.length).toBe(1);
+    expect(body.worksheetsByStudent.st2.length).toBe(1);
+    expect(body.stats.gradedCount).toBe(1);
+    expect(body.stats.absentCount).toBe(1);
+    expect(body.stats.pendingCount).toBe(0);
+  });
+
+  it('computes recommendations for students without worksheets using current-class history', async () => {
+    const worksheetFindMany = vi
+      .fn()
+      // call 1: worksheetsOnDate (student st2 not present)
+      .mockResolvedValueOnce([
+        {
+          id: 'w1',
+          studentId: 'st1',
+          grade: 32,
+          isAbsent: false,
+          status: 'COMPLETED',
+        },
+      ])
+      // call 2: historyData for students without worksheets today (st2)
+      .mockResolvedValueOnce([
+        {
+          studentId: 'st2',
+          grade: 35,
+          submittedOn: new Date('2026-04-05'),
+          createdAt: new Date('2026-04-05T09:00:00Z'),
+          worksheetNumber: 4,
+          template: { worksheetNumber: 4 },
+        },
+      ]);
+    const app = mountApp({
+      studentClass: {
+        findMany: vi.fn().mockResolvedValue([
+          { student: { id: 'st1', name: 'Alice', tokenNumber: 'A1' } },
+          { student: { id: 'st2', name: 'Bob', tokenNumber: 'B1' } },
+        ]),
+      },
+      worksheet: { findMany: worksheetFindMany, findFirst: vi.fn() },
+    });
+    const res = await authed(
+      app,
+      '/api/worksheets/class-date?classId=c1&submittedOn=2026-04-10'
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      studentSummaries: Record<
+        string,
+        { recommendedWorksheetNumber: number; lastWorksheetNumber: number | null }
+      >;
+    };
+    expect(body.studentSummaries.st2.recommendedWorksheetNumber).toBe(5);
+    expect(body.studentSummaries.st2.lastWorksheetNumber).toBe(4);
+    // st1 has a worksheet today → not summarized
+    expect(body.studentSummaries.st1).toBeUndefined();
+  });
+
+  it('falls back to prior-class history when student has no current-class rows', async () => {
+    // Student st1 has no worksheet today AND no history in current class.
+    // Fallback finds a prior submittedOn + fetches that day's worksheets.
+    const worksheetFindMany = vi
+      .fn()
+      .mockResolvedValueOnce([]) // worksheetsOnDate
+      .mockResolvedValueOnce([]) // historyData (empty → student flagged as "new to class")
+      .mockResolvedValueOnce([
+        // latest-day worksheets from any class
+        {
+          studentId: 'st1',
+          worksheetNumber: 7,
+          grade: 35,
+          submittedOn: new Date('2026-03-20'),
+          createdAt: new Date('2026-03-20T09:00:00Z'),
+          template: { worksheetNumber: 7 },
+        },
+      ]);
+    const worksheetFindFirst = vi.fn().mockResolvedValue({
+      studentId: 'st1',
+      submittedOn: new Date('2026-03-20'),
+    });
+    const app = mountApp({
+      studentClass: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([
+            { student: { id: 'st1', name: 'Alice', tokenNumber: 'A1' } },
+          ]),
+      },
+      worksheet: { findMany: worksheetFindMany, findFirst: worksheetFindFirst },
+    });
+    const res = await authed(
+      app,
+      '/api/worksheets/class-date?classId=c1&submittedOn=2026-04-10'
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      studentSummaries: Record<
+        string,
+        { recommendedWorksheetNumber: number; lastWorksheetNumber: number | null }
+      >;
+    };
+    expect(body.studentSummaries.st1.recommendedWorksheetNumber).toBe(8);
+    expect(body.studentSummaries.st1.lastWorksheetNumber).toBe(7);
+  });
+});
+
 describe('POST /api/worksheets/recommend-next', () => {
   beforeEach(() => vi.clearAllMocks());
 
