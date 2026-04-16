@@ -22,8 +22,30 @@ import {
   pythonGradingDetailsSchema,
   totalAiGradedSchema,
   recommendNextSchema,
+  incorrectGradingQuerySchema,
 } from '../schemas/worksheets';
 import type { AppBindings } from '../types';
+
+function getFirstPositiveNumber(
+  ...values: Array<number | null | undefined>
+): number | null {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function parseWorksheetNumberFromNotes(
+  notes: string | null | undefined
+): number | null {
+  if (!notes) return null;
+  const match = notes.match(/worksheet\s*#?\s*(\d+)/i);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 function parseDateInputToUtcStart(dateInput: string): Date | null {
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput);
@@ -69,6 +91,7 @@ worksheets.use('*', authenticate);
 
 const authoringRoles = [UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN];
 const requireAuthoringRole = authorize(authoringRoles);
+const requireSuperadmin = authorize([UserRole.SUPERADMIN]);
 
 const WORKSHEET_LIST_INCLUDE = {
   submittedBy: { select: { id: true, username: true, role: true } },
@@ -518,6 +541,301 @@ worksheets.get('/teacher/:teacherId/classes', requireAuthoringRole, async (c) =>
   );
 });
 
+/**
+ * `GET /api/worksheets/incorrect-grading` — paginated moderation feed.
+ *
+ * Returns worksheets flagged with `isIncorrectGrade=true` that have
+ * completed grading. Images come from three possible sources, in order of
+ * preference:
+ *   1. Directly attached `WorksheetImage` rows.
+ *   2. `GradingJobImage` rows on a linked `GradingJob` (same `worksheetId`).
+ *   3. `GradingJobImage` rows on a *matching* GradingJob found by
+ *      (studentId, classId, worksheetNumber, same UTC day) when the
+ *      worksheet row itself has no explicit `worksheetId` link — this
+ *      happens for legacy rows that predate the lease-based lifecycle.
+ *
+ * All three paths mirror the Express implementation 1:1; the fallback
+ * logic handles production data that has accumulated over multiple
+ * grading-pipeline migrations.
+ */
+worksheets.get(
+  '/incorrect-grading',
+  requireSuperadmin,
+  validateQuery(incorrectGradingQuerySchema),
+  async (c) => {
+    const prisma = c.get('prisma');
+    if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+    const { page = 1, pageSize = 10, startDate, endDate } = c.req.valid('query');
+
+    const where: Prisma.WorksheetWhereInput = {
+      isIncorrectGrade: true,
+      status: ProcessingStatus.COMPLETED,
+    };
+
+    const startBoundary = startDate ? parseDateInputToUtcStart(String(startDate)) : null;
+    const endBoundary = endDate ? parseDateInputToUtcEndExclusive(String(endDate)) : null;
+
+    if ((startDate && !startBoundary) || (endDate && !endBoundary)) {
+      return c.json({ message: 'Invalid startDate/endDate values' }, 400);
+    }
+    if (startBoundary && endBoundary && startBoundary >= endBoundary) {
+      return c.json({ message: 'startDate must be before or equal to endDate' }, 400);
+    }
+
+    if (startBoundary || endBoundary) {
+      const dateRange: { gte?: Date; lt?: Date } = {};
+      if (startBoundary) dateRange.gte = startBoundary;
+      if (endBoundary) dateRange.lt = endBoundary;
+      where.AND = [{ OR: [{ submittedOn: dateRange }, { createdAt: dateRange }] }];
+    }
+
+    const skip = (page - 1) * pageSize;
+
+    try {
+      const [total, worksheetsRows] = await prisma.$transaction([
+        prisma.worksheet.count({ where }),
+        prisma.worksheet.findMany({
+          where,
+          select: {
+            id: true,
+            notes: true,
+            grade: true,
+            submittedOn: true,
+            classId: true,
+            studentId: true,
+            createdAt: true,
+            updatedAt: true,
+            gradingDetails: true,
+            wrongQuestionNumbers: true,
+            adminComments: true,
+            worksheetNumber: true,
+            student: { select: { id: true, name: true, tokenNumber: true } },
+            submittedBy: { select: { name: true, username: true } },
+            class: { select: { name: true } },
+            template: { select: { worksheetNumber: true } },
+            images: {
+              select: { imageUrl: true, pageNumber: true },
+              orderBy: { pageNumber: 'asc' },
+            },
+          },
+          orderBy: [
+            { submittedOn: 'desc' },
+            { worksheetNumber: 'asc' },
+            { updatedAt: 'desc' },
+            { id: 'asc' },
+          ],
+          skip,
+          take: pageSize,
+        }),
+      ]);
+
+      const worksheetIds = worksheetsRows.map((w) => w.id);
+      const gradingJobsWithImages =
+        worksheetIds.length > 0
+          ? await prisma.gradingJob.findMany({
+              where: {
+                worksheetId: { in: worksheetIds },
+                status: GradingJobStatus.COMPLETED,
+              },
+              select: {
+                worksheetId: true,
+                worksheetNumber: true,
+                updatedAt: true,
+                images: {
+                  select: { imageUrl: true, pageNumber: true },
+                  orderBy: { pageNumber: 'asc' },
+                },
+              },
+            })
+          : [];
+
+      // Pick the "best" linked job per worksheet: most images, then newest.
+      const jobContextByWorksheet = new Map<
+        string,
+        {
+          updatedAtMs: number;
+          images: Array<{ imageUrl: string; pageNumber: number }>;
+          worksheetNumber: number | null;
+        }
+      >();
+      for (const job of gradingJobsWithImages) {
+        if (!job.worksheetId || job.images.length === 0) continue;
+        const updatedAtMs = job.updatedAt.getTime();
+        const jobWsNum = getFirstPositiveNumber(job.worksheetNumber);
+        const existing = jobContextByWorksheet.get(job.worksheetId);
+        if (!existing) {
+          jobContextByWorksheet.set(job.worksheetId, {
+            updatedAtMs,
+            images: job.images,
+            worksheetNumber: jobWsNum,
+          });
+          continue;
+        }
+        const shouldReplace =
+          job.images.length > existing.images.length ||
+          (job.images.length === existing.images.length &&
+            updatedAtMs > existing.updatedAtMs) ||
+          (existing.worksheetNumber === null && jobWsNum !== null);
+        if (shouldReplace) {
+          jobContextByWorksheet.set(job.worksheetId, {
+            updatedAtMs,
+            images: job.images,
+            worksheetNumber: jobWsNum,
+          });
+        }
+      }
+
+      // Fallback: for worksheets without direct images AND without a
+      // linked-job match, search by (studentId, classId, worksheetNumber, day).
+      const unresolvedWorksheets = worksheetsRows.filter((w) => {
+        if (w.images.length > 0) return false;
+        const imgs = jobContextByWorksheet.get(w.id)?.images ?? [];
+        return imgs.length === 0;
+      });
+
+      if (unresolvedWorksheets.length > 0) {
+        const unresolvedStudentIds = Array.from(
+          new Set(
+            unresolvedWorksheets
+              .map((w) => w.studentId)
+              .filter((sid): sid is string => !!sid)
+          )
+        );
+        const unresolvedClassIds = Array.from(
+          new Set(unresolvedWorksheets.map((w) => w.classId))
+        );
+        const unresolvedWorksheetNumbers = Array.from(
+          new Set(
+            unresolvedWorksheets
+              .map((w) =>
+                getFirstPositiveNumber(
+                  w.worksheetNumber,
+                  w.template?.worksheetNumber ?? null,
+                  jobContextByWorksheet.get(w.id)?.worksheetNumber ?? null,
+                  parseWorksheetNumberFromNotes(w.notes)
+                )
+              )
+              .filter((n): n is number => n !== null)
+          )
+        );
+
+        if (
+          unresolvedStudentIds.length > 0 &&
+          unresolvedClassIds.length > 0 &&
+          unresolvedWorksheetNumbers.length > 0
+        ) {
+          const fallbackJobs = await prisma.gradingJob.findMany({
+            where: {
+              status: GradingJobStatus.COMPLETED,
+              studentId: { in: unresolvedStudentIds },
+              classId: { in: unresolvedClassIds },
+              worksheetNumber: { in: unresolvedWorksheetNumbers },
+            },
+            select: {
+              studentId: true,
+              classId: true,
+              worksheetNumber: true,
+              submittedOn: true,
+              updatedAt: true,
+              images: {
+                select: { imageUrl: true, pageNumber: true },
+                orderBy: { pageNumber: 'asc' },
+              },
+            },
+          });
+
+          const getUtcDayBounds = (date: Date): { start: Date; endExclusive: Date } => {
+            const start = new Date(
+              Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+            );
+            const endExclusive = new Date(start);
+            endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+            return { start, endExclusive };
+          };
+
+          for (const w of unresolvedWorksheets) {
+            const worksheetNumberForMatching = getFirstPositiveNumber(
+              w.worksheetNumber,
+              w.template?.worksheetNumber ?? null,
+              jobContextByWorksheet.get(w.id)?.worksheetNumber ?? null,
+              parseWorksheetNumberFromNotes(w.notes)
+            );
+            if (!w.studentId || !worksheetNumberForMatching) continue;
+
+            const worksheetDateBase = w.submittedOn || w.createdAt;
+            const { start, endExclusive } = getUtcDayBounds(worksheetDateBase);
+
+            const candidates = fallbackJobs.filter(
+              (job) =>
+                job.studentId === w.studentId &&
+                job.classId === w.classId &&
+                job.worksheetNumber === worksheetNumberForMatching &&
+                job.submittedOn >= start &&
+                job.submittedOn < endExclusive &&
+                job.images.length > 0
+            );
+            if (candidates.length === 0) continue;
+
+            candidates.sort((a, b) => {
+              if (b.images.length !== a.images.length) {
+                return b.images.length - a.images.length;
+              }
+              return b.updatedAt.getTime() - a.updatedAt.getTime();
+            });
+            const best = candidates[0];
+            jobContextByWorksheet.set(w.id, {
+              updatedAtMs: best.updatedAt.getTime(),
+              images: best.images,
+              worksheetNumber: getFirstPositiveNumber(best.worksheetNumber),
+            });
+          }
+        }
+      }
+
+      // Shape the response. Express returns a flattened DTO, not the full
+      // row — mirror that shape exactly so the admin UI doesn't break.
+      const data = worksheetsRows.map((w) => {
+        const linkedJobContext = jobContextByWorksheet.get(w.id);
+        const effectiveWorksheetNumber =
+          getFirstPositiveNumber(
+            w.worksheetNumber,
+            w.template?.worksheetNumber ?? null,
+            linkedJobContext?.worksheetNumber ?? null,
+            parseWorksheetNumberFromNotes(w.notes)
+          ) || 0;
+        return {
+          id: w.id,
+          worksheetNumber: effectiveWorksheetNumber,
+          grade: w.grade || 0,
+          submittedOn: w.submittedOn,
+          adminComments: w.adminComments,
+          wrongQuestionNumbers: w.wrongQuestionNumbers,
+          student: {
+            name: w.student?.name || 'Unknown',
+            tokenNumber: w.student?.tokenNumber || 'N/A',
+          },
+          submittedBy: {
+            name: w.submittedBy.name,
+            username: w.submittedBy.username,
+          },
+          class: { name: w.class.name },
+          gradingDetails: w.gradingDetails,
+          images: w.images.length > 0 ? w.images : linkedJobContext?.images || [],
+        };
+      });
+
+      return c.json({ data, total, page, pageSize }, 200);
+    } catch (error) {
+      console.error('Get incorrect grading worksheets error:', error);
+      return c.json(
+        { message: 'Server error while retrieving incorrect grading worksheets' },
+        500
+      );
+    }
+  }
+);
+
 worksheets.get('/:id', async (c) => {
   const prisma = c.get('prisma');
   if (!prisma) return c.json({ message: 'Database is not available' }, 500);
@@ -539,8 +857,6 @@ worksheets.get('/:id', async (c) => {
 });
 
 // ---------- Mutations ----------
-
-const requireSuperadmin = authorize([UserRole.SUPERADMIN]);
 
 worksheets.post(
   '/grade',

@@ -826,6 +826,190 @@ describe('POST /api/worksheets/student-grading-details', () => {
   });
 });
 
+describe('GET /api/worksheets/incorrect-grading', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 403 for non-SUPERADMIN', async () => {
+    const app = mountApp({});
+    const res = await authed(
+      app,
+      '/api/worksheets/incorrect-grading',
+      'TEACHER'
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects invalid startDate/endDate combinations', async () => {
+    const app = mountApp({
+      $transaction: vi.fn().mockResolvedValue([0, []]),
+    });
+    const res = await authed(
+      app,
+      '/api/worksheets/incorrect-grading?startDate=2026-04-10&endDate=2026-04-01',
+      'SUPERADMIN'
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns paginated data with default page=1 pageSize=10', async () => {
+    const transaction = vi.fn().mockResolvedValue([
+      2,
+      [
+        {
+          id: 'w1',
+          notes: null,
+          grade: 15,
+          submittedOn: new Date('2026-04-10'),
+          classId: 'c1',
+          studentId: 'st1',
+          createdAt: new Date('2026-04-10T09:00:00Z'),
+          updatedAt: new Date('2026-04-10T09:00:00Z'),
+          gradingDetails: null,
+          wrongQuestionNumbers: [1, 2],
+          adminComments: null,
+          worksheetNumber: 5,
+          student: { id: 'st1', name: 'Alice', tokenNumber: 'A1' },
+          submittedBy: { name: 'T', username: 't' },
+          class: { name: '5A' },
+          template: { worksheetNumber: 5 },
+          images: [{ imageUrl: 'u1', pageNumber: 1 }],
+        },
+      ],
+    ]);
+    const app = mountApp({
+      worksheet: { count: vi.fn(), findMany: vi.fn() },
+      $transaction: transaction,
+      gradingJob: { findMany: vi.fn().mockResolvedValue([]) },
+    });
+    const res = await authed(
+      app,
+      '/api/worksheets/incorrect-grading',
+      'SUPERADMIN'
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      total: number;
+      page: number;
+      pageSize: number;
+      data: Array<{ id: string; images: unknown[] }>;
+    };
+    expect(body.total).toBe(2);
+    expect(body.page).toBe(1);
+    expect(body.pageSize).toBe(10);
+    expect(body.data[0].id).toBe('w1');
+    expect(body.data[0].images.length).toBe(1);
+  });
+
+  it('falls back to linked job images when the worksheet has none', async () => {
+    const worksheetRow = {
+      id: 'w-legacy',
+      notes: null,
+      grade: 20,
+      submittedOn: new Date('2026-04-10'),
+      classId: 'c1',
+      studentId: 'st1',
+      createdAt: new Date('2026-04-10T09:00:00Z'),
+      updatedAt: new Date('2026-04-10T09:00:00Z'),
+      gradingDetails: null,
+      wrongQuestionNumbers: null,
+      adminComments: null,
+      worksheetNumber: 5,
+      student: { id: 'st1', name: 'Alice', tokenNumber: 'A1' },
+      submittedBy: { name: 'T', username: 't' },
+      class: { name: '5A' },
+      template: { worksheetNumber: 5 },
+      images: [], // no direct images
+    };
+    const transaction = vi.fn().mockResolvedValue([1, [worksheetRow]]);
+    const gradingJobFindMany = vi
+      .fn()
+      // first call: jobs linked by worksheetId
+      .mockResolvedValueOnce([
+        {
+          worksheetId: 'w-legacy',
+          worksheetNumber: 5,
+          updatedAt: new Date('2026-04-10T10:00:00Z'),
+          images: [
+            { imageUrl: 'u1', pageNumber: 1 },
+            { imageUrl: 'u2', pageNumber: 2 },
+          ],
+        },
+      ])
+      // the second call would be the fallback search — not reached here
+      .mockResolvedValue([]);
+    const app = mountApp({
+      worksheet: { count: vi.fn(), findMany: vi.fn() },
+      $transaction: transaction,
+      gradingJob: { findMany: gradingJobFindMany },
+    });
+    const res = await authed(
+      app,
+      '/api/worksheets/incorrect-grading',
+      'SUPERADMIN'
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ images: Array<{ imageUrl: string }> }>;
+    };
+    expect(body.data[0].images.length).toBe(2);
+    expect(body.data[0].images[0].imageUrl).toBe('u1');
+  });
+
+  it('uses day-bounds fallback search when no linked job matches', async () => {
+    const worksheetRow = {
+      id: 'w-legacy',
+      notes: 'worksheet #5',
+      grade: 20,
+      submittedOn: new Date('2026-04-10T12:00:00Z'),
+      classId: 'c1',
+      studentId: 'st1',
+      createdAt: new Date('2026-04-10T09:00:00Z'),
+      updatedAt: new Date('2026-04-10T09:00:00Z'),
+      gradingDetails: null,
+      wrongQuestionNumbers: null,
+      adminComments: null,
+      worksheetNumber: 5,
+      student: { id: 'st1', name: 'Alice', tokenNumber: 'A1' },
+      submittedBy: { name: 'T', username: 't' },
+      class: { name: '5A' },
+      template: null,
+      images: [],
+    };
+    const transaction = vi.fn().mockResolvedValue([1, [worksheetRow]]);
+    const gradingJobFindMany = vi
+      .fn()
+      .mockResolvedValueOnce([]) // no worksheetId-linked jobs
+      .mockResolvedValueOnce([
+        // day-bounds fallback
+        {
+          studentId: 'st1',
+          classId: 'c1',
+          worksheetNumber: 5,
+          submittedOn: new Date('2026-04-10T05:00:00Z'),
+          updatedAt: new Date('2026-04-10T05:30:00Z'),
+          images: [
+            { imageUrl: 'fallback-u1', pageNumber: 1 },
+          ],
+        },
+      ]);
+    const app = mountApp({
+      worksheet: { count: vi.fn(), findMany: vi.fn() },
+      $transaction: transaction,
+      gradingJob: { findMany: gradingJobFindMany },
+    });
+    const res = await authed(
+      app,
+      '/api/worksheets/incorrect-grading',
+      'SUPERADMIN'
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ images: Array<{ imageUrl: string }> }>;
+    };
+    expect(body.data[0].images[0].imageUrl).toBe('fallback-u1');
+  });
+});
+
 describe('GET /api/worksheets/class-date', () => {
   beforeEach(() => vi.clearAllMocks());
 
