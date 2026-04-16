@@ -491,6 +491,7 @@ model QuestionBank {
   question    String
   answer      String
   instruction String
+  renderSpec  Json?
   usedCount   Int       @default(0)
   createdAt   DateTime  @default(now())
 

@@ -51,10 +51,22 @@ const RequestSchema = z.object({
     count: z.number().int().min(1).max(50).default(30)
 });
 
+const RenderSpecSchema = z.object({
+    kind: z.enum(['plain', 'long_division', 'vertical_arithmetic', 'choice_circle']),
+    divisor: z.string().optional(),
+    dividend: z.string().optional(),
+    operator: z.string().optional(),
+    operands: z.array(z.string()).optional(),
+    options: z.array(z.string()).optional(),
+    prompt: z.string().optional(),
+    answerLines: z.number().int().min(0).max(3).optional()
+});
+
 const QuestionSchema = z.object({
     question: z.string(),
     answer: z.string(),
-    instruction: z.string()
+    instruction: z.string(),
+    renderSpec: RenderSpecSchema
 });
 
 const QuestionsResponseSchema = z.object({
@@ -71,9 +83,33 @@ const QuestionsResponseJsonSchema = {
                 properties: {
                     question: { type: 'string' },
                     answer: { type: 'string' },
-                    instruction: { type: 'string' }
+                    instruction: { type: 'string' },
+                    renderSpec: {
+                        type: 'object',
+                        properties: {
+                            kind: {
+                                type: 'string',
+                                enum: ['plain', 'long_division', 'vertical_arithmetic', 'choice_circle']
+                            },
+                            divisor: { type: 'string' },
+                            dividend: { type: 'string' },
+                            operator: { type: 'string' },
+                            operands: {
+                                type: 'array',
+                                items: { type: 'string' }
+                            },
+                            options: {
+                                type: 'array',
+                                items: { type: 'string' }
+                            },
+                            prompt: { type: 'string' },
+                            answerLines: { type: 'number' }
+                        },
+                        required: ['kind'],
+                        additionalProperties: false
+                    }
                 },
-                required: ['question', 'answer', 'instruction'],
+                required: ['question', 'answer', 'instruction', 'renderSpec'],
                 additionalProperties: false
             }
         }
@@ -113,10 +149,13 @@ Rules:
 - Provide a short instruction line in English and Hindi (e.g., "Add the following.\\nजोड़ करो।")
 - All ${count} questions must test the SAME skill but with different numbers
 - Keep question text concise (how it would appear on a worksheet)
-- For division, use the format: "divisor ) dividend" (e.g., "3 ) 24")
-- For vertical operations, just show the horizontal form (e.g., "145 + 37")
+- Include a renderSpec object for each question. This is the layout contract for the PDF renderer.
+- Use renderSpec.kind = "long_division" for division laid out with the long-division bracket. Set divisor and dividend as strings. Keep question as "divisor ) dividend" (e.g., "3 ) 24").
+- Use renderSpec.kind = "vertical_arithmetic" for stacked addition, subtraction, or multiplication. Set operator to "+", "-", or "x"; set operands in top-to-bottom order as strings; set answerLines to 2 unless the skill needs a different number of writing lines. Keep question as horizontal text (e.g., "145 + 37").
+- Use renderSpec.kind = "choice_circle" when the student must select or circle from a list, such as smallest/largest number. Set options in display order as strings. Keep question as the same list (e.g., "12, 9, 31").
+- Use renderSpec.kind = "plain" for skills that need normal text or a format not covered above. Set renderSpec.text only if it should differ from question.
 
-Return a JSON object with one field, "questions", containing an array of objects with fields: question, answer, instruction
+Return a JSON object with one field, "questions", containing an array of objects with fields: question, answer, instruction, renderSpec
 Return ONLY the JSON object, no other text.`;
 
     const input: WorkersAiTextGenerationInput = {
