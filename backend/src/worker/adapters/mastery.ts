@@ -1,16 +1,14 @@
 /**
- * Prisma-injectable copy of the recommendation half of `masteryService.ts`.
+ * Prisma-injectable port of `masteryService.ts` — covers both the
+ * recommendation and update paths.
  *
- * The Express service reads Prisma from a module singleton AND imports
- * `os`-free Node modules indirectly, but the algorithm itself is pure — it
- * loads `studentSkillMastery` rows once, runs FSRS math over them in
- * memory, and sorts the result. That makes it trivial to lift into an
- * adapter so the Hono `/api/mastery/student/:id/recommendations` endpoint
- * (deferred in Phase 5.6) can finally ship.
+ * `computeRecommendations` serves `GET /api/mastery/student/:id/recommendations`.
  *
- * Kept 1:1 with the Express version so both paths produce identical
- * ordering during the parallel-run window. When the Express side is
- * decommissioned, this becomes the canonical copy.
+ * `updateMasteryForWorksheet` is called by the grading-worker `/complete`
+ * route after a worksheet is successfully persisted — it updates the
+ * student's FSRS-tracked skill state using the day's grade. Kept 1:1 with
+ * the Express implementation so both paths produce identical stability /
+ * difficulty / mastery-level progressions during the parallel-run window.
  */
 
 import { MasteryLevel } from '@prisma/client';
@@ -102,4 +100,156 @@ export async function computeRecommendations(
 
   recs.sort((a, b) => b.priority - a.priority);
   return recs.slice(0, limit);
+}
+
+// ── Update mastery after grading ──────────────────────────────────────────
+
+export interface UpdateMasteryInput {
+  worksheetId: string;
+  studentId: string;
+  worksheetNumber: number;
+  grade: number;
+  outOf: number;
+  submittedOn: Date | string;
+}
+
+function computeNewLevel(
+  current: MasteryLevel,
+  score: number,
+  isTest: boolean
+): MasteryLevel {
+  switch (current) {
+    case MasteryLevel.NOT_STARTED:
+      if (score >= 0.75) return MasteryLevel.PROFICIENT;
+      if (score >= 0.5) return MasteryLevel.FAMILIAR;
+      return MasteryLevel.ATTEMPTED;
+    case MasteryLevel.ATTEMPTED:
+      if (score >= 0.5) return MasteryLevel.FAMILIAR;
+      return MasteryLevel.ATTEMPTED;
+    case MasteryLevel.FAMILIAR:
+      if (score >= 0.75) return MasteryLevel.PROFICIENT;
+      if (score >= 0.5) return MasteryLevel.FAMILIAR;
+      return MasteryLevel.ATTEMPTED;
+    case MasteryLevel.PROFICIENT:
+      if (score >= 0.85 && isTest) return MasteryLevel.MASTERED;
+      if (score >= 0.5) return MasteryLevel.PROFICIENT;
+      return MasteryLevel.FAMILIAR;
+    case MasteryLevel.MASTERED:
+      if (score >= 0.5) return MasteryLevel.MASTERED;
+      if (score >= 0.3) return MasteryLevel.PROFICIENT;
+      return MasteryLevel.FAMILIAR;
+    default:
+      return current;
+  }
+}
+
+function scoreToGrade(score: number): number {
+  if (score >= 0.9) return 3; // easy
+  if (score >= 0.75) return 2; // good
+  if (score >= 0.5) return 1; // hard
+  return 0; // fail
+}
+
+function updateDifficulty(currentD: number, score: number): number {
+  const grade = scoreToGrade(score);
+  const newD = currentD + 0.1 * (8 - grade * 2 - currentD);
+  return Math.max(1, Math.min(10, newD));
+}
+
+function updateStability(currentS: number, score: number, difficulty: number): number {
+  if (score < 0.5) return Math.max(1, currentS * 0.2);
+  const grade = scoreToGrade(score);
+  const multipliers: Record<number, number> = { 1: 1.3, 2: 2.5, 3: 3.5 };
+  const multiplier = multipliers[grade] ?? 1.3;
+  const difficultyFactor = (11 - difficulty) / 10;
+  return Math.min(currentS * multiplier * difficultyFactor, 90);
+}
+
+/**
+ * Recompute a student's `StudentSkillMastery` row based on their grade
+ * on a specific worksheet. Also appends a `SkillPracticeLog` entry. Both
+ * writes happen in a single `$transaction`.
+ *
+ * No-ops silently when:
+ *   - `worksheetNumber <= 0` or `outOf <= 0` (absent student, bad data)
+ *   - The worksheet number is not mapped to a skill in
+ *     `WorksheetSkillMap` (not all worksheets are mapped yet)
+ *
+ * Callers should invoke this *after* the worksheet row has been persisted
+ * — the grading-worker `/complete` route does that before calling this.
+ */
+export async function updateMasteryForWorksheet(
+  prisma: PrismaClient,
+  input: UpdateMasteryInput
+): Promise<void> {
+  const { worksheetId, studentId, worksheetNumber, grade, outOf, submittedOn } = input;
+
+  if (worksheetNumber <= 0 || outOf <= 0) return;
+
+  const skillMap = await prisma.worksheetSkillMap.findUnique({
+    where: { worksheetNumber },
+  });
+  if (!skillMap) return;
+
+  const { mathSkillId, isTest } = skillMap;
+  const score = Math.max(0, Math.min(1, grade / outOf));
+  const practicedAt = new Date(submittedOn);
+
+  const mastery = await prisma.studentSkillMastery.findUnique({
+    where: { studentId_mathSkillId: { studentId, mathSkillId } },
+  });
+
+  const previousLevel = mastery?.masteryLevel ?? MasteryLevel.NOT_STARTED;
+  const currentStability = mastery?.stability ?? 1.0;
+  const currentDifficulty = mastery?.difficulty ?? 5.0;
+
+  const newLevel = computeNewLevel(previousLevel, score, isTest);
+  const newDifficulty = updateDifficulty(currentDifficulty, score);
+  const newStability = updateStability(currentStability, score, newDifficulty);
+
+  const practiceCount = (mastery?.practiceCount ?? 0) + 1;
+  const testCount = (mastery?.testCount ?? 0) + (isTest ? 1 : 0);
+
+  await prisma.$transaction([
+    prisma.studentSkillMastery.upsert({
+      where: { studentId_mathSkillId: { studentId, mathSkillId } },
+      create: {
+        studentId,
+        mathSkillId,
+        masteryLevel: newLevel,
+        stability: newStability,
+        difficulty: newDifficulty,
+        lastPracticeAt: practicedAt,
+        lastScore: score,
+        practiceCount,
+        testCount,
+      },
+      update: {
+        masteryLevel: newLevel,
+        stability: newStability,
+        difficulty: newDifficulty,
+        lastPracticeAt: practicedAt,
+        lastScore: score,
+        practiceCount,
+        testCount,
+      },
+    }),
+    prisma.skillPracticeLog.create({
+      data: {
+        studentId,
+        mathSkillId,
+        worksheetId,
+        worksheetNumber,
+        isTest,
+        score,
+        rawGrade: grade,
+        rawOutOf: outOf,
+        previousLevel,
+        newLevel,
+        stabilityAfter: newStability,
+        difficultyAfter: newDifficulty,
+        practicedAt,
+      },
+    }),
+  ]);
 }
