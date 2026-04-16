@@ -36,6 +36,28 @@ export interface WorkerEnv {
   // passes env vars as strings; parsed in the handler.
   PROGRESSION_THRESHOLD?: string;
 
+  // Cloudflare queue IDs. `CF_QUEUE_ID` is the grading queue; the others
+  // are for worksheet generation and PDF rendering (Phase 5.13.D).
+  CF_QUEUE_ID?: string;
+  QUESTION_GENERATION_QUEUE_ID?: string;
+  PDF_RENDERING_QUEUE_ID?: string;
+
+  // Cloudflare account + API token for queue publishing from the worker.
+  CF_ACCOUNT_ID?: string;
+  CF_API_TOKEN?: string;
+  CF_API_BASE_URL?: string;
+
+  // URL of the question-generator Cloudflare Worker (used by
+  // `/internal/question-bank/generate`).
+  QUESTION_GENERATOR_WORKER_URL?: string;
+
+  // PostHog config (adapter reads POSTHOG_API_KEY + optional host).
+  POSTHOG_API_KEY?: string;
+  POSTHOG_HOST?: string;
+  NODE_ENV?: string;
+  GIT_SHA?: string;
+  RELEASE?: string;
+
   // Object storage — native R2 binding (preferred) and S3-compatible
   // endpoint config used by aws4fetch for presigned URLs.
   WORKSHEET_FILES?: R2Bucket;
