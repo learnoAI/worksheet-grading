@@ -467,6 +467,190 @@ describe('PATCH /api/worksheets/:id/admin-comments', () => {
   });
 });
 
+// ---------- Multipart upload tests ----------
+
+describe('POST /api/worksheets/upload', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function makeFormDataRequest(
+    fields: Record<string, string>,
+    files: Array<{ name: string; type: string; size: number }>
+  ): RequestInit {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+    for (const f of files) {
+      fd.append('images', new Blob([new Uint8Array(f.size)], { type: f.type }), f.name);
+    }
+    return { method: 'POST', body: fd };
+  }
+
+  function makeR2Bucket() {
+    const puts: Array<{ key: string; size: number }> = [];
+    const bucket = {
+      put: vi.fn(async (key: string, body: ArrayBufferView | ArrayBuffer) => {
+        const size = body instanceof Uint8Array ? body.byteLength : (body as ArrayBuffer).byteLength;
+        puts.push({ key, size });
+        return {};
+      }),
+      get: vi.fn(async () => null),
+      delete: vi.fn(async () => {}),
+      head: vi.fn(async () => null),
+    };
+    return { bucket, puts };
+  }
+
+  it('returns 400 when body is not multipart/form-data', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER');
+    const res = await app.request(
+      '/api/worksheets/upload',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when no files are provided', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER');
+    const init = makeFormDataRequest({ classId: 'c1' }, []);
+    const res = await app.request(
+      '/api/worksheets/upload',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when a non-image file is sent', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER');
+    const init = makeFormDataRequest(
+      { classId: 'c1' },
+      [{ name: 'a.txt', type: 'text/plain', size: 10 }]
+    );
+    const res = await app.request(
+      '/api/worksheets/upload',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when a file exceeds the 5 MB cap', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER');
+    const init = makeFormDataRequest(
+      { classId: 'c1' },
+      [{ name: 'big.png', type: 'image/png', size: 6 * 1024 * 1024 }]
+    );
+    const res = await app.request(
+      '/api/worksheets/upload',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 when class does not exist', async () => {
+    const app = mountApp({
+      class: { findUnique: vi.fn().mockResolvedValue(null) },
+    });
+    const token = await tokenAs('TEACHER');
+    const init = makeFormDataRequest(
+      { classId: 'missing' },
+      [{ name: 'a.png', type: 'image/png', size: 100 }]
+    );
+    const res = await app.request(
+      '/api/worksheets/upload',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET, WORKSHEET_FILES: makeR2Bucket().bucket as never, R2_PUBLIC_BASE_URL: 'https://cdn' }
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('uploads images and creates a PENDING worksheet with image rows', async () => {
+    const { bucket, puts } = makeR2Bucket();
+    const worksheetCreate = vi.fn().mockResolvedValue({
+      id: 'w-new',
+      status: 'PENDING',
+    });
+    const imageCreate = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'img-1', pageNumber: 1 })
+      .mockResolvedValueOnce({ id: 'img-2', pageNumber: 2 });
+    const app = mountApp({
+      class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1' }) },
+      worksheet: { create: worksheetCreate },
+      worksheetImage: { create: imageCreate },
+    });
+    const token = await tokenAs('TEACHER');
+    const init = makeFormDataRequest(
+      { classId: 'c1', notes: 'first try' },
+      [
+        { name: 'page1.png', type: 'image/png', size: 1024 },
+        { name: 'page2.jpg', type: 'image/jpeg', size: 2048 },
+      ]
+    );
+    const res = await app.request(
+      '/api/worksheets/upload',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      {
+        JWT_SECRET: SECRET,
+        WORKSHEET_FILES: bucket as never,
+        R2_PUBLIC_BASE_URL: 'https://cdn.example.com',
+      }
+    );
+    expect(res.status).toBe(201);
+    expect(worksheetCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          classId: 'c1',
+          notes: 'first try',
+          status: 'PENDING',
+          submittedById: 'u-1',
+        }),
+      })
+    );
+    expect(puts.length).toBe(2);
+    expect(puts[0].key).toMatch(/^worksheets\/w-new\/\d+-page1-page1\.png$/);
+    expect(puts[1].key).toMatch(/^worksheets\/w-new\/\d+-page2-page2\.jpg$/);
+    expect(imageCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          pageNumber: 1,
+          worksheetId: 'w-new',
+        }),
+      })
+    );
+  });
+
+  it('returns 500 when R2_PUBLIC_BASE_URL is unset so image URLs are unresolvable', async () => {
+    const { bucket } = makeR2Bucket();
+    const worksheetCreate = vi.fn().mockResolvedValue({ id: 'w', status: 'PENDING' });
+    const app = mountApp({
+      class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1' }) },
+      worksheet: { create: worksheetCreate },
+      worksheetImage: { create: vi.fn() },
+    });
+    const token = await tokenAs('TEACHER');
+    const init = makeFormDataRequest(
+      { classId: 'c1' },
+      [{ name: 'a.png', type: 'image/png', size: 100 }]
+    );
+    const res = await app.request(
+      '/api/worksheets/upload',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET, WORKSHEET_FILES: bucket as never }
+    );
+    expect(res.status).toBe(500);
+  });
+});
+
 // ---------- Python utility endpoint tests ----------
 
 const originalFetch = globalThis.fetch;

@@ -3,6 +3,8 @@ import { ProcessingStatus, UserRole, Prisma, GradingJobStatus } from '@prisma/cl
 import { authenticate, authorize } from '../middleware/auth';
 import { validateQuery, validateJson } from '../validation';
 import { callPython } from '../adapters/pythonApi';
+import { uploadObject, StorageError } from '../adapters/storage';
+import { parseMultipartFiles, imageOnlyFilter, UploadError } from '../uploads';
 import {
   findWorksheetQuerySchema,
   historyQuerySchema,
@@ -562,6 +564,163 @@ worksheets.patch('/:id/mark-correct', requireSuperadmin, async (c) => {
       { message: 'Server error while updating worksheet grading status' },
       500
     );
+  }
+});
+
+// ---------- Multipart worksheet upload ----------
+
+/**
+ * `POST /api/worksheets/upload` — multipart upload of worksheet page images.
+ *
+ * Mirrors the existing Express handler (`uploadWorksheet` in
+ * `worksheetController.ts`):
+ *   1. Validate class (and optional student-class membership).
+ *   2. Create a Worksheet row in PENDING status.
+ *   3. Upload each image buffer to R2.
+ *   4. Create WorksheetImage rows.
+ *   5. Return the created worksheet.
+ *
+ * Behavioral note: the Express version calls `enqueueWorksheet` (legacy
+ * Bull queue). Bull is disabled in production (`ENABLE_LEGACY_BULL_QUEUE=false`),
+ * so the enqueue is a no-op there too. We skip it here; the grading
+ * dispatch loop picks up PENDING worksheets through its own path.
+ */
+worksheets.post('/upload', requireAuthoringRole, async (c) => {
+  const prisma = c.get('prisma');
+  if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+  // Parse multipart body, filtered to images only with a 5 MB per-file cap
+  // — matches the existing Multer config in `worksheetRoutes.ts`.
+  let parsed;
+  try {
+    parsed = await parseMultipartFiles(c.req.raw, {
+      fieldName: 'images',
+      maxCount: 10,
+      maxFileSizeBytes: 5 * 1024 * 1024,
+      fileFilter: imageOnlyFilter,
+      requireAtLeastOne: true,
+    });
+  } catch (err) {
+    if (err instanceof UploadError) {
+      if (err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_FILE_COUNT') {
+        return c.json({ message: err.message }, 400);
+      }
+      if (err.code === 'FILTER_REJECTED') {
+        return c.json({ message: 'Only image files are allowed' }, 400);
+      }
+      if (err.code === 'NO_FILES_PROVIDED') {
+        return c.json({ message: 'No files uploaded' }, 400);
+      }
+      if (err.code === 'NO_MULTIPART_BODY') {
+        return c.json(
+          { message: 'Expected Content-Type to be multipart/form-data' },
+          400
+        );
+      }
+    }
+    throw err;
+  }
+
+  const { files, fields } = parsed;
+  const classId = fields.classId;
+  const studentId = fields.studentId || null;
+  const notes = fields.notes || null;
+  const user = c.get('user')!;
+
+  if (!classId) {
+    return c.json({ message: 'Class ID is required' }, 400);
+  }
+
+  try {
+    const classExists = await prisma.class.findUnique({ where: { id: classId } });
+    if (!classExists) return c.json({ message: 'Class not found' }, 404);
+
+    if (studentId) {
+      const student = await prisma.user.findFirst({
+        where: {
+          id: studentId,
+          role: 'STUDENT',
+          studentClasses: { some: { classId } },
+        },
+      });
+      if (!student) {
+        return c.json({ message: 'Student not found in this class' }, 404);
+      }
+    }
+
+    const worksheet = await prisma.worksheet.create({
+      data: {
+        notes,
+        status: ProcessingStatus.PENDING,
+        submittedById: user.userId,
+        classId,
+        studentId,
+      },
+    });
+
+    // Upload each file to R2 + create a WorksheetImage row for it.
+    // pageNumbers may arrive as a string[] on the form; fall back to 1-based
+    // ordinal when missing.
+    const pageNumbersRaw = fields['pageNumbers[]'] || fields.pageNumbers;
+    const pageNumbers = Array.isArray(pageNumbersRaw)
+      ? pageNumbersRaw
+      : pageNumbersRaw
+      ? [pageNumbersRaw]
+      : [];
+
+    const images = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const pageNumber =
+        pageNumbers[i] !== undefined
+          ? parseInt(String(pageNumbers[i]), 10)
+          : i + 1;
+
+      const timestamp = Date.now();
+      const safeName = file.originalname.replace(/\s+/g, '_');
+      const key = `worksheets/${worksheet.id}/${timestamp}-page${pageNumber}-${safeName}`;
+
+      const { publicUrl } = await uploadObject(
+        c.env ?? {},
+        key,
+        file.buffer,
+        file.mimetype
+      );
+      if (!publicUrl) {
+        throw new StorageError(
+          'CONFIG_MISSING',
+          'R2_PUBLIC_BASE_URL is required to resolve worksheet image URLs'
+        );
+      }
+
+      const row = await prisma.worksheetImage.create({
+        data: {
+          imageUrl: publicUrl,
+          pageNumber,
+          worksheetId: worksheet.id,
+        },
+      });
+      images.push(row);
+    }
+
+    return c.json(
+      {
+        id: worksheet.id,
+        images,
+        status: worksheet.status,
+        message: 'Worksheet uploaded and queued for processing',
+      },
+      201
+    );
+  } catch (error) {
+    console.error('Worksheet upload error:', error);
+    if (error instanceof StorageError) {
+      return c.json(
+        { message: `Server error during worksheet upload: ${error.message}` },
+        500
+      );
+    }
+    return c.json({ message: 'Server error during worksheet upload' }, 500);
   }
 });
 
