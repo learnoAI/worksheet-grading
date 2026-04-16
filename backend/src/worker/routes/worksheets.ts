@@ -6,6 +6,10 @@ import { callPython } from '../adapters/pythonApi';
 import { uploadObject, StorageError } from '../adapters/storage';
 import { parseMultipartFiles, imageOnlyFilter, UploadError } from '../uploads';
 import {
+  buildWorksheetRecommendationFromHistory,
+  getEffectiveWorksheetNumber,
+} from '../adapters/worksheetRecommendation';
+import {
   findWorksheetQuerySchema,
   historyQuerySchema,
   gradeWorksheetSchema,
@@ -15,6 +19,7 @@ import {
   pythonImagesSchema,
   pythonGradingDetailsSchema,
   totalAiGradedSchema,
+  recommendNextSchema,
 } from '../schemas/worksheets';
 import type { AppBindings } from '../types';
 
@@ -835,6 +840,170 @@ worksheets.post(
         { message: 'Server error while fetching student grading details' },
         500
       );
+    }
+  }
+);
+
+// ---------- Recommendation ----------
+
+/**
+ * `POST /api/worksheets/recommend-next` — returns the next worksheet a
+ * student should attempt based on their graded history.
+ *
+ * Algorithm: delegates to `adapters/worksheetRecommendation` after loading
+ * the student's graded worksheets for the current class. If the student
+ * has no history in the current class (e.g. after academic-year onboarding
+ * moved them to a new class), we fall back to the latest-day worksheets
+ * from *any* class the student was in — the algorithm then continues
+ * date-based progression without losing context.
+ */
+worksheets.post(
+  '/recommend-next',
+  requireAuthoringRole,
+  validateJson(recommendNextSchema),
+  async (c) => {
+    const prisma = c.get('prisma');
+    if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+    const { classId, studentId, beforeDate } = c.req.valid('json');
+    const progressionThresholdRaw = Number.parseInt(
+      c.env?.PROGRESSION_THRESHOLD ?? '',
+      10
+    );
+    const progressionThreshold =
+      Number.isFinite(progressionThresholdRaw) && progressionThresholdRaw > 0
+        ? progressionThresholdRaw
+        : 32;
+
+    const dateFilter: { lt?: Date } = {};
+    if (beforeDate) {
+      const before = new Date(beforeDate);
+      before.setUTCHours(23, 59, 59, 999);
+      dateFilter.lt = before;
+    }
+
+    try {
+      const worksheetHistory = await prisma.worksheet.findMany({
+        where: {
+          classId,
+          studentId,
+          status: ProcessingStatus.COMPLETED,
+          isAbsent: false,
+          grade: { not: null },
+          ...(beforeDate ? { submittedOn: dateFilter } : {}),
+        },
+        select: {
+          grade: true,
+          worksheetNumber: true,
+          submittedOn: true,
+          createdAt: true,
+          template: { select: { worksheetNumber: true } },
+        },
+        orderBy: [
+          { submittedOn: 'desc' },
+          { createdAt: 'desc' },
+          { worksheetNumber: 'desc' },
+        ],
+      });
+
+      const recommendation = buildWorksheetRecommendationFromHistory(
+        worksheetHistory.map((w) => ({
+          grade: w.grade,
+          submittedOn: w.submittedOn,
+          createdAt: w.createdAt,
+          effectiveWorksheetNumber: getEffectiveWorksheetNumber(
+            w.worksheetNumber,
+            w.template?.worksheetNumber ?? null
+          ),
+        })),
+        progressionThreshold
+      );
+
+      if (recommendation.lastWorksheetNumber === null) {
+        // No history in current class — check prior class history.
+        const latestPrior = await prisma.worksheet.findFirst({
+          where: {
+            studentId,
+            status: ProcessingStatus.COMPLETED,
+            isAbsent: false,
+            grade: { not: null },
+            ...(beforeDate ? { submittedOn: dateFilter } : {}),
+          },
+          select: { submittedOn: true },
+          orderBy: { submittedOn: 'desc' },
+        });
+
+        if (latestPrior?.submittedOn) {
+          const latestDayWorksheets = await prisma.worksheet.findMany({
+            where: {
+              studentId,
+              submittedOn: latestPrior.submittedOn,
+              status: ProcessingStatus.COMPLETED,
+              isAbsent: false,
+              grade: { not: null },
+            },
+            select: {
+              worksheetNumber: true,
+              grade: true,
+              submittedOn: true,
+              createdAt: true,
+              template: { select: { worksheetNumber: true } },
+            },
+          });
+
+          if (latestDayWorksheets.length > 0) {
+            const priorRecommendation = buildWorksheetRecommendationFromHistory(
+              latestDayWorksheets.map((w) => ({
+                grade: w.grade,
+                submittedOn: w.submittedOn,
+                createdAt: w.createdAt,
+                effectiveWorksheetNumber: getEffectiveWorksheetNumber(
+                  w.worksheetNumber,
+                  w.template?.worksheetNumber ?? null
+                ),
+              })),
+              progressionThreshold
+            );
+            // Matches the Express response shape exactly: `isRepeated: false`
+            // because the student is starting in a new class, not repeating.
+            return c.json(
+              {
+                recommendedWorksheetNumber: priorRecommendation.recommendedWorksheetNumber,
+                isRepeated: false,
+                lastWorksheetNumber: priorRecommendation.lastWorksheetNumber,
+                lastGrade: priorRecommendation.lastGrade,
+                progressionThreshold,
+              },
+              200
+            );
+          }
+        }
+
+        return c.json(
+          {
+            recommendedWorksheetNumber: 1,
+            isRepeated: false,
+            lastWorksheetNumber: null,
+            lastGrade: null,
+            progressionThreshold,
+          },
+          200
+        );
+      }
+
+      return c.json(
+        {
+          recommendedWorksheetNumber: recommendation.recommendedWorksheetNumber,
+          isRepeated: recommendation.isRecommendedRepeated,
+          lastWorksheetNumber: recommendation.lastWorksheetNumber,
+          lastGrade: recommendation.lastGrade,
+          progressionThreshold,
+        },
+        200
+      );
+    } catch (error) {
+      console.error('Get recommended worksheet error:', error);
+      return c.json({ message: 'Server error while getting recommendation' }, 500);
     }
   }
 );

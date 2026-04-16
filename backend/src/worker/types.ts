@@ -31,6 +31,11 @@ export interface WorkerEnv {
   // to the legacy image/grading service.
   PYTHON_API_URL?: string;
 
+  // Score threshold at which students are recommended the *next* worksheet
+  // instead of repeating the current one. Stringly-typed because wrangler
+  // passes env vars as strings; parsed in the handler.
+  PROGRESSION_THRESHOLD?: string;
+
   // Object storage — native R2 binding (preferred) and S3-compatible
   // endpoint config used by aws4fetch for presigned URLs.
   WORKSHEET_FILES?: R2Bucket;

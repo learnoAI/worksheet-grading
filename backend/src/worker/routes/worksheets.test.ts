@@ -826,6 +826,160 @@ describe('POST /api/worksheets/student-grading-details', () => {
   });
 });
 
+describe('POST /api/worksheets/recommend-next', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('rejects body without classId/studentId', async () => {
+    const app = mountApp({ worksheet: { findMany: vi.fn(), findFirst: vi.fn() } });
+    const res = await jsonRequest(
+      app,
+      '/api/worksheets/recommend-next',
+      'POST',
+      { classId: 'c1' }
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 403 for STUDENT role', async () => {
+    const app = mountApp({ worksheet: { findMany: vi.fn(), findFirst: vi.fn() } });
+    const res = await jsonRequest(
+      app,
+      '/api/worksheets/recommend-next',
+      'POST',
+      { classId: 'c1', studentId: 'st1' },
+      'STUDENT'
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('returns "start from worksheet 1" when student has no history anywhere', async () => {
+    const app = mountApp({
+      worksheet: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/recommend-next', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      recommendedWorksheetNumber: 1,
+      isRepeated: false,
+      lastWorksheetNumber: null,
+      lastGrade: null,
+      progressionThreshold: 32,
+    });
+  });
+
+  it('uses current-class history when present and advances past threshold', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        grade: 35,
+        worksheetNumber: 5,
+        submittedOn: new Date('2026-04-10'),
+        createdAt: new Date('2026-04-10T09:00:00Z'),
+        template: { worksheetNumber: 5 },
+      },
+    ]);
+    const app = mountApp({ worksheet: { findMany, findFirst: vi.fn() } });
+    const res = await jsonRequest(app, '/api/worksheets/recommend-next', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      recommendedWorksheetNumber: number;
+      lastWorksheetNumber: number | null;
+      lastGrade: number | null;
+    };
+    expect(body.recommendedWorksheetNumber).toBe(6);
+    expect(body.lastWorksheetNumber).toBe(5);
+    expect(body.lastGrade).toBe(35);
+  });
+
+  it('falls back to prior-class latest day when current-class history is empty', async () => {
+    // current-class history: empty → triggers prior-class fallback chain.
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce([]) // current class
+      .mockResolvedValueOnce([
+        // latest-day worksheets from any class
+        {
+          worksheetNumber: 7,
+          grade: 35,
+          submittedOn: new Date('2026-04-01'),
+          createdAt: new Date('2026-04-01T09:00:00Z'),
+          template: { worksheetNumber: 7 },
+        },
+      ]);
+    const findFirst = vi.fn().mockResolvedValue({
+      submittedOn: new Date('2026-04-01'),
+    });
+    const app = mountApp({ worksheet: { findMany, findFirst } });
+    const res = await jsonRequest(app, '/api/worksheets/recommend-next', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      recommendedWorksheetNumber: number;
+      isRepeated: boolean;
+      lastWorksheetNumber: number | null;
+    };
+    // Prior-class fallback: isRepeated always false (student is new to class).
+    expect(body.isRepeated).toBe(false);
+    expect(body.recommendedWorksheetNumber).toBe(8);
+    expect(body.lastWorksheetNumber).toBe(7);
+  });
+
+  it('honors PROGRESSION_THRESHOLD env var when set', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        grade: 30, // below default 32, but above custom 25
+        worksheetNumber: 5,
+        submittedOn: new Date('2026-04-10'),
+        createdAt: new Date('2026-04-10T09:00:00Z'),
+        template: { worksheetNumber: 5 },
+      },
+    ]);
+    const app = mountApp({ worksheet: { findMany, findFirst: vi.fn() } });
+    const token = await tokenAs('TEACHER');
+    const res = await app.request(
+      '/api/worksheets/recommend-next',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classId: 'c1', studentId: 'st1' }),
+      },
+      { JWT_SECRET: SECRET, PROGRESSION_THRESHOLD: '25' }
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      recommendedWorksheetNumber: number;
+      progressionThreshold: number;
+    };
+    expect(body.progressionThreshold).toBe(25);
+    expect(body.recommendedWorksheetNumber).toBe(6); // advanced due to lower threshold
+  });
+
+  it('filters history with beforeDate when provided', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const app = mountApp({ worksheet: { findMany, findFirst } });
+    await jsonRequest(app, '/api/worksheets/recommend-next', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      beforeDate: '2026-04-05T00:00:00Z',
+    });
+    // Both findMany (current class) and findFirst (prior class) should apply the filter.
+    const call = findMany.mock.calls[0][0];
+    expect(call.where.submittedOn.lt).toBeInstanceOf(Date);
+    expect(findFirst.mock.calls[0][0].where.submittedOn.lt).toBeInstanceOf(Date);
+  });
+});
+
 describe('POST /api/worksheets/check-repeated', () => {
   beforeEach(() => vi.clearAllMocks());
 

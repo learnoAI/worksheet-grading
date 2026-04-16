@@ -75,3 +75,25 @@ export const totalAiGradedSchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
 });
+
+export const recommendNextSchema = z.object({
+  classId: z.string().min(1, { message: 'Class ID is required' }),
+  studentId: z.string().min(1, { message: 'Student ID is required' }),
+  beforeDate: z
+    .string()
+    .datetime({ message: 'beforeDate must be a valid ISO date' })
+    .optional(),
+});
+
+export const incorrectGradingQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+  startDate: z
+    .string()
+    .datetime({ message: 'startDate must be a valid ISO date' })
+    .optional(),
+  endDate: z
+    .string()
+    .datetime({ message: 'endDate must be a valid ISO date' })
+    .optional(),
+});
