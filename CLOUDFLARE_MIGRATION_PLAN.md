@@ -638,6 +638,42 @@ collapsed when the service layer is adapted in Phase 5.10.
 **When to address:** Phase 5.11 (complex routes), after Phase 5.10 lands
 prisma-injected service helpers and a Workers-compatible CF Queues client.
 
+### C9.1 — Phase 5.13 progress (partial)
+
+**Status (current):** Of the deferred Phase 5.13 work catalogued in C9,
+the following have been ported to Hono:
+
+- `POST /api/worksheets/images` — Python API image lookup.
+- `POST /api/worksheets/total-ai-graded` — DB count of completed grading
+  jobs (optional date range).
+- `POST /api/worksheets/student-grading-details` — Python API grading
+  detail lookup.
+- `POST /api/worksheets/upload` — multipart worksheet image upload into
+  R2. Honors the existing 5 MB / 10-file / image-only limits. Skips the
+  legacy Bull `enqueueWorksheet` call since `ENABLE_LEGACY_BULL_QUEUE=false`
+  in production — worksheets stay `PENDING` for the dispatch loop to pick
+  up, matching existing Express behavior.
+
+**Still pending under C9 (the rest of Phase 5.13):**
+
+- Direct-upload session trio (`POST /upload-session`,
+  `GET /upload-session/:batchId`, `POST /upload-session/:batchId/finalize`) —
+  1,100-line controller; needs bespoke helpers ported too.
+- `POST /api/worksheet-processing/process` — Python API forwarding for
+  inline grading.
+- `GET /api/worksheets/class-date` + `GET /api/worksheets/incorrect-grading` +
+  `POST /api/worksheets/recommend-next` — heavy queries with
+  `worksheetRecommendation` service dependency.
+- `/internal/grading-worker/*` — 5 routes, 507-line state machine with
+  raw `$queryRaw` and `FOR UPDATE`.
+- `/internal/question-bank/*` — question-generation pipeline glue.
+- `/api/analytics/overall`, `/students`, `/students/download` — in-process
+  cache + `setInterval` cleanup to migrate to KV + Cron.
+
+**Coverage:** ~80 of ~96 endpoints are now on Hono. The remaining routes
+continue to serve through the Express fallback until their own
+dedicated port.
+
 ### C9 — Complex/stateful routes deferred past Phase 5.11
 
 **Discovered:** Phase 5.11 scoping.
