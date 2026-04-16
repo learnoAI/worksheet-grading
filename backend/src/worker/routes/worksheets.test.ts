@@ -467,6 +467,181 @@ describe('PATCH /api/worksheets/:id/admin-comments', () => {
   });
 });
 
+// ---------- Python utility endpoint tests ----------
+
+const originalFetch = globalThis.fetch;
+
+function installFetchMock(impl: (url: string, init: RequestInit) => Promise<Response>) {
+  const fn = vi.fn(impl);
+  globalThis.fetch = fn as unknown as typeof fetch;
+  return fn;
+}
+
+describe('POST /api/worksheets/images', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalThis.fetch = originalFetch;
+  });
+
+  it('returns 500 when PYTHON_API_URL is not configured', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER');
+    const res = await app.request(
+      '/api/worksheets/images',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token_no: 'T1', worksheet_name: 'WS-1' }),
+      },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(500);
+  });
+
+  it('forwards to python api and returns its JSON response', async () => {
+    const fetchMock = installFetchMock(async () =>
+      new Response(JSON.stringify({ images: ['u1'] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER');
+    const res = await app.request(
+      '/api/worksheets/images',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token_no: 'T1', worksheet_name: 'WS-1' }),
+      },
+      { JWT_SECRET: SECRET, PYTHON_API_URL: 'https://py.example.com' }
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ images: ['u1'] });
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toBe('https://py.example.com/get-worksheet-images');
+  });
+});
+
+describe('POST /api/worksheets/total-ai-graded', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns count without date filter', async () => {
+    const count = vi.fn().mockResolvedValue(42);
+    const app = mountApp({ gradingJob: { count } });
+    const res = await jsonRequest(
+      app,
+      '/api/worksheets/total-ai-graded',
+      'POST',
+      {},
+      'SUPERADMIN'
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ total_ai_graded: 42 });
+    expect(count).toHaveBeenCalledWith({
+      where: { status: 'COMPLETED' },
+    });
+  });
+
+  it('rejects invalid startDate', async () => {
+    const app = mountApp({ gradingJob: { count: vi.fn() } });
+    const res = await jsonRequest(
+      app,
+      '/api/worksheets/total-ai-graded',
+      'POST',
+      { startDate: 'not-a-date', endDate: '2026-04-10' },
+      'SUPERADMIN'
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('applies date range via AND/OR on submittedOn or createdAt', async () => {
+    const count = vi.fn().mockResolvedValue(0);
+    const app = mountApp({ gradingJob: { count } });
+    await jsonRequest(
+      app,
+      '/api/worksheets/total-ai-graded',
+      'POST',
+      { startDate: '2026-04-01', endDate: '2026-04-10' },
+      'SUPERADMIN'
+    );
+    const where = count.mock.calls[0][0].where;
+    expect(where.AND[0].OR.length).toBe(2);
+  });
+
+  it('returns 403 for non-SUPERADMIN', async () => {
+    const app = mountApp({ gradingJob: { count: vi.fn() } });
+    const res = await jsonRequest(
+      app,
+      '/api/worksheets/total-ai-graded',
+      'POST',
+      {},
+      'TEACHER'
+    );
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('POST /api/worksheets/student-grading-details', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalThis.fetch = originalFetch;
+  });
+
+  it('returns 403 for non-SUPERADMIN', async () => {
+    const app = mountApp({});
+    const res = await jsonRequest(
+      app,
+      '/api/worksheets/student-grading-details',
+      'POST',
+      { token_no: 'T1', worksheet_name: 'WS-1' },
+      'TEACHER'
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('includes overall_score in the forwarded body when provided', async () => {
+    const fetchMock = installFetchMock(async () =>
+      new Response(JSON.stringify({ details: [] }), { status: 200 })
+    );
+    const app = mountApp({});
+    const token = await tokenAs('SUPERADMIN');
+    await app.request(
+      '/api/worksheets/student-grading-details',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token_no: 'T1', worksheet_name: 'WS-1', overall_score: 32 }),
+      },
+      { JWT_SECRET: SECRET, PYTHON_API_URL: 'https://py.example.com' }
+    );
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string);
+    expect(body).toEqual({ token_no: 'T1', worksheet_name: 'WS-1', overall_score: 32 });
+  });
+
+  it('omits overall_score when not provided', async () => {
+    const fetchMock = installFetchMock(async () =>
+      new Response(JSON.stringify({ details: [] }), { status: 200 })
+    );
+    const app = mountApp({});
+    const token = await tokenAs('SUPERADMIN');
+    await app.request(
+      '/api/worksheets/student-grading-details',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token_no: 'T1', worksheet_name: 'WS-1' }),
+      },
+      { JWT_SECRET: SECRET, PYTHON_API_URL: 'https://py.example.com' }
+    );
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string
+    );
+    expect(body).toEqual({ token_no: 'T1', worksheet_name: 'WS-1' });
+  });
+});
+
 describe('POST /api/worksheets/check-repeated', () => {
   beforeEach(() => vi.clearAllMocks());
 

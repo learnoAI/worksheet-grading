@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { ProcessingStatus, UserRole, Prisma } from '@prisma/client';
+import { ProcessingStatus, UserRole, Prisma, GradingJobStatus } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
 import { validateQuery, validateJson } from '../validation';
+import { callPython } from '../adapters/pythonApi';
 import {
   findWorksheetQuerySchema,
   historyQuerySchema,
@@ -9,8 +10,34 @@ import {
   updateAdminCommentsSchema,
   checkRepeatedSchema,
   batchSaveSchema,
+  pythonImagesSchema,
+  pythonGradingDetailsSchema,
+  totalAiGradedSchema,
 } from '../schemas/worksheets';
 import type { AppBindings } from '../types';
+
+function parseDateInputToUtcStart(dateInput: string): Date | null {
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput);
+  if (dateOnly) {
+    return new Date(Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]), 0, 0, 0, 0));
+  }
+  const parsed = new Date(dateInput);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setUTCHours(0, 0, 0, 0);
+  return parsed;
+}
+
+function parseDateInputToUtcEndExclusive(dateInput: string): Date | null {
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput);
+  if (dateOnly) {
+    return new Date(Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]) + 1, 0, 0, 0, 0));
+  }
+  const parsed = new Date(dateInput);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setUTCHours(0, 0, 0, 0);
+  parsed.setUTCDate(parsed.getUTCDate() + 1);
+  return parsed;
+}
 
 /**
  * Worksheet routes — port of `backend/src/routes/worksheetRoutes.ts`.
@@ -537,6 +564,121 @@ worksheets.patch('/:id/mark-correct', requireSuperadmin, async (c) => {
     );
   }
 });
+
+// ---------- Python API utility endpoints ----------
+
+worksheets.post(
+  '/images',
+  requireAuthoringRole,
+  validateJson(pythonImagesSchema),
+  async (c) => {
+    const { token_no, worksheet_name } = c.req.valid('json');
+    const pythonApiUrl = c.env?.PYTHON_API_URL;
+    if (!pythonApiUrl) {
+      return c.json(
+        { message: 'Server configuration error: PYTHON_API_URL not set' },
+        500
+      );
+    }
+
+    try {
+      const result = await callPython(`${pythonApiUrl}/get-worksheet-images`, {
+        method: 'POST',
+        json: { token_no, worksheet_name },
+      });
+      return c.json(result as object, 200);
+    } catch (error) {
+      console.error('Get worksheet images error:', error);
+      const status = (error as { status?: number } | null)?.status;
+      if (typeof status === 'number' && status >= 400 && status < 500) {
+        return c.json(
+          { message: 'Failed to fetch images from Python API' },
+          status as 400 | 401 | 403 | 404
+        );
+      }
+      return c.json({ message: 'Server error while fetching worksheet images' }, 500);
+    }
+  }
+);
+
+worksheets.post(
+  '/total-ai-graded',
+  requireSuperadmin,
+  validateJson(totalAiGradedSchema),
+  async (c) => {
+    const prisma = c.get('prisma');
+    if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+    const { startDate, endDate } = c.req.valid('json');
+    const startBoundary = startDate ? parseDateInputToUtcStart(String(startDate)) : null;
+    const endBoundaryExclusive = endDate
+      ? parseDateInputToUtcEndExclusive(String(endDate))
+      : null;
+
+    if ((startDate && !startBoundary) || (endDate && !endBoundaryExclusive)) {
+      return c.json({ message: 'Invalid startDate/endDate values' }, 400);
+    }
+    if (startBoundary && endBoundaryExclusive && startBoundary >= endBoundaryExclusive) {
+      return c.json({ message: 'startDate must be before or equal to endDate' }, 400);
+    }
+
+    const where: Prisma.GradingJobWhereInput = {
+      status: GradingJobStatus.COMPLETED,
+    };
+    if (startBoundary || endBoundaryExclusive) {
+      const dateRange: { gte?: Date; lt?: Date } = {};
+      if (startBoundary) dateRange.gte = startBoundary;
+      if (endBoundaryExclusive) dateRange.lt = endBoundaryExclusive;
+      where.AND = [{ OR: [{ submittedOn: dateRange }, { createdAt: dateRange }] }];
+    }
+
+    try {
+      const totalAiGraded = await prisma.gradingJob.count({ where });
+      return c.json({ total_ai_graded: totalAiGraded }, 200);
+    } catch (error) {
+      console.error('Get total AI graded error:', error);
+      return c.json(
+        { message: 'Server error while fetching total AI graded count from database' },
+        500
+      );
+    }
+  }
+);
+
+worksheets.post(
+  '/student-grading-details',
+  requireSuperadmin,
+  validateJson(pythonGradingDetailsSchema),
+  async (c) => {
+    const { token_no, worksheet_name, overall_score } = c.req.valid('json');
+    const pythonApiUrl = c.env?.PYTHON_API_URL;
+    if (!pythonApiUrl) {
+      return c.json(
+        { message: 'Server configuration error: PYTHON_API_URL not set' },
+        500
+      );
+    }
+
+    const body: Record<string, unknown> = { token_no, worksheet_name };
+    if (overall_score !== undefined && overall_score !== null) {
+      body.overall_score = overall_score;
+    }
+
+    try {
+      const result = await callPython(`${pythonApiUrl}/student-grading-details`, {
+        method: 'POST',
+        json: body,
+      });
+      return c.json(result as object, 200);
+    } catch (error) {
+      console.error('Get student grading details error:', error);
+      return c.json(
+        { message: 'Server error while fetching student grading details' },
+        500
+      );
+    }
+  }
+);
 
 // ---------- Derived queries + batch operations ----------
 

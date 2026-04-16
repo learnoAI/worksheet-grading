@@ -27,6 +27,10 @@ export interface WorkerEnv {
   // Fallback URL for routes not yet ported to Hono (Phase 5.13 scope).
   EXPRESS_FALLBACK_URL?: string;
 
+  // Python grading API — used by utility worksheet endpoints that forward
+  // to the legacy image/grading service.
+  PYTHON_API_URL?: string;
+
   // Object storage — native R2 binding (preferred) and S3-compatible
   // endpoint config used by aws4fetch for presigned URLs.
   WORKSHEET_FILES?: R2Bucket;

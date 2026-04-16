@@ -59,3 +59,19 @@ export const batchSaveSchema = z.object({
   submittedOn: z.string().datetime({ message: 'submittedOn must be a valid ISO date' }),
   worksheets: z.array(z.record(z.string(), z.unknown())),
 });
+
+export const pythonImagesSchema = z.object({
+  token_no: z.string().min(1, { message: 'Token number is required' }),
+  worksheet_name: z.string().min(1, { message: 'Worksheet name is required' }),
+});
+
+export const pythonGradingDetailsSchema = z.object({
+  token_no: z.string().min(1, { message: 'Token number is required' }),
+  worksheet_name: z.string().min(1, { message: 'Worksheet name is required' }),
+  overall_score: z.number().optional(),
+});
+
+export const totalAiGradedSchema = z.object({
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+});
