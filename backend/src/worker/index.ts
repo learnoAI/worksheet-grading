@@ -19,6 +19,7 @@ import internalWorksheetGenerationRoutes from './routes/internalWorksheetGenerat
 import worksheetRoutes from './routes/worksheets';
 import worksheetProcessingRoutes from './routes/worksheetProcessing';
 import internalQuestionBankRoutes from './routes/internalQuestionBank';
+import internalGradingWorkerRoutes from './routes/internalGradingWorker';
 import { expressFallback } from './fallback';
 
 const app = new Hono<AppBindings>();
@@ -46,6 +47,7 @@ app.route('/internal/worksheet-generation', internalWorksheetGenerationRoutes);
 app.route('/api/worksheets', worksheetRoutes);
 app.route('/api/worksheet-processing', worksheetProcessingRoutes);
 app.route('/internal/question-bank', internalQuestionBankRoutes);
+app.route('/internal/grading-worker', internalGradingWorkerRoutes);
 
 // Catch-all fallback: any path not handled above is proxied to the Express
 // service. Must stay LAST. Once Phase 5.13 lands and every route is on
