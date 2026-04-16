@@ -359,6 +359,123 @@ describe('GET /api/worksheet-processing/upload-session/:batchId', () => {
   });
 });
 
+describe('POST /api/worksheet-processing/process', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function makeR2Bucket() {
+    const puts: Array<{ key: string }> = [];
+    return {
+      bucket: {
+        put: vi.fn(async (key: string) => {
+          puts.push({ key });
+          return {};
+        }),
+        get: vi.fn(async () => null),
+        delete: vi.fn(async () => {}),
+        head: vi.fn(async () => null),
+      },
+      puts,
+    };
+  }
+
+  function makeMultipart(
+    fields: Record<string, string>,
+    files: Array<{ name: string; type: string; size: number }>
+  ): RequestInit {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+    for (const f of files) {
+      fd.append('files', new Blob([new Uint8Array(f.size)], { type: f.type }), f.name);
+    }
+    return { method: 'POST', body: fd };
+  }
+
+  it('rejects request with no files', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER');
+    const init = makeMultipart(
+      {
+        token_no: 'T1',
+        worksheet_name: 'W',
+        classId: 'c1',
+        studentId: 'st1',
+        worksheetNumber: '5',
+      },
+      []
+    );
+    const res = await app.request(
+      '/api/worksheet-processing/process',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects missing required metadata fields', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER');
+    const init = makeMultipart(
+      { token_no: 'T1', worksheet_name: 'W' },
+      [{ name: 'a.png', type: 'image/png', size: 10 }]
+    );
+    const res = await app.request(
+      '/api/worksheet-processing/process',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('creates a GradingJob, uploads images to R2, publishes to queue, returns 202', async () => {
+    const { bucket, puts } = makeR2Bucket();
+    const gradingJobCreate = vi.fn().mockResolvedValue({ id: 'job-1' });
+    const gradingJobImageCreate = vi.fn().mockResolvedValue({});
+    const gradingJobUpdate = vi.fn().mockResolvedValue({});
+    const userFindUnique = vi.fn().mockResolvedValue({ name: 'Alice' });
+
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
+    ) as unknown as typeof fetch;
+
+    const prisma = {
+      user: { findUnique: userFindUnique },
+      gradingJob: { create: gradingJobCreate, update: gradingJobUpdate },
+      gradingJobImage: { create: gradingJobImageCreate },
+    };
+    const app = mountApp(prisma);
+    const token = await tokenAs('TEACHER', 't1');
+    const init = makeMultipart(
+      {
+        token_no: 'T1',
+        worksheet_name: 'W',
+        classId: 'c1',
+        studentId: 'st1',
+        worksheetNumber: '5',
+      },
+      [{ name: 'a.png', type: 'image/png', size: 100 }]
+    );
+    const res = await app.request(
+      '/api/worksheet-processing/process',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      {
+        JWT_SECRET: SECRET,
+        WORKSHEET_FILES: bucket as never,
+        R2_PUBLIC_BASE_URL: 'https://cdn.example.com',
+        ...queueEnv,
+      }
+    );
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { jobId: string; dispatchState: string };
+    expect(body.jobId).toBe('job-1');
+    expect(body.dispatchState).toBe('DISPATCHED');
+    expect(puts.length).toBe(1);
+    expect(puts[0].key).toMatch(/^worksheets\/job-1\/\d+-page1-a\.png$/);
+    expect(gradingJobImageCreate).toHaveBeenCalled();
+    // Queue publish fetch
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () => {
   beforeEach(() => vi.clearAllMocks());
 

@@ -14,6 +14,8 @@ import {
   StorageError,
 } from '../adapters/storage';
 import { publishToQueue, QueueError } from '../adapters/queues';
+import { uploadObject } from '../adapters/storage';
+import { parseMultipartFiles, imageOnlyFilter, UploadError } from '../uploads';
 import {
   capturePosthogEvent,
   capturePosthogException,
@@ -720,13 +722,227 @@ worksheetProcessing.post(
   }
 );
 
-// `POST /process` (multipart → Python API forward) is intentionally still
-// served by the Express fallback. It depends on the synchronous
-// `storeJobImages` path using `uploadToS3` (legacy AWS SDK) and an inline
-// grading mode that Workers cannot host. Porting it cleanly needs a split
-// into "receive multipart + upload to R2" (Workers-safe) vs "run grading
-// inline" (not Workers-safe). Tracked in the migration plan as a C9
-// follow-up item.
+// ---------- POST /process ----------
+
+/**
+ * `POST /api/worksheet-processing/process` — multipart image upload that
+ * creates a `GradingJob`, stores images in R2, then dispatches via the CF
+ * Queues publisher. The Express version also supports an `inline` queue
+ * mode that runs grading in-process via `setImmediate`; the Workers
+ * runtime cannot support that, so this route requires
+ * `GRADING_QUEUE_MODE=cloudflare` (the production default).
+ *
+ * Field names match the Express handler for bug-compat with the mobile
+ * client:
+ *   `files` (multipart) up to 10 image files, 50 MB each
+ *   `token_no`, `worksheet_name`, `classId`, `studentId`, `studentName`,
+ *   `worksheetNumber`, `submittedOn`, `isRepeated` (form fields)
+ */
+worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
+  const prisma = c.get('prisma');
+  if (!prisma) return c.json({ success: false, error: 'Database is not available' }, 500);
+  const user = c.get('user')!;
+  const submittedById = user.userId;
+
+  // Parse multipart body: image-only, 50 MB per file, up to 10 files.
+  let parsed;
+  try {
+    parsed = await parseMultipartFiles(c.req.raw, {
+      fieldName: 'files',
+      maxCount: 10,
+      maxFileSizeBytes: 50 * 1024 * 1024,
+      fileFilter: imageOnlyFilter,
+      requireAtLeastOne: false,
+    });
+  } catch (err) {
+    if (err instanceof UploadError) {
+      await capturePosthogEvent(
+        c.env ?? {},
+        'image_upload_rejected',
+        submittedById,
+        { reason: err.code, path: '/api/worksheet-processing/process' }
+      );
+      return c.json({ success: false, error: err.message }, 400);
+    }
+    throw err;
+  }
+
+  const { files, fields } = parsed;
+  const tokenNo = fields.token_no;
+  const worksheetName = fields.worksheet_name;
+  const classId = fields.classId;
+  const studentId = fields.studentId;
+  const studentNameField = fields.studentName;
+  const worksheetNumberRaw = fields.worksheetNumber;
+  const submittedOnField = fields.submittedOn;
+  const isRepeatedField = fields.isRepeated;
+
+  if (!tokenNo || !worksheetName || files.length === 0) {
+    await capturePosthogEvent(
+      c.env ?? {},
+      'request_rejected_validation',
+      submittedById,
+      {
+        reason: 'missing_required_fields_token_or_worksheet_or_files',
+        filesCount: files.length,
+      }
+    );
+    return c.json({ success: false, error: 'Missing required fields' }, 400);
+  }
+  if (!classId || !studentId || !worksheetNumberRaw) {
+    await capturePosthogEvent(
+      c.env ?? {},
+      'request_rejected_validation',
+      submittedById,
+      {
+        reason: 'missing_required_fields_job_metadata',
+        hasClassId: Boolean(classId),
+        hasStudentId: Boolean(studentId),
+        hasWorksheetNumber: Boolean(worksheetNumberRaw),
+      }
+    );
+    return c.json({ success: false, error: 'Missing required fields' }, 400);
+  }
+
+  await capturePosthogEvent(c.env ?? {}, 'request_received', submittedById, {
+    tokenNo,
+    worksheetName,
+    worksheetNumber: worksheetNumberRaw,
+    studentId,
+    classId,
+    filesCount: files.length,
+    queueMode: 'cloudflare',
+  });
+
+  let jobId: string | null = null;
+
+  try {
+    const resolvedStudentName =
+      studentNameField ||
+      (
+        await prisma.user.findUnique({
+          where: { id: studentId },
+          select: { name: true },
+        })
+      )?.name ||
+      'Unknown';
+
+    const parsedIsRepeated = isRepeatedField === 'true';
+    const parsedSubmittedOn = submittedOnField ? new Date(submittedOnField) : new Date();
+
+    const job = await prisma.gradingJob.create({
+      data: {
+        studentId,
+        studentName: resolvedStudentName,
+        worksheetNumber: Number.parseInt(worksheetNumberRaw, 10),
+        worksheetName,
+        tokenNo,
+        classId,
+        teacherId: submittedById,
+        status: GradingJobStatus.QUEUED,
+        submittedOn: parsedSubmittedOn,
+        isRepeated: parsedIsRepeated,
+      },
+      select: { id: true },
+    });
+    jobId = job.id;
+
+    await capturePosthogEvent(c.env ?? {}, 'job_created', job.id, {
+      jobId: job.id,
+      studentId,
+      classId,
+      teacherId: submittedById,
+      worksheetNumber: worksheetNumberRaw,
+      worksheetName,
+      queueMode: 'cloudflare',
+    });
+
+    // Upload each file to R2 and create a GradingJobImage row.
+    // Uses the same key layout as legacy uploads for bucket-policy compat.
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const pageNumber = i + 1;
+      const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const key = `worksheets/${job.id}/${Date.now()}-page${pageNumber}-${safeName}`;
+      const { publicUrl } = await uploadObject(
+        c.env ?? {},
+        key,
+        file.buffer,
+        file.mimetype
+      );
+      await prisma.gradingJobImage.create({
+        data: {
+          gradingJobId: job.id,
+          storageProvider: 'R2',
+          imageUrl: publicUrl ?? `r2://${key}`,
+          s3Key: key,
+          pageNumber,
+          mimeType: file.mimetype,
+        },
+      });
+    }
+
+    await capturePosthogEvent(c.env ?? {}, 'images_stored', job.id, {
+      jobId: job.id,
+      filesCount: files.length,
+      totalBytes: files.reduce((acc, file) => acc + file.size, 0),
+      storageProvider: 'R2',
+    });
+
+    const dispatchResult = await dispatchJob(prisma, c.env ?? {}, job.id);
+
+    await capturePosthogEvent(c.env ?? {}, 'request_accepted', job.id, {
+      jobId: job.id,
+      dispatchState: dispatchResult.dispatchState,
+      queuedAt: dispatchResult.queuedAt,
+      status: 'queued',
+    });
+
+    return c.json(
+      {
+        success: true,
+        jobId: job.id,
+        status: 'queued',
+        queuedAt: dispatchResult.queuedAt,
+        dispatchState: dispatchResult.dispatchState,
+        message:
+          dispatchResult.dispatchState === 'DISPATCHED'
+            ? 'Job queued'
+            : 'Job created but dispatch pending; it will be retried automatically',
+      },
+      202
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    if (jobId) {
+      await prisma.gradingJob
+        .update({
+          where: { id: jobId },
+          data: {
+            status: GradingJobStatus.FAILED,
+            errorMessage,
+            lastErrorAt: new Date(),
+            completedAt: new Date(),
+          },
+        })
+        .catch(() => {
+          /* best effort */
+        });
+    }
+    console.error('[grading-request]', error, {
+      jobId,
+      studentId,
+      classId,
+      worksheetNumber: worksheetNumberRaw,
+    });
+    await capturePosthogException(c.env ?? {}, error, {
+      distinctId: jobId ?? submittedById,
+      stage: 'grading_request',
+      extra: { jobId, studentId, classId, worksheetNumber: worksheetNumberRaw },
+    });
+    return c.json({ success: false, error: 'Failed to queue grading job' }, 500);
+  }
+});
 
 export default worksheetProcessing;
 
