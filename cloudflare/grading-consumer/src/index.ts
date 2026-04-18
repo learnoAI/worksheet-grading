@@ -21,6 +21,15 @@ interface Env {
   GEMINI_OCR_MODEL?: string;
   GEMINI_AI_GRADING_MODEL?: string;
   GEMINI_BOOK_GRADING_MODEL?: string;
+  GEMINI_RATE_LIMITER?: DurableObjectNamespace;
+  GEMINI_LIMITER_MIN_RPS?: string;
+  GEMINI_LIMITER_INITIAL_RPS?: string;
+  GEMINI_LIMITER_MAX_RPS?: string;
+  GEMINI_LIMITER_BACKOFF_MULTIPLIER?: string;
+  GEMINI_LIMITER_RAMP_UP_MULTIPLIER?: string;
+  GEMINI_LIMITER_RAMP_UP_SUCCESS_COUNT?: string;
+  GEMINI_429_RETRY_BASE_DELAY_SECONDS?: string;
+  GEMINI_429_RETRY_MAX_DELAY_SECONDS?: string;
   HEARTBEAT_INTERVAL_MS?: string;
   FAST_MAX_PAGES?: string;
   MAX_QUEUE_ATTEMPTS?: string;
@@ -33,6 +42,30 @@ interface Env {
 type PosthogTracker = ReturnType<typeof createPosthogClient>;
 
 type QueueMessageV1 = { v: 1; jobId: string; enqueuedAt: string };
+
+type GeminiStage = 'ocr' | 'grading';
+
+interface GeminiLimiterAcquireResponse {
+  waitMs: number;
+  targetRps: number;
+  intervalMs: number;
+  scheduledAt: number;
+}
+
+interface GeminiLimiterFeedback {
+  ok: boolean;
+  status?: number;
+  stage: GeminiStage;
+  model: string;
+  jobId: string;
+}
+
+interface GeminiLimiterState {
+  targetRps: number;
+  successCount: number;
+  consecutive429s: number;
+  nextAvailableAt: number;
+}
 
 class NonRetryableError extends Error {
   constructor(message: string) {
@@ -85,6 +118,124 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return parsed;
 }
 
+function parsePositiveFloat(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseFloat(value || '');
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getGeminiLimiterStub(env: Env): DurableObjectStub | null {
+  if (!env.GEMINI_RATE_LIMITER) return null;
+  const id = env.GEMINI_RATE_LIMITER.idFromName('global-gemini-limiter');
+  return env.GEMINI_RATE_LIMITER.get(id);
+}
+
+async function acquireGeminiSlot(
+  env: Env,
+  tracker: PosthogTracker,
+  request: { jobId: string; stage: GeminiStage; model: string }
+): Promise<void> {
+  const stub = getGeminiLimiterStub(env);
+  if (!stub) return;
+
+  let response: Response;
+  try {
+    response = await stub.fetch('https://gemini-rate-limiter/acquire', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+  } catch (error) {
+    tracker.capturePipeline('gemini_limiter_acquire_failed_open', request.jobId, {
+      jobId: request.jobId,
+      stage: request.stage,
+      model: request.model,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  if (!response.ok) {
+    tracker.capturePipeline('gemini_limiter_acquire_failed_open', request.jobId, {
+      jobId: request.jobId,
+      stage: request.stage,
+      model: request.model,
+      status: response.status,
+    });
+    return;
+  }
+
+  const slot = await response.json<GeminiLimiterAcquireResponse>().catch(() => null);
+  const waitMs = Math.max(0, Math.ceil(Number(slot?.waitMs) || 0));
+  if (waitMs > 0) {
+    tracker.capturePipeline('gemini_limiter_wait_scheduled', request.jobId, {
+      jobId: request.jobId,
+      stage: request.stage,
+      model: request.model,
+      waitMs,
+      targetRps: slot?.targetRps,
+    });
+    await sleep(waitMs);
+  }
+}
+
+async function reportGeminiFeedback(env: Env, feedback: GeminiLimiterFeedback): Promise<void> {
+  const stub = getGeminiLimiterStub(env);
+  if (!stub) return;
+
+  await stub.fetch('https://gemini-rate-limiter/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(feedback),
+  });
+}
+
+async function limitedGeminiGenerateJson<T>(
+  env: Env,
+  tracker: PosthogTracker,
+  request: { jobId: string; stage: GeminiStage },
+  options: Parameters<typeof geminiGenerateJson<T>>[0]
+): Promise<{ parsed: T; rawText: string }> {
+  await acquireGeminiSlot(env, tracker, {
+    jobId: request.jobId,
+    stage: request.stage,
+    model: options.model,
+  });
+
+  try {
+    const result = await geminiGenerateJson<T>(options);
+    await reportGeminiFeedback(env, {
+      ok: true,
+      jobId: request.jobId,
+      stage: request.stage,
+      model: options.model,
+    }).catch(() => {
+      // The limiter is best effort; failed feedback should not fail grading.
+    });
+    return result;
+  } catch (error) {
+    await reportGeminiFeedback(env, {
+      ok: false,
+      status: error instanceof GeminiHttpError ? error.status : undefined,
+      jobId: request.jobId,
+      stage: request.stage,
+      model: options.model,
+    }).catch(() => {
+      // The original Gemini error is the important one.
+    });
+    throw error;
+  }
+}
+
 function isRetryableHttpStatus(status: number): boolean {
   // 401/403 are almost always config/secret mismatch. Retrying is better than permanently failing student jobs.
   if (status === 401 || status === 403) return true;
@@ -116,6 +267,44 @@ function isRetryableError(error: unknown): boolean {
   }
 
   return false;
+}
+
+function parseRetryDelayFromGeminiError(error: GeminiHttpError): number | null {
+  try {
+    const parsed = JSON.parse(error.responseText) as any;
+    const details = Array.isArray(parsed?.error?.details) ? parsed.error.details : [];
+    for (const detail of details) {
+      const retryDelay = detail?.retryDelay;
+      if (typeof retryDelay === 'string') {
+        const match = retryDelay.match(/^(\d+(?:\.\d+)?)s$/);
+        if (match) {
+          return Math.ceil(Number.parseFloat(match[1]));
+        }
+      }
+    }
+  } catch {
+    // Fall back to local exponential backoff.
+  }
+
+  return null;
+}
+
+function getRetryDelaySeconds(error: unknown, attempts: number, env: Env): number | undefined {
+  if (!(error instanceof GeminiHttpError) || error.status !== 429) {
+    return undefined;
+  }
+
+  const providerDelay = parseRetryDelayFromGeminiError(error);
+  if (providerDelay !== null) {
+    return clamp(providerDelay, 1, parsePositiveInt(env.GEMINI_429_RETRY_MAX_DELAY_SECONDS, 900));
+  }
+
+  const baseDelay = parsePositiveInt(env.GEMINI_429_RETRY_BASE_DELAY_SECONDS, 30);
+  const maxDelay = parsePositiveInt(env.GEMINI_429_RETRY_MAX_DELAY_SECONDS, 900);
+  const exponent = Math.max(0, attempts - 1);
+  const rawDelay = baseDelay * Math.pow(2, exponent);
+  const jitterMultiplier = 0.8 + Math.random() * 0.4;
+  return Math.ceil(clamp(rawDelay * jitterMultiplier, 1, maxDelay));
 }
 
 async function loadImageParts(
@@ -241,7 +430,10 @@ async function processJob(
       leaseId,
       model: env.GEMINI_OCR_MODEL || 'gemini-2.0-flash',
     });
-    const extracted = await geminiGenerateJson<ExtractedQuestions>({
+    const extracted = await limitedGeminiGenerateJson<ExtractedQuestions>(env, tracker, {
+      jobId,
+      stage: 'ocr',
+    }, {
       apiKey: env.GEMINI_API_KEY,
       model: env.GEMINI_OCR_MODEL || 'gemini-2.0-flash',
       responseMimeType: 'application/json',
@@ -273,7 +465,10 @@ async function processJob(
       model: gradingModel,
       answerKeyMode: Array.isArray(answers) && answers.length > 0 ? 'book' : 'ai',
     });
-    const grading = await geminiGenerateJson<GradingResult>({
+    const grading = await limitedGeminiGenerateJson<GradingResult>(env, tracker, {
+      jobId,
+      stage: 'grading',
+    }, {
       apiKey: env.GEMINI_API_KEY,
       model: gradingModel,
       responseMimeType: 'application/json',
@@ -403,8 +598,13 @@ export default {
         }
 
         if (retryable && attempts < maxAttempts) {
+          const delaySeconds = getRetryDelaySeconds(error, attempts, env);
           try {
-            message.retry();
+            if (delaySeconds) {
+              message.retry({ delaySeconds });
+            } else {
+              message.retry();
+            }
           } catch {
             // Fallback: let the batch fail so Cloudflare retries delivery.
             throw error;
@@ -414,6 +614,7 @@ export default {
             messageId: message?.id,
             attempts,
             maxAttempts,
+            delaySeconds: delaySeconds ?? null,
           });
           return;
         }
@@ -471,3 +672,97 @@ export default {
     }
   },
 };
+
+export class GeminiRateLimiter {
+  private state: GeminiLimiterState;
+
+  constructor(_state: DurableObjectState, private readonly env: Env) {
+    const minRps = this.minRps();
+    this.state = {
+      targetRps: clamp(parsePositiveFloat(env.GEMINI_LIMITER_INITIAL_RPS, 30), minRps, this.maxRps()),
+      successCount: 0,
+      consecutive429s: 0,
+      nextAvailableAt: 0,
+    };
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (request.method !== 'POST') {
+      return json({ error: 'Method not allowed' }, 405);
+    }
+
+    if (url.pathname === '/acquire') {
+      return json(this.acquire());
+    }
+
+    if (url.pathname === '/feedback') {
+      const feedback = await request.json<Partial<GeminiLimiterFeedback>>().catch(() => null);
+      if (!feedback) return json({ error: 'Invalid JSON' }, 400);
+      return json(this.feedback(feedback));
+    }
+
+    return json({ error: 'Not found' }, 404);
+  }
+
+  private acquire(): GeminiLimiterAcquireResponse {
+    const now = Date.now();
+    const intervalMs = Math.ceil(1000 / this.state.targetRps);
+    const scheduledAt = Math.max(now, this.state.nextAvailableAt);
+    this.state.nextAvailableAt = scheduledAt + intervalMs;
+
+    return {
+      waitMs: Math.max(0, scheduledAt - now),
+      targetRps: this.state.targetRps,
+      intervalMs,
+      scheduledAt,
+    };
+  }
+
+  private feedback(feedback: Partial<GeminiLimiterFeedback>): {
+    targetRps: number;
+    consecutive429s: number;
+    successCount: number;
+  } {
+    if (feedback.ok) {
+      this.state.consecutive429s = 0;
+      this.state.successCount += 1;
+
+      const rampEvery = parsePositiveInt(this.env.GEMINI_LIMITER_RAMP_UP_SUCCESS_COUNT, 25);
+      if (this.state.successCount >= rampEvery) {
+        this.state.successCount = 0;
+        const rampMultiplier = parsePositiveFloat(this.env.GEMINI_LIMITER_RAMP_UP_MULTIPLIER, 1.08);
+        this.state.targetRps = clamp(this.state.targetRps * rampMultiplier, this.minRps(), this.maxRps());
+      }
+    } else if (feedback.status === 429) {
+      this.state.successCount = 0;
+      this.state.consecutive429s += 1;
+      const backoffMultiplier = clamp(parsePositiveFloat(this.env.GEMINI_LIMITER_BACKOFF_MULTIPLIER, 0.55), 0.1, 0.95);
+      this.state.targetRps = clamp(this.state.targetRps * backoffMultiplier, this.minRps(), this.maxRps());
+
+      const cooldownMs = Math.ceil(1000 / this.state.targetRps) * Math.min(this.state.consecutive429s, 10);
+      this.state.nextAvailableAt = Math.max(this.state.nextAvailableAt, Date.now() + cooldownMs);
+    }
+
+    return {
+      targetRps: this.state.targetRps,
+      consecutive429s: this.state.consecutive429s,
+      successCount: this.state.successCount,
+    };
+  }
+
+  private minRps(): number {
+    return parsePositiveFloat(this.env.GEMINI_LIMITER_MIN_RPS, 5);
+  }
+
+  private maxRps(): number {
+    return Math.max(this.minRps(), parsePositiveFloat(this.env.GEMINI_LIMITER_MAX_RPS, 120));
+  }
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}

@@ -9,6 +9,11 @@ compatibility_date = "2026-02-14"
 # - GEMINI_OCR_MODEL (default: gemini-2.0-flash)
 # - GEMINI_AI_GRADING_MODEL (default: gemini-2.0-flash)
 # - GEMINI_BOOK_GRADING_MODEL (default: gemini-2.0-flash)
+# - GEMINI_LIMITER_MIN_RPS (default: 5)
+# - GEMINI_LIMITER_INITIAL_RPS (default: 30)
+# - GEMINI_LIMITER_MAX_RPS (default: 120)
+# - GEMINI_429_RETRY_BASE_DELAY_SECONDS (default: 30)
+# - GEMINI_429_RETRY_MAX_DELAY_SECONDS (default: 900)
 # - POSTHOG_API_KEY (optional; server-side event telemetry)
 # - POSTHOG_HOST (optional; default: https://us.i.posthog.com)
 # - HEARTBEAT_INTERVAL_MS (default: 60000)
@@ -21,6 +26,14 @@ bucket_name = "worksheet-grading-files"
 [[r2_buckets]]
 binding = "ASSETS_BUCKET"
 bucket_name = "worksheet-grading-assets"
+
+[[durable_objects.bindings]]
+name = "GEMINI_RATE_LIMITER"
+class_name = "GeminiRateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GeminiRateLimiter"]
 
 [[queues.consumers]]
 queue = "grading-fast"

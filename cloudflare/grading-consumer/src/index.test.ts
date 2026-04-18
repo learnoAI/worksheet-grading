@@ -50,6 +50,20 @@ function makeR2Bucket(objects: Record<string, { text?: string; bytes?: Uint8Arra
   } as any;
 }
 
+function makeRateLimiterBinding(
+  handler: (url: string, init?: RequestInit) => Promise<Response>
+): { binding: DurableObjectNamespace; fetch: ReturnType<typeof vi.fn> } {
+  const limiterFetch = vi.fn(handler);
+  const stub = { fetch: limiterFetch };
+  return {
+    binding: {
+      idFromName: vi.fn(() => ({ toString: () => 'global-gemini-limiter' })),
+      get: vi.fn(() => stub),
+    } as any,
+    fetch: limiterFetch,
+  };
+}
+
 describe('cloudflare grading consumer queue semantics', () => {
   let fetchCalls: FetchCall[] = [];
 
@@ -288,6 +302,94 @@ describe('cloudflare grading consumer queue semantics', () => {
     expect(fetchCalls.some((c) => c.url.endsWith('/fail'))).toBe(false);
   });
 
+  it('delays Cloudflare queue retry with exponential backoff on Gemini 429', async () => {
+    const backendBase = 'https://backend.example';
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    (globalThis.fetch as any).mockImplementation(async (url: any, init?: any) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-429/acquire`)) {
+        return jsonResponse({
+          success: true,
+          acquired: true,
+          leaseId: 'lease-429',
+          job: {
+            id: 'job-429',
+            status: 'QUEUED',
+            tokenNo: '123',
+            worksheetName: '15',
+            worksheetNumber: 15,
+            submittedOn: new Date().toISOString(),
+            isRepeated: false,
+            studentId: 's',
+            classId: 'c',
+            teacherId: 't',
+            images: [{ s3Key: 'img-1', storageProvider: 'R2', pageNumber: 1, mimeType: 'image/jpeg' }],
+          },
+        });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-429/heartbeat`)) {
+        return jsonResponse({ success: true });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-429/requeue`)) {
+        return jsonResponse({ success: true });
+      }
+
+      throw new Error(`Unexpected fetch: ${String(url)}`);
+    });
+
+    (geminiGenerateJson as any).mockImplementation(async () => {
+      throw new GeminiHttpError(429, JSON.stringify({
+        error: {
+          code: 429,
+          message: 'Resource exhausted. Please try again later.',
+          status: 'RESOURCE_EXHAUSTED',
+        },
+      }));
+    });
+
+    const ack = vi.fn();
+    const retry = vi.fn();
+
+    const env: any = {
+      BACKEND_BASE_URL: backendBase,
+      BACKEND_WORKER_TOKEN: 'token',
+      GEMINI_API_KEY: 'gemini',
+      GEMINI_429_RETRY_BASE_DELAY_SECONDS: '10',
+      GEMINI_429_RETRY_MAX_DELAY_SECONDS: '300',
+      IMAGES_BUCKET: makeR2Bucket({
+        'img-1': { bytes: new Uint8Array([1, 2, 3]) },
+      }),
+      ASSETS_BUCKET: makeR2Bucket({
+        'answers_by_worksheet.json': { text: JSON.stringify({ '15': [] }) },
+      }),
+    };
+
+    await worker.queue(
+      {
+        messages: [
+          {
+            id: 'm429',
+            attempts: 2,
+            body: { v: 1, jobId: 'job-429', enqueuedAt: new Date().toISOString() },
+            ack,
+            retry,
+          },
+        ],
+      },
+      env,
+      {} as any
+    );
+
+    expect(retry).toHaveBeenCalledWith({ delaySeconds: 20 });
+    expect(ack).not.toHaveBeenCalled();
+    expect(fetchCalls.some((c) => c.url.endsWith('/requeue'))).toBe(true);
+    randomSpy.mockRestore();
+  });
+
   it('acks on success after persisting grading result', async () => {
     const backendBase = 'https://backend.example';
 
@@ -391,6 +493,134 @@ describe('cloudflare grading consumer queue semantics', () => {
     expect(ack).toHaveBeenCalledTimes(1);
     expect(fetchCalls.some((c) => c.url.endsWith('/complete'))).toBe(true);
     expect(fetchCalls.some((c) => c.url.endsWith('/fail'))).toBe(false);
+  });
+
+  it('paces Gemini calls through the shared limiter and reports success feedback', async () => {
+    const backendBase = 'https://backend.example';
+    const limiterRequests: Array<{ path: string; body: any }> = [];
+    const limiter = makeRateLimiterBinding(async (url, init) => {
+      const parsedUrl = new URL(url);
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      limiterRequests.push({ path: parsedUrl.pathname, body });
+      if (parsedUrl.pathname === '/acquire') {
+        return jsonResponse({ waitMs: 0, targetRps: 30, intervalMs: 34, scheduledAt: Date.now() });
+      }
+      if (parsedUrl.pathname === '/feedback') {
+        return jsonResponse({ targetRps: 30, consecutive429s: 0, successCount: 1 });
+      }
+      return jsonResponse({ error: 'not found' }, 404);
+    });
+
+    (globalThis.fetch as any).mockImplementation(async (url: any, init?: any) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-limited/acquire`)) {
+        return jsonResponse({
+          success: true,
+          acquired: true,
+          leaseId: 'lease-limited',
+          job: {
+            id: 'job-limited',
+            status: 'QUEUED',
+            tokenNo: '123',
+            worksheetName: '15',
+            worksheetNumber: 15,
+            submittedOn: new Date().toISOString(),
+            isRepeated: false,
+            studentId: 's',
+            classId: 'c',
+            teacherId: 't',
+            images: [{ s3Key: 'img-1', storageProvider: 'R2', pageNumber: 1, mimeType: 'image/jpeg' }],
+          },
+        });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-limited/heartbeat`)) {
+        return jsonResponse({ success: true });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-limited/complete`)) {
+        return jsonResponse({ success: true });
+      }
+
+      throw new Error(`Unexpected fetch: ${String(url)}`);
+    });
+
+    (geminiGenerateJson as any)
+      .mockResolvedValueOnce({
+        parsed: { questions: [{ question_number: 1, question: '1+1', student_answer: '2' }] },
+        rawText: '{}',
+      })
+      .mockResolvedValueOnce({
+        parsed: {
+          total_questions: 1,
+          overall_score: 40,
+          grade_percentage: 100,
+          question_scores: [
+            {
+              question_number: 1,
+              question: '1+1',
+              student_answer: '2',
+              correct_answer: '2',
+              points_earned: 40,
+              max_points: 40,
+              is_correct: true,
+              feedback: 'good',
+            },
+          ],
+          correct_answers: 1,
+          wrong_answers: 0,
+          unanswered: 0,
+          overall_feedback: 'great',
+        },
+        rawText: '{}',
+      });
+
+    const ack = vi.fn();
+    const retry = vi.fn();
+
+    const env: any = {
+      BACKEND_BASE_URL: backendBase,
+      BACKEND_WORKER_TOKEN: 'token',
+      GEMINI_API_KEY: 'gemini',
+      GEMINI_RATE_LIMITER: limiter.binding,
+      IMAGES_BUCKET: makeR2Bucket({
+        'img-1': { bytes: new Uint8Array([1, 2, 3]) },
+      }),
+      ASSETS_BUCKET: makeR2Bucket({
+        'answers_by_worksheet.json': { text: JSON.stringify({ '15': [] }) },
+      }),
+    };
+
+    await worker.queue(
+      {
+        messages: [
+          {
+            id: 'm-limited',
+            attempts: 1,
+            body: { v: 1, jobId: 'job-limited', enqueuedAt: new Date().toISOString() },
+            ack,
+            retry,
+          },
+        ],
+      },
+      env,
+      {} as any
+    );
+
+    expect(retry).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(limiter.fetch).toHaveBeenCalledTimes(4);
+    expect(limiterRequests.map((request) => request.path)).toEqual([
+      '/acquire',
+      '/feedback',
+      '/acquire',
+      '/feedback',
+    ]);
+    expect(limiterRequests[0].body.stage).toBe('ocr');
+    expect(limiterRequests[1].body).toMatchObject({ ok: true, stage: 'ocr' });
+    expect(limiterRequests[2].body.stage).toBe('grading');
+    expect(limiterRequests[3].body).toMatchObject({ ok: true, stage: 'grading' });
   });
 
   it('requeues + retries when backend /complete returns 5xx', async () => {
