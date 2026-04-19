@@ -80,6 +80,27 @@ Verify with `npx wrangler secret list`.
 
 ---
 
+## 3a. Verify the Cron trigger is enabled
+
+The `wrangler.toml` already declares the grading dispatch loop trigger:
+
+```toml
+[triggers]
+crons = ["*/1 * * * *"]
+```
+
+After deploy, confirm the trigger is live:
+
+```bash
+npx wrangler triggers deploy
+# or inspect via dashboard: Workers > worksheet-grading-api > Triggers
+```
+
+The first cron fire won't run dispatch (Prisma init may fail if
+`DATABASE_URL` / Hyperdrive aren't configured yet) — this is by design
+and emits a `dispatch_loop_crashed` PostHog event for visibility. Once
+secrets land, subsequent fires pick up automatically.
+
 ## 4. Set non-secret vars
 
 Uncomment the `[vars]` block in `wrangler.toml` and fill in for your

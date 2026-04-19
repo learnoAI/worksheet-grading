@@ -555,23 +555,32 @@ that contributors must use Node 22.x locally (e.g. via `.nvmrc`).
 **When to address:** Opportunistically. Not urgent while Express is being
 deprecated.
 
-### C4 — `GRADING_DISPATCH_LOOP_ON_WEB=true` on current Express
+### C4 — Dispatch loop migration (RESOLVED ✅)
 
 **Discovered:** Background knowledge during exploration (Phase 5 planning).
 
-**Observation:** The current Express server runs the grading dispatch loop
-in-process (`GRADING_DISPATCH_LOOP_ON_WEB=true` in `backend/.env`). When
-we cut Hono over, the Hono Worker is request-scoped and cannot host a
-long-running interval loop. The dispatch loop needs to move to either (a)
-a Cloudflare Cron-triggered Worker, (b) a Durable Object with alarms, or
-(c) stay on a small Node host during a transition window.
+**Observation:** The Express server ran the grading dispatch loop
+in-process (`GRADING_DISPATCH_LOOP_ON_WEB=true`). The Hono Worker is
+request-scoped and cannot host a long-running interval loop.
 
-**Why it matters:** Cutover plan must not decommission the Express web
-server until a replacement dispatch loop is running, or grading jobs will
-stop being picked up.
+**Resolution (Phase 5.14):** The dispatch loop was ported to a
+`scheduled` Cron handler on the main Hono worker (`backend/src/worker/index.ts`
++ `backend/src/worker/dispatch.ts`). Cron trigger in `wrangler.toml`:
+`crons = ["*/1 * * * *"]` — fires every minute. The tick does the same
+two things the Express loop did:
 
-**When to address:** Phase 5.12 (cutover). Pre-requisite for turning off
-the DO App Platform instance.
+  1. Requeue stale PROCESSING jobs (heartbeat past threshold)
+  2. Publish QUEUED → CF Queues with exponential backoff
+
+14 unit tests cover stale requeue, backoff, success, failure, overrides,
+and mixed-outcome batches. `dispatch_loop_crashed` PostHog event fires on
+tick failure so a silently-dead loop is alertable.
+
+**Latency trade-off:** Express polled every 5 s; Cron minimum is 1 min.
+Acceptable — grading itself is multi-second per page, and the queue
+consumer picks up messages immediately after publish.
+
+**When to turn Express off:** Now safe, once C5 (secrets) is addressed.
 
 ### C6 — Multer-using routes deferred past Phase 5.8
 
