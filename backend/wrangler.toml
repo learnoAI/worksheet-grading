@@ -3,6 +3,16 @@ main = "src/worker/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
+# ── Cron triggers ─────────────────────────────────────────────────────────
+# Grading dispatch loop — runs the same logic as the Express
+# `startGradingDispatchLoop()` did in-process. Re-queues stale PROCESSING
+# jobs, publishes QUEUED → CF Queues with exponential backoff. Minimum
+# supported interval is 1 minute; Express polled every 5 s but grading
+# itself takes 10s+ per page so the extra latency is negligible. See
+# `backend/src/worker/dispatch.ts` for the tick logic.
+[triggers]
+crons = ["*/1 * * * *"]
+
 # Account ID comes from CLOUDFLARE_ACCOUNT_ID in the shell env (see
 # `.dev.vars.example`). Secrets are set with `wrangler secret put`.
 
@@ -42,6 +52,9 @@ compatibility_flags = ["nodejs_compat"]
 # CF_API_BASE_URL = "https://api.cloudflare.com/client/v4"
 # POSTHOG_HOST = "https://us.i.posthog.com"
 # EXPRESS_FALLBACK_URL = "https://king-prawn-app-k2urh.ondigitalocean.app/worksheet-grading-backend"
+# # Dispatch loop tunables (defaults in code: 20min stale window, 25 batch)
+# GRADING_STALE_PROCESSING_MS = "1200000"
+# GRADING_QUEUE_POLL_BATCH_SIZE = "25"
 
 # ── Secrets (set via `wrangler secret put` — never in this file) ─────────
 #   DATABASE_URL                    — Postgres URL (fallback when no
