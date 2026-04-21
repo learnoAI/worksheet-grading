@@ -1,11 +1,12 @@
 import { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { onSkillQuestionsReady } from '../services/worksheetBatchService';
 
 /**
  * POST /internal/question-bank/store
  * Called by CF worker to store generated questions.
- * Body: { mathSkillId, questions: [{question, answer, instruction}], batchId? }
+ * Body: { mathSkillId, questions: [{question, answer, instruction, renderSpec?}], batchId? }
  */
 export async function storeQuestions(req: Request, res: Response): Promise<Response> {
     const { mathSkillId, questions, batchId } = req.body;
@@ -15,12 +16,7 @@ export async function storeQuestions(req: Request, res: Response): Promise<Respo
     }
 
     const created = await prisma.questionBank.createMany({
-        data: questions.map((q: any) => ({
-            mathSkillId,
-            question: q.question,
-            answer: q.answer,
-            instruction: q.instruction
-        }))
+        data: questions.map((q: any) => buildQuestionBankRow(mathSkillId, q))
     });
 
     // If part of a batch, notify batch service
@@ -80,12 +76,7 @@ export async function triggerGeneration(req: Request, res: Response): Promise<Re
         const result = await response.json() as any;
         if (result.success && Array.isArray(result.questions)) {
             const created = await prisma.questionBank.createMany({
-                data: result.questions.map((q: any) => ({
-                    mathSkillId,
-                    question: q.question,
-                    answer: q.answer,
-                    instruction: q.instruction
-                }))
+                data: result.questions.map((q: any) => buildQuestionBankRow(mathSkillId, q))
             });
             return res.json({ success: true, stored: created.count });
         }
@@ -94,4 +85,14 @@ export async function triggerGeneration(req: Request, res: Response): Promise<Re
         const message = err instanceof Error ? err.message : 'Unknown error';
         return res.status(500).json({ success: false, error: message });
     }
+}
+
+function buildQuestionBankRow(mathSkillId: string, q: any) {
+    return {
+        mathSkillId,
+        question: q.question,
+        answer: q.answer,
+        instruction: q.instruction,
+        ...(q.renderSpec ? { renderSpec: q.renderSpec as Prisma.InputJsonValue } : {})
+    };
 }

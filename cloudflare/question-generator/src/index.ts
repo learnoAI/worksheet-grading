@@ -3,9 +3,46 @@ import { z } from 'zod';
 interface Env {
     WORKSHEET_CREATION_WORKER_TOKEN: string;
     WORKSHEET_CREATION_BACKEND_BASE_URL: string;
-    GEMINI_API_KEY: string;
-    GEMINI_MODEL?: string;
+    AI: WorkersAiBinding;
+    AI_GATEWAY_ID?: string;
+    WORKERS_AI_MODEL?: string;
 }
+
+interface WorkersAiBinding {
+    run(
+        model: string,
+        inputs: WorkersAiTextGenerationInput,
+        options?: WorkersAiRunOptions
+    ): Promise<WorkersAiTextGenerationOutput>;
+}
+
+interface WorkersAiTextGenerationInput {
+    messages: Array<{ role: 'system' | 'user'; content: string }>;
+    temperature?: number;
+    response_format?: {
+        type: 'json_schema';
+        json_schema: unknown;
+    };
+}
+
+interface WorkersAiRunOptions {
+    gateway?: {
+        id: string;
+        skipCache?: boolean;
+        metadata?: Record<string, string | number | boolean | null>;
+    };
+}
+
+interface WorkersAiTextGenerationOutput {
+    response?: unknown;
+    choices?: Array<{
+        message?: { content?: unknown };
+        text?: unknown;
+    }>;
+}
+
+const DEFAULT_WORKERS_AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+const DEFAULT_AI_GATEWAY_ID = 'worksheet-generation';
 
 const RequestSchema = z.object({
     mathSkillId: z.string(),
@@ -14,11 +51,72 @@ const RequestSchema = z.object({
     count: z.number().int().min(1).max(50).default(30)
 });
 
+const RenderSpecSchema = z.object({
+    kind: z.enum(['plain', 'long_division', 'vertical_arithmetic', 'choice_circle']),
+    divisor: z.string().optional(),
+    dividend: z.string().optional(),
+    operator: z.string().optional(),
+    operands: z.array(z.string()).optional(),
+    options: z.array(z.string()).optional(),
+    prompt: z.string().optional(),
+    answerLines: z.number().int().min(0).max(3).optional()
+});
+
 const QuestionSchema = z.object({
     question: z.string(),
     answer: z.string(),
-    instruction: z.string()
+    instruction: z.string(),
+    renderSpec: RenderSpecSchema
 });
+
+const QuestionsResponseSchema = z.object({
+    questions: z.array(QuestionSchema)
+});
+
+const QuestionsResponseJsonSchema = {
+    type: 'object',
+    properties: {
+        questions: {
+            type: 'array',
+            items: {
+                type: 'object',
+                properties: {
+                    question: { type: 'string' },
+                    answer: { type: 'string' },
+                    instruction: { type: 'string' },
+                    renderSpec: {
+                        type: 'object',
+                        properties: {
+                            kind: {
+                                type: 'string',
+                                enum: ['plain', 'long_division', 'vertical_arithmetic', 'choice_circle']
+                            },
+                            divisor: { type: 'string' },
+                            dividend: { type: 'string' },
+                            operator: { type: 'string' },
+                            operands: {
+                                type: 'array',
+                                items: { type: 'string' }
+                            },
+                            options: {
+                                type: 'array',
+                                items: { type: 'string' }
+                            },
+                            prompt: { type: 'string' },
+                            answerLines: { type: 'number' }
+                        },
+                        required: ['kind'],
+                        additionalProperties: false
+                    }
+                },
+                required: ['question', 'answer', 'instruction', 'renderSpec'],
+                additionalProperties: false
+            }
+        }
+    },
+    required: ['questions'],
+    additionalProperties: false
+};
 
 interface QueueMessageV1 {
     v: 1;
@@ -36,7 +134,8 @@ async function generateQuestions(
     topicName: string,
     count: number
 ): Promise<z.infer<typeof QuestionSchema>[]> {
-    const model = env.GEMINI_MODEL || 'gemini-2.0-flash';
+    const model = env.WORKERS_AI_MODEL || DEFAULT_WORKERS_AI_MODEL;
+    const gatewayId = env.AI_GATEWAY_ID || DEFAULT_AI_GATEWAY_ID;
     const prompt = `You are a math worksheet question generator for elementary school students in India.
 
 Topic: ${topicName}
@@ -50,38 +149,76 @@ Rules:
 - Provide a short instruction line in English and Hindi (e.g., "Add the following.\\nजोड़ करो।")
 - All ${count} questions must test the SAME skill but with different numbers
 - Keep question text concise (how it would appear on a worksheet)
-- For division, use the format: "divisor ) dividend" (e.g., "3 ) 24")
-- For vertical operations, just show the horizontal form (e.g., "145 + 37")
+- Include a renderSpec object for each question. This is the layout contract for the PDF renderer.
+- Use renderSpec.kind = "long_division" for division laid out with the long-division bracket. Set divisor and dividend as strings. Keep question as "divisor ) dividend" (e.g., "3 ) 24").
+- Use renderSpec.kind = "vertical_arithmetic" for stacked addition, subtraction, or multiplication. Set operator to "+", "-", or "x"; set operands in top-to-bottom order as strings; set answerLines to 2 unless the skill needs a different number of writing lines. Keep question as horizontal text (e.g., "145 + 37").
+- Use renderSpec.kind = "choice_circle" when the student must select or circle from a list, such as smallest/largest number. Set options in display order as strings. Keep question as the same list (e.g., "12, 9, 31").
+- Use renderSpec.kind = "plain" for skills that need normal text or a format not covered above. Set renderSpec.text only if it should differ from question.
 
-Return a JSON array of objects with fields: question, answer, instruction
-Return ONLY the JSON array, no other text.`;
+Return a JSON object with one field, "questions", containing an array of objects with fields: question, answer, instruction, renderSpec
+Return ONLY the JSON object, no other text.`;
 
-    const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                    temperature: 0.8,
-                    responseMimeType: 'application/json'
-                }
-            })
+    const input: WorkersAiTextGenerationInput = {
+        messages: [
+            {
+                role: 'system',
+                content: 'Return only valid JSON matching the requested schema.'
+            },
+            { role: 'user', content: prompt }
+        ],
+        temperature: 0.8,
+        response_format: {
+            type: 'json_schema' as const,
+            json_schema: {
+                name: 'worksheet_questions',
+                schema: QuestionsResponseJsonSchema,
+                strict: true
+            }
         }
-    );
+    };
 
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Gemini API error ${response.status}: ${text}`);
+    let data: WorkersAiTextGenerationOutput;
+    try {
+        data = await env.AI.run(model, input, {
+            gateway: {
+                id: gatewayId,
+                skipCache: true,
+                metadata: {
+                    feature: 'worksheet-question-generation',
+                    model
+                }
+            }
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!isAiGatewayNotConfiguredError(message)) {
+            throw error;
+        }
+
+        console.error(`AI Gateway ${gatewayId} is not configured; retrying question generation without gateway`);
+        data = await env.AI.run(model, input);
     }
 
-    const data = await response.json() as any;
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error('Empty response from Gemini');
+    return parseQuestionsFromWorkersAi(data);
+}
 
-    const parsed = JSON.parse(text);
-    return z.array(QuestionSchema).parse(parsed);
+function isAiGatewayNotConfiguredError(message: string): boolean {
+    return message.includes('Please configure AI Gateway') || message.includes('"code":2001');
+}
+
+function parseQuestionsFromWorkersAi(
+    data: WorkersAiTextGenerationOutput
+): z.infer<typeof QuestionSchema>[] {
+    const response = data.response ?? data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text;
+
+    if (response === undefined || response === null) {
+        throw new Error('Empty response from Workers AI');
+    }
+
+    const parsed = typeof response === 'string' ? JSON.parse(response) : response;
+    const normalized = Array.isArray(parsed) ? { questions: parsed } : parsed;
+
+    return QuestionsResponseSchema.parse(normalized).questions;
 }
 
 async function storeQuestionsOnBackend(

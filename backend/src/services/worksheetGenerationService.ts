@@ -12,7 +12,7 @@ interface SectionData {
     skillId: string;
     skillName: string;
     instruction: string;
-    questions: { question: string; answer: string }[];
+    questions: { question: string; answer: string; renderSpec?: unknown }[];
 }
 
 /**
@@ -120,7 +120,8 @@ async function ensureQuestionsForSkills(skillIds: string[], errors: string[]): P
                         mathSkillId: skillId,
                         question: q.question,
                         answer: q.answer,
-                        instruction: q.instruction
+                        instruction: q.instruction,
+                        ...(q.renderSpec ? { renderSpec: q.renderSpec as Prisma.InputJsonValue } : {})
                     }))
                 });
             } else {
@@ -146,7 +147,7 @@ export async function buildSections(
             where: { mathSkillId: skillId },
             orderBy: { usedCount: 'asc' },
             take: count,
-            select: { id: true, question: true, answer: true, instruction: true }
+            select: { id: true, question: true, answer: true, instruction: true, renderSpec: true }
         });
 
         if (questions.length > 0) {
@@ -184,25 +185,25 @@ export async function buildSections(
             skillId: newSkillId,
             skillName: newName,
             instruction: newInstruction,
-            questions: newQuestions.slice(0, 10).map(q => ({ question: q.question, answer: q.answer }))
+            questions: newQuestions.slice(0, 10).map(q => ({ question: q.question, answer: q.answer, renderSpec: q.renderSpec }))
         },
         {
             skillId: review1Id,
             skillName: review1Name,
             instruction: review1Instruction,
-            questions: review1Questions.map(q => ({ question: q.question, answer: q.answer }))
+            questions: review1Questions.map(q => ({ question: q.question, answer: q.answer, renderSpec: q.renderSpec }))
         },
         {
             skillId: newSkillId,
             skillName: newName,
             instruction: newInstruction,
-            questions: newQuestions.slice(10, 20).map(q => ({ question: q.question, answer: q.answer }))
+            questions: newQuestions.slice(10, 20).map(q => ({ question: q.question, answer: q.answer, renderSpec: q.renderSpec }))
         },
         {
             skillId: review2Id,
             skillName: review2Name,
             instruction: review2Instruction,
-            questions: review2Questions.map(q => ({ question: q.question, answer: q.answer }))
+            questions: review2Questions.map(q => ({ question: q.question, answer: q.answer, renderSpec: q.renderSpec }))
         }
     ];
 }
