@@ -1097,8 +1097,8 @@ export default function UploadWorksheetPage() {
 
             if (worksheetsOnDate.length > 0) {
                 const sortedWorksheets = [...worksheetsOnDate].sort((a: any, b: any) => {
-                    const wsNumA = a.template?.worksheetNumber || 0;
-                    const wsNumB = b.template?.worksheetNumber || 0;
+                    const wsNumA = (a.worksheetNumber > 0 ? a.worksheetNumber : a.template?.worksheetNumber) || 0;
+                    const wsNumB = (b.worksheetNumber > 0 ? b.worksheetNumber : b.template?.worksheetNumber) || 0;
                     return wsNumA - wsNumB;
                 });
 
