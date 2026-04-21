@@ -20,6 +20,7 @@ import worksheetRoutes from './routes/worksheets';
 import worksheetProcessingRoutes from './routes/worksheetProcessing';
 import internalQuestionBankRoutes from './routes/internalQuestionBank';
 import internalGradingWorkerRoutes from './routes/internalGradingWorker';
+import gradingJobRoutes from './routes/gradingJobs';
 import { expressFallback } from './fallback';
 import { createPrismaClient } from './db';
 import { dispatchPendingJobs } from './dispatch';
@@ -57,6 +58,7 @@ app.route('/api/worksheets', worksheetRoutes);
 app.route('/api/worksheet-processing', worksheetProcessingRoutes);
 app.route('/internal/question-bank', internalQuestionBankRoutes);
 app.route('/internal/grading-worker', internalGradingWorkerRoutes);
+app.route('/api/grading-jobs', gradingJobRoutes);
 
 // Catch-all fallback: any path not handled above is proxied to the Express
 // service. Must stay LAST. Once Phase 5.13 lands and every route is on
