@@ -1,7 +1,7 @@
 import { BackendClient, BackendHttpError } from './backendClient';
 import { arrayBufferToBase64 } from './base64';
 import { loadAnswerKey, loadCustomPrompt } from './assets';
-import { geminiGenerateJson, GeminiHttpError } from './gemini';
+import { llmGenerateJson, LlmHttpError } from './llm';
 import { buildAiGradingPrompt, buildBookGradingPrompt, buildOcrPrompt } from './prompts';
 import { toBackendGradingResponse } from './gradingTransform';
 import { createPosthogClient } from './posthog';
@@ -13,14 +13,29 @@ import {
 } from './schemas';
 import type { ExtractedQuestions, GradingResult } from './schemas';
 import type { JobPayload } from './types';
+import type { LlmModelConfig, LlmReasoningEffort } from './llm';
 
 interface Env {
   BACKEND_BASE_URL: string;
   BACKEND_WORKER_TOKEN: string;
-  GEMINI_API_KEY: string;
-  GEMINI_OCR_MODEL?: string;
-  GEMINI_AI_GRADING_MODEL?: string;
-  GEMINI_BOOK_GRADING_MODEL?: string;
+  CF_AI_GATEWAY_ACCOUNT_ID?: string;
+  CF_AI_GATEWAY_ID?: string;
+  CF_AI_GATEWAY_TOKEN?: string;
+  OCR_PROVIDER?: string;
+  OCR_MODEL?: string;
+  OCR_API_KEY?: string;
+  OCR_REASONING_EFFORT?: string;
+  OCR_REQUEST_TIMEOUT_MS?: string;
+  AI_GRADING_PROVIDER?: string;
+  AI_GRADING_MODEL?: string;
+  AI_GRADING_API_KEY?: string;
+  AI_GRADING_REASONING_EFFORT?: string;
+  AI_GRADING_REQUEST_TIMEOUT_MS?: string;
+  BOOK_GRADING_PROVIDER?: string;
+  BOOK_GRADING_MODEL?: string;
+  BOOK_GRADING_API_KEY?: string;
+  BOOK_GRADING_REASONING_EFFORT?: string;
+  BOOK_GRADING_REQUEST_TIMEOUT_MS?: string;
   GEMINI_RATE_LIMITER?: DurableObjectNamespace;
   GEMINI_LIMITER_MIN_RPS?: string;
   GEMINI_LIMITER_INITIAL_RPS?: string;
@@ -43,7 +58,7 @@ type PosthogTracker = ReturnType<typeof createPosthogClient>;
 
 type QueueMessageV1 = { v: 1; jobId: string; enqueuedAt: string };
 
-type GeminiStage = 'ocr' | 'grading';
+type LlmStage = 'ocr' | 'grading';
 
 interface GeminiLimiterAcquireResponse {
   waitMs: number;
@@ -55,7 +70,7 @@ interface GeminiLimiterAcquireResponse {
 interface GeminiLimiterFeedback {
   ok: boolean;
   status?: number;
-  stage: GeminiStage;
+  stage: LlmStage;
   model: string;
   jobId: string;
 }
@@ -73,6 +88,13 @@ class NonRetryableError extends Error {
     this.name = 'NonRetryableError';
   }
 }
+
+const DEFAULT_LLM_PROVIDER = 'workers-ai';
+const DEFAULT_LLM_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+const DEFAULT_OCR_REASONING_EFFORT: LlmReasoningEffort = 'low';
+const DEFAULT_GRADING_REASONING_EFFORT: LlmReasoningEffort = 'low';
+const DEFAULT_OCR_REQUEST_TIMEOUT_MS = 500_000;
+const DEFAULT_GRADING_REQUEST_TIMEOUT_MS = 500_000;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -133,6 +155,81 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function formatLlmModelLabel(config: LlmModelConfig): string {
+  return `${config.provider}/${config.model}`;
+}
+
+function normalizeReasoningEffort(value: string | undefined): LlmReasoningEffort | undefined {
+  switch (value?.trim().toLowerCase()) {
+    case 'low':
+    case 'medium':
+    case 'high':
+      return value.trim().toLowerCase() as LlmReasoningEffort;
+    default:
+      return undefined;
+  }
+}
+
+function getStageLlmConfig(env: Env, stage: 'ocr' | 'ai-grading' | 'book-grading'): LlmModelConfig {
+  const provider = normalizeOptionalString(
+    stage === 'ocr'
+      ? env.OCR_PROVIDER
+      : stage === 'ai-grading'
+        ? env.AI_GRADING_PROVIDER
+        : env.BOOK_GRADING_PROVIDER
+  ) || DEFAULT_LLM_PROVIDER;
+
+  const model = normalizeOptionalString(
+    stage === 'ocr'
+      ? env.OCR_MODEL
+      : stage === 'ai-grading'
+        ? env.AI_GRADING_MODEL
+        : env.BOOK_GRADING_MODEL
+  ) || DEFAULT_LLM_MODEL;
+
+  const apiKey = normalizeOptionalString(
+    stage === 'ocr'
+      ? env.OCR_API_KEY
+      : stage === 'ai-grading'
+        ? env.AI_GRADING_API_KEY
+        : env.BOOK_GRADING_API_KEY
+  );
+
+  return { provider, model, ...(apiKey ? { apiKey } : {}) };
+}
+
+function getStageReasoningEffort(env: Env, stage: 'ocr' | 'ai-grading' | 'book-grading'): LlmReasoningEffort | undefined {
+  const configured = normalizeReasoningEffort(
+    stage === 'ocr'
+      ? env.OCR_REASONING_EFFORT
+      : stage === 'ai-grading'
+        ? env.AI_GRADING_REASONING_EFFORT
+        : env.BOOK_GRADING_REASONING_EFFORT
+  );
+
+  if (configured) return configured;
+
+  return stage === 'ocr' ? DEFAULT_OCR_REASONING_EFFORT : DEFAULT_GRADING_REASONING_EFFORT;
+}
+
+function getStageRequestTimeoutMs(env: Env, stage: 'ocr' | 'ai-grading' | 'book-grading'): number {
+  const configured = parsePositiveInt(
+    stage === 'ocr'
+      ? env.OCR_REQUEST_TIMEOUT_MS
+      : stage === 'ai-grading'
+        ? env.AI_GRADING_REQUEST_TIMEOUT_MS
+        : env.BOOK_GRADING_REQUEST_TIMEOUT_MS,
+    stage === 'ocr' ? DEFAULT_OCR_REQUEST_TIMEOUT_MS : DEFAULT_GRADING_REQUEST_TIMEOUT_MS
+  );
+
+  return configured;
+}
+
 function getGeminiLimiterStub(env: Env): DurableObjectStub | null {
   if (!env.GEMINI_RATE_LIMITER) return null;
   const id = env.GEMINI_RATE_LIMITER.idFromName('global-gemini-limiter');
@@ -142,7 +239,7 @@ function getGeminiLimiterStub(env: Env): DurableObjectStub | null {
 async function acquireGeminiSlot(
   env: Env,
   tracker: PosthogTracker,
-  request: { jobId: string; stage: GeminiStage; model: string }
+  request: { jobId: string; stage: LlmStage; model: string }
 ): Promise<void> {
   const stub = getGeminiLimiterStub(env);
   if (!stub) return;
@@ -199,25 +296,25 @@ async function reportGeminiFeedback(env: Env, feedback: GeminiLimiterFeedback): 
   });
 }
 
-async function limitedGeminiGenerateJson<T>(
+async function limitedLlmGenerateJson<T>(
   env: Env,
   tracker: PosthogTracker,
-  request: { jobId: string; stage: GeminiStage },
-  options: Parameters<typeof geminiGenerateJson<T>>[0]
+  request: { jobId: string; stage: LlmStage },
+  options: Parameters<typeof llmGenerateJson<T>>[0]
 ): Promise<{ parsed: T; rawText: string }> {
   await acquireGeminiSlot(env, tracker, {
     jobId: request.jobId,
     stage: request.stage,
-    model: options.model,
+    model: formatLlmModelLabel(options.providerConfig),
   });
 
   try {
-    const result = await geminiGenerateJson<T>(options);
+    const result = await llmGenerateJson<T>(options);
     await reportGeminiFeedback(env, {
       ok: true,
       jobId: request.jobId,
       stage: request.stage,
-      model: options.model,
+      model: formatLlmModelLabel(options.providerConfig),
     }).catch(() => {
       // The limiter is best effort; failed feedback should not fail grading.
     });
@@ -225,10 +322,10 @@ async function limitedGeminiGenerateJson<T>(
   } catch (error) {
     await reportGeminiFeedback(env, {
       ok: false,
-      status: error instanceof GeminiHttpError ? error.status : undefined,
+      status: error instanceof LlmHttpError ? error.status : undefined,
       jobId: request.jobId,
       stage: request.stage,
-      model: options.model,
+      model: formatLlmModelLabel(options.providerConfig),
     }).catch(() => {
       // The original Gemini error is the important one.
     });
@@ -253,15 +350,18 @@ function isRetryableError(error: unknown): boolean {
     return isRetryableHttpStatus(error.status);
   }
 
-  if (error instanceof GeminiHttpError) {
+  if (error instanceof LlmHttpError) {
     return isRetryableHttpStatus(error.status);
   }
 
   if (error instanceof Error) {
     const msg = error.message || '';
     if (msg.includes('Failed to parse Gemini JSON payload')) return true;
+    if (msg.includes('Failed to parse LLM JSON payload')) return true;
     if (msg.includes('Gemini response did not include text content')) return true;
+    if (msg.includes('LLM response did not include text content')) return true;
     if (msg.includes('Gemini response was not valid JSON')) return true;
+    if (msg.includes('LLM response was not valid JSON')) return true;
     if (msg.includes('fetch failed')) return true;
     if (msg.toLowerCase().includes('timeout')) return true;
   }
@@ -269,7 +369,7 @@ function isRetryableError(error: unknown): boolean {
   return false;
 }
 
-function parseRetryDelayFromGeminiError(error: GeminiHttpError): number | null {
+function parseRetryDelayFromLlmError(error: LlmHttpError): number | null {
   try {
     const parsed = JSON.parse(error.responseText) as any;
     const details = Array.isArray(parsed?.error?.details) ? parsed.error.details : [];
@@ -290,11 +390,11 @@ function parseRetryDelayFromGeminiError(error: GeminiHttpError): number | null {
 }
 
 function getRetryDelaySeconds(error: unknown, attempts: number, env: Env): number | undefined {
-  if (!(error instanceof GeminiHttpError) || error.status !== 429) {
+  if (!(error instanceof LlmHttpError) || error.status !== 429) {
     return undefined;
   }
 
-  const providerDelay = parseRetryDelayFromGeminiError(error);
+  const providerDelay = parseRetryDelayFromLlmError(error);
   if (providerDelay !== null) {
     return clamp(providerDelay, 1, parsePositiveInt(env.GEMINI_429_RETRY_MAX_DELAY_SECONDS, 900));
   }
@@ -424,18 +524,24 @@ async function processJob(
     });
     const customPrompt = await loadCustomPrompt(env.ASSETS_BUCKET, job.worksheetNumber);
     const ocrPrompt = buildOcrPrompt(customPrompt);
+    const ocrConfig = getStageLlmConfig(env, 'ocr');
+    const ocrModelLabel = formatLlmModelLabel(ocrConfig);
 
     tracker.capturePipeline('worker_ocr_started', jobId, {
       jobId,
       leaseId,
-      model: env.GEMINI_OCR_MODEL || 'gemini-2.0-flash',
+      model: ocrModelLabel,
     });
-    const extracted = await limitedGeminiGenerateJson<ExtractedQuestions>(env, tracker, {
+    const extracted = await limitedLlmGenerateJson<ExtractedQuestions>(env, tracker, {
       jobId,
       stage: 'ocr',
     }, {
-      apiKey: env.GEMINI_API_KEY,
-      model: env.GEMINI_OCR_MODEL || 'gemini-2.0-flash',
+      gatewayAccountId: env.CF_AI_GATEWAY_ACCOUNT_ID,
+      gatewayId: env.CF_AI_GATEWAY_ID,
+      gatewayToken: env.CF_AI_GATEWAY_TOKEN,
+      providerConfig: ocrConfig,
+      reasoningEffort: getStageReasoningEffort(env, 'ocr'),
+      requestTimeoutMs: getStageRequestTimeoutMs(env, 'ocr'),
       responseMimeType: 'application/json',
       responseJsonSchema: ExtractedQuestionsJsonSchema,
       temperature: 0.1,
@@ -456,21 +562,26 @@ async function processJob(
       ? buildBookGradingPrompt(extractedQuestions, answers)
       : buildAiGradingPrompt(extractedQuestions);
 
-    const gradingModel = Array.isArray(answers) && answers.length > 0
-      ? (env.GEMINI_BOOK_GRADING_MODEL || 'gemini-2.0-flash')
-      : (env.GEMINI_AI_GRADING_MODEL || 'gemini-2.0-flash');
+    const gradingConfig = Array.isArray(answers) && answers.length > 0
+      ? getStageLlmConfig(env, 'book-grading')
+      : getStageLlmConfig(env, 'ai-grading');
+    const gradingModelLabel = formatLlmModelLabel(gradingConfig);
     tracker.capturePipeline('worker_grading_started', jobId, {
       jobId,
       leaseId,
-      model: gradingModel,
+      model: gradingModelLabel,
       answerKeyMode: Array.isArray(answers) && answers.length > 0 ? 'book' : 'ai',
     });
-    const grading = await limitedGeminiGenerateJson<GradingResult>(env, tracker, {
+    const grading = await limitedLlmGenerateJson<GradingResult>(env, tracker, {
       jobId,
       stage: 'grading',
     }, {
-      apiKey: env.GEMINI_API_KEY,
-      model: gradingModel,
+      gatewayAccountId: env.CF_AI_GATEWAY_ACCOUNT_ID,
+      gatewayId: env.CF_AI_GATEWAY_ID,
+      gatewayToken: env.CF_AI_GATEWAY_TOKEN,
+      providerConfig: gradingConfig,
+      reasoningEffort: getStageReasoningEffort(env, Array.isArray(answers) && answers.length > 0 ? 'book-grading' : 'ai-grading'),
+      requestTimeoutMs: getStageRequestTimeoutMs(env, Array.isArray(answers) && answers.length > 0 ? 'book-grading' : 'ai-grading'),
       responseMimeType: 'application/json',
       responseJsonSchema: GradingResultJsonSchema,
       temperature: 0.1,
@@ -617,6 +728,17 @@ export default {
             delaySeconds: delaySeconds ?? null,
           });
           return;
+        }
+
+        if (jobId && !acquired && retryable) {
+          await backend.resetDispatch(jobId, reason);
+          tracker.capturePipeline('queue_message_reset_dispatch_for_retry', jobId, {
+            jobId,
+            messageId: message?.id,
+            attempts,
+            maxAttempts,
+            reason,
+          });
         }
 
         if (jobId && acquired && leaseId) {

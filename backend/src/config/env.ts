@@ -95,7 +95,7 @@ export default {
         queuePollBatchSize: parseNumber(process.env.GRADING_QUEUE_POLL_BATCH_SIZE, 25),
         queuePollIntervalMs: parseNumber(process.env.GRADING_QUEUE_POLL_INTERVAL_MS, 2000),
         heartbeatIntervalMs: parseNumber(process.env.GRADING_HEARTBEAT_INTERVAL_MS, 10000),
-        staleProcessingMs: parseNumber(process.env.GRADING_STALE_PROCESSING_MS, 180000),
+        staleProcessingMs: parseNumber(process.env.GRADING_STALE_PROCESSING_MS, 1200000),
         dispatchLoopIntervalMs: parseNumber(process.env.GRADING_DISPATCH_LOOP_INTERVAL_MS, 5000),
         dispatchLoopOnWeb: parseBoolean(process.env.GRADING_DISPATCH_LOOP_ON_WEB, true)
     }

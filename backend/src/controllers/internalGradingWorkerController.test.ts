@@ -9,16 +9,21 @@ vi.mock('../utils/prisma', () => ({
 }));
 
 const lifecycleMocks = vi.hoisted(() => ({
+  acquireGradingJobLease: vi.fn(),
   markGradingJobCompleted: vi.fn(),
   markGradingJobFailed: vi.fn(),
+  resetQueuedJobDispatch: vi.fn(),
+  requeueGradingJobForRetry: vi.fn(),
+  touchGradingJobHeartbeat: vi.fn(),
 }));
 
 vi.mock('../services/gradingJobLifecycleService', () => ({
-  acquireGradingJobLease: vi.fn(),
-  touchGradingJobHeartbeat: vi.fn(),
+  acquireGradingJobLease: lifecycleMocks.acquireGradingJobLease,
+  touchGradingJobHeartbeat: lifecycleMocks.touchGradingJobHeartbeat,
   markGradingJobCompleted: lifecycleMocks.markGradingJobCompleted,
   markGradingJobFailed: lifecycleMocks.markGradingJobFailed,
-  requeueGradingJobForRetry: vi.fn(),
+  resetQueuedJobDispatch: lifecycleMocks.resetQueuedJobDispatch,
+  requeueGradingJobForRetry: lifecycleMocks.requeueGradingJobForRetry,
 }));
 
 const persistenceMocks = vi.hoisted(() => ({
@@ -42,7 +47,7 @@ vi.mock('../services/logger', () => ({
   },
 }));
 
-import { complete } from './internalGradingWorkerController';
+import { complete, resetDispatch } from './internalGradingWorkerController';
 
 describe('internalGradingWorkerController.complete', () => {
   beforeEach(() => {
@@ -159,5 +164,62 @@ describe('internalGradingWorkerController.complete', () => {
     expect(res.status).toHaveBeenCalledWith(409);
     expect(persistenceMocks.persistWorksheetForGradingJobId).not.toHaveBeenCalled();
     expect(tx.gradingJob.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('internalGradingWorkerController.resetDispatch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns 200 when a queued job dispatch state is reset', async () => {
+    lifecycleMocks.resetQueuedJobDispatch.mockResolvedValueOnce(true);
+
+    const req: any = {
+      params: { jobId: 'job-reset-1' },
+      body: { reason: 'queue message exhausted before acquire' },
+    };
+    const res: any = {
+      status: vi.fn(function status(this: any, code: number) {
+        this.statusCode = code;
+        return this;
+      }),
+      json: vi.fn(function json(this: any, body: any) {
+        this.body = body;
+        return this;
+      }),
+    };
+
+    await resetDispatch(req, res);
+
+    expect(lifecycleMocks.resetQueuedJobDispatch).toHaveBeenCalledWith(
+      'job-reset-1',
+      'queue message exhausted before acquire'
+    );
+    expect(res.body).toEqual({ success: true });
+  });
+
+  it('returns 409 when the queued job cannot be reset', async () => {
+    lifecycleMocks.resetQueuedJobDispatch.mockResolvedValueOnce(false);
+
+    const req: any = {
+      params: { jobId: 'job-reset-2' },
+      body: {},
+    };
+    const res: any = {
+      status: vi.fn(function status(this: any, code: number) {
+        this.statusCode = code;
+        return this;
+      }),
+      json: vi.fn(function json(this: any, body: any) {
+        this.body = body;
+        return this;
+      }),
+    };
+
+    await resetDispatch(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.body).toEqual({ success: false, error: 'Job is not queued and dispatch-resettable' });
   });
 });

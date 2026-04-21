@@ -5,10 +5,24 @@ compatibility_date = "2026-02-14"
 # Configure these in Cloudflare dashboard or via `wrangler secret put` (+ `wrangler deploy --var KEY:value` for non-secrets):
 # - BACKEND_BASE_URL
 # - BACKEND_WORKER_TOKEN
-# - GEMINI_API_KEY
-# - GEMINI_OCR_MODEL (default: gemini-2.0-flash)
-# - GEMINI_AI_GRADING_MODEL (default: gemini-2.0-flash)
-# - GEMINI_BOOK_GRADING_MODEL (default: gemini-2.0-flash)
+# - CF_AI_GATEWAY_ACCOUNT_ID
+# - CF_AI_GATEWAY_TOKEN (optional; required only if the gateway has authentication enabled)
+# - CF_AI_GATEWAY_ID (default: learnoai)
+# - OCR_PROVIDER (default: workers-ai)
+# - OCR_MODEL (default: @cf/google/gemma-4-26b-a4b-it)
+# - OCR_API_KEY (optional; for workers-ai, defaults to CF_AI_GATEWAY_TOKEN if unset)
+# - OCR_REASONING_EFFORT (default: low)
+# - OCR_REQUEST_TIMEOUT_MS (default: 500000)
+# - AI_GRADING_PROVIDER (default: workers-ai)
+# - AI_GRADING_MODEL (default: @cf/google/gemma-4-26b-a4b-it)
+# - AI_GRADING_API_KEY (optional; for workers-ai, defaults to CF_AI_GATEWAY_TOKEN if unset)
+# - AI_GRADING_REASONING_EFFORT (default: low)
+# - AI_GRADING_REQUEST_TIMEOUT_MS (default: 500000)
+# - BOOK_GRADING_PROVIDER (default: workers-ai)
+# - BOOK_GRADING_MODEL (default: @cf/google/gemma-4-26b-a4b-it)
+# - BOOK_GRADING_API_KEY (optional; for workers-ai, defaults to CF_AI_GATEWAY_TOKEN if unset)
+# - BOOK_GRADING_REASONING_EFFORT (default: low)
+# - BOOK_GRADING_REQUEST_TIMEOUT_MS (default: 500000)
 # - GEMINI_LIMITER_MIN_RPS (default: 5)
 # - GEMINI_LIMITER_INITIAL_RPS (default: 30)
 # - GEMINI_LIMITER_MAX_RPS (default: 120)
@@ -18,6 +32,26 @@ compatibility_date = "2026-02-14"
 # - POSTHOG_HOST (optional; default: https://us.i.posthog.com)
 # - HEARTBEAT_INTERVAL_MS (default: 60000)
 # - FAST_MAX_PAGES (default: 4)
+
+[vars]
+CF_AI_GATEWAY_ACCOUNT_ID = "2ffbc97db67c45deb3098acd1f647ac0"
+CF_AI_GATEWAY_ID = "learnoai"
+OCR_PROVIDER = "workers-ai"
+OCR_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+OCR_REASONING_EFFORT = "low"
+OCR_REQUEST_TIMEOUT_MS = "500000"
+AI_GRADING_PROVIDER = "workers-ai"
+AI_GRADING_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+AI_GRADING_REASONING_EFFORT = "low"
+AI_GRADING_REQUEST_TIMEOUT_MS = "500000"
+BOOK_GRADING_PROVIDER = "workers-ai"
+BOOK_GRADING_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+BOOK_GRADING_REASONING_EFFORT = "low"
+BOOK_GRADING_REQUEST_TIMEOUT_MS = "500000"
+GEMINI_LIMITER_INITIAL_RPS = "60"
+GEMINI_LIMITER_MAX_RPS = "240"
+GEMINI_LIMITER_RAMP_UP_SUCCESS_COUNT = "10"
+GEMINI_LIMITER_RAMP_UP_MULTIPLIER = "1.12"
 
 [[r2_buckets]]
 binding = "IMAGES_BUCKET"

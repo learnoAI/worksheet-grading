@@ -15,7 +15,13 @@ export function buildOcrPrompt(customPrompt: string | null): string {
 3. Return the questions in the order of question number.
 4. Some sheets have multiple columns of questions. Extract them properly.
 5. Include the entire question text in the question field. Do not include the student's answer in the question field.
-</Rules>`;
+</Rules>
+
+IMPORTANT: Return your response in JSON with key:
+questions[].
+Each questions[] item must include:
+question_number, question, student_answer.
+`;
 }
 
 function formatQuestions(extracted: ExtractedQuestions): string {

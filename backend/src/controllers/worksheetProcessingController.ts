@@ -511,6 +511,25 @@ async function loadUploadBatchForUser(batchId: string, req: Request) {
     return batch;
 }
 
+async function loadUploadItems(batchId: string, itemIds: string[]) {
+    if (itemIds.length === 0) {
+        return [];
+    }
+
+    return prisma.worksheetUploadItem.findMany({
+        where: {
+            batchId,
+            id: { in: itemIds }
+        },
+        orderBy: { createdAt: 'asc' },
+        include: {
+            images: {
+                orderBy: { pageNumber: 'asc' }
+            }
+        }
+    });
+}
+
 async function createGradingJobFromUploadItem(itemId: string): Promise<{
     itemId: string;
     studentId: string;
@@ -802,16 +821,20 @@ export const finalizeDirectUploadSession = async (req: Request, res: Response) =
             });
         }
 
-        const refreshedBatch = await loadUploadBatchForUser(batch.id, req);
-        if (!refreshedBatch) {
-            return res.status(404).json({ success: false, error: 'Upload session not found' });
-        }
+        const uploadedImageIdSet = new Set(uploadedImageIds);
+        const affectedItemIds = Array.from(new Set(
+            batch.items
+                .filter((item) => item.images.some((image) => uploadedImageIdSet.has(image.id)))
+                .map((item) => item.id)
+        ));
+        const affectedItems = await loadUploadItems(batch.id, affectedItemIds);
 
         const queued = [];
         const pending = [];
         const failed = [];
+        const readyItems = [];
 
-        for (const item of refreshedBatch.items) {
+        for (const item of affectedItems) {
             if (item.status === WorksheetUploadItemStatus.QUEUED && item.jobId) {
                 queued.push({
                     itemId: item.id,
@@ -833,6 +856,10 @@ export const finalizeDirectUploadSession = async (req: Request, res: Response) =
                 continue;
             }
 
+            if (item.status !== WorksheetUploadItemStatus.PENDING) {
+                continue;
+            }
+
             const missingImageIds = item.images
                 .filter((image) => !image.uploadedAt)
                 .map((image) => image.id);
@@ -847,40 +874,38 @@ export const finalizeDirectUploadSession = async (req: Request, res: Response) =
                 continue;
             }
 
+            readyItems.push(item);
+        }
+
+        const readyResults = await Promise.allSettled(readyItems.map(async (item) => {
             try {
                 const jobResult = await createGradingJobFromUploadItem(item.id);
 
                 if (!jobResult.jobId) {
-                    failed.push({
+                    return {
+                        kind: 'failed' as const,
                         itemId: item.id,
                         studentId: item.studentId,
                         worksheetNumber: item.worksheetNumber,
                         error: jobResult.error || 'Unable to create grading job'
-                    });
-                    continue;
+                    };
                 }
 
                 const dispatchResult = jobResult.created
                     ? await dispatchJob(jobResult.jobId)
                     : { dispatchState: 'DISPATCHED' as DispatchState };
 
-                queued.push({
+                return {
+                    kind: 'queued' as const,
                     itemId: item.id,
                     studentId: item.studentId,
                     worksheetNumber: item.worksheetNumber,
                     jobId: jobResult.jobId,
                     dispatchState: dispatchResult.dispatchState,
                     queuedAt: dispatchResult.queuedAt
-                });
+                };
             } catch (error) {
                 const message = error instanceof Error ? error.message : 'Failed to create grading job';
-                failed.push({
-                    itemId: item.id,
-                    studentId: item.studentId,
-                    worksheetNumber: item.worksheetNumber,
-                    error: message
-                });
-
                 await prisma.worksheetUploadItem.update({
                     where: { id: item.id },
                     data: {
@@ -890,6 +915,32 @@ export const finalizeDirectUploadSession = async (req: Request, res: Response) =
                 }).catch(() => {
                     // best effort
                 });
+
+                return {
+                    kind: 'failed' as const,
+                    itemId: item.id,
+                    studentId: item.studentId,
+                    worksheetNumber: item.worksheetNumber,
+                    error: message
+                };
+            }
+        }));
+
+        for (const result of readyResults) {
+            if (result.status === 'rejected') {
+                failed.push({
+                    itemId: 'unknown',
+                    studentId: 'unknown',
+                    worksheetNumber: 0,
+                    error: result.reason instanceof Error ? result.reason.message : 'Failed to finalize upload item'
+                });
+                continue;
+            }
+
+            if (result.value.kind === 'queued') {
+                queued.push(result.value);
+            } else {
+                failed.push(result.value);
             }
         }
 

@@ -67,6 +67,13 @@ export class BackendClient {
     });
   }
 
+  async resetDispatch(jobId: string, reason: string): Promise<void> {
+    await this.requestJson(`/internal/grading-worker/jobs/${encodeURIComponent(jobId)}/reset-dispatch`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
   private async requestJson<T = unknown>(path: string, init: RequestInit): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...init,

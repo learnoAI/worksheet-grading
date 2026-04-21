@@ -125,3 +125,25 @@ export async function requeueGradingJob(jobId: string, reason?: string): Promise
         }
     });
 }
+
+export async function resetQueuedJobDispatch(jobId: string, reason?: string): Promise<boolean> {
+    const now = new Date();
+    const result = await prisma.gradingJob.updateMany({
+        where: {
+            id: jobId,
+            status: GradingJobStatus.QUEUED,
+            leaseId: null
+        },
+        data: {
+            enqueuedAt: null,
+            dispatchError: reason || null,
+            lastErrorAt: now,
+            startedAt: null,
+            lastHeartbeatAt: null,
+            completedAt: null,
+            errorMessage: null
+        }
+    });
+
+    return result.count > 0;
+}

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
 // Zod is the source of truth for validation (what we accept).
-// The JSON Schema objects below are what we ask Gemini to produce (structured output).
+// The JSON Schema objects below can be passed to providers that support structured outputs.
 
 export const ExtractedQuestionSchema = z
   .object({
@@ -54,9 +54,7 @@ export const GradingResultSchema = z
 
 export type GradingResult = z.infer<typeof GradingResultSchema>;
 
-// Gemini structured output schema derived from the Zod definitions above.
-// Docs: https://ai.google.dev/gemini-api/docs/structured-output
-function toGeminiResponseJsonSchema(schema: z.ZodTypeAny): unknown {
+function toStructuredOutputJsonSchema(schema: z.ZodTypeAny): unknown {
   // Important: Gemini structured output supports a JSON Schema *subset* and rejects $ref/definitions.
   const jsonSchema: any = zodToJsonSchema(schema, { $refStrategy: 'none' });
 
@@ -72,5 +70,5 @@ function toGeminiResponseJsonSchema(schema: z.ZodTypeAny): unknown {
   return jsonSchema;
 }
 
-export const ExtractedQuestionsJsonSchema = toGeminiResponseJsonSchema(ExtractedQuestionsSchema);
-export const GradingResultJsonSchema = toGeminiResponseJsonSchema(GradingResultSchema);
+export const ExtractedQuestionsJsonSchema = toStructuredOutputJsonSchema(ExtractedQuestionsSchema);
+export const GradingResultJsonSchema = toStructuredOutputJsonSchema(GradingResultSchema);
