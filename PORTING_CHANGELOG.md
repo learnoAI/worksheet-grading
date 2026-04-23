@@ -5,9 +5,9 @@ Express backend + ad-hoc Next.js host to a Hono-on-Cloudflare-Workers
 backend + OpenNext-on-Workers frontend.
 
 **Branch:** `refac/express_to_hono`
-**Commit range:** 80 commits, `1661ad6` → `1fc5b96`
+**Commit range:** 84 commits, `1661ad6` → `ce8ed00`
 **Started:** 2026-04-13
-**Code-side complete:** 2026-04-16
+**Code-side complete:** 2026-04-22
 
 > This document is a **changelog** — "what was done, in what order, with
 > what outcome." For the **plan** (what to do, what concerns are open,
@@ -20,13 +20,13 @@ backend + OpenNext-on-Workers frontend.
 
 | Metric | Value |
 |---|---|
-| Total commits on the branch | **80** |
-| Backend unit tests | **538 passing** |
-| HTTP routes ported to Hono | **97 / 97** (100%) |
+| Total commits on the branch | **84** |
+| Backend unit tests | **565 passing** (40 test files) |
+| HTTP routes ported to Hono | **106 / 106** (100%) |
 | Cron handlers on Hono Worker | **1** (grading dispatch loop) |
-| New adapters built | **14** |
+| New adapters built | **16** |
 | Express code still in use | **0** (cutover-ready) |
-| Worker bundle size | **3.75 MB / 1.15 MB gzipped** (Workers limit: 10 MB compressed) |
+| Worker bundle size | **3.75 MB / 1.15 MB gzipped** (Workers limit: 10 MB compressed; re-measure after 5.15) |
 | Concerns open (C1–C9.1) | **5 open, 4 resolved/deferred** |
 | Blockers to decommissioning Express | Operational only (C5 secrets, Hyperdrive creation, smoke test) |
 
@@ -51,6 +51,7 @@ backend + OpenNext-on-Workers frontend.
 | **5.12** | Deployment prep — fallback proxy + wrangler config + runbook | 3 | ✅ |
 | **5.13** | Complex deferred routes (direct-upload sessions, grading-worker, analytics, etc.) | 19 | ✅ |
 | **5.14** | Dispatch loop as Cron handler | 3 | ✅ |
+| **5.15** | Final route parity — `/api/grading-jobs/*` + `/api/worksheet-generation/*` | 4 | ✅ |
 | **—** | **Remaining for decommissioning Express** | — | Operational (see bottom) |
 
 ---
@@ -306,9 +307,30 @@ a Workers `scheduled` handler. Cron fires every minute. Closes concern C4.
 | `8bd346c` | feat: wire scheduled cron handler for grading dispatch loop |
 | `1fc5b96` | docs: close C4 dispatch loop concern; document cron trigger in runbook |
 
+### Phase 5.15 — Final route parity
+
+Closes the last two route-group gaps found in a parity audit against
+`backend/src/index.ts`: `/api/grading-jobs/*` (4 endpoints) and
+`/api/worksheet-generation/*` (5 endpoints). Introduces two new
+prisma-injected adapters (`worksheetScheduler`, `worksheetGeneration`).
+
+One behaviour change: `POST /api/worksheet-generation/generate` used to
+call `renderBatchPdfs(ids)` (puppeteer) fire-and-forget. Puppeteer does
+not run in Workers, so the port publishes each worksheet to the PDF
+rendering queue (`PDF_RENDERING_QUEUE_ID`) — the same pattern
+`/generate-class` already uses, consumed by the existing
+`cloudflare/pdf-renderer` worker.
+
+| Commit | Description |
+|---|---|
+| `96398eb` | feat: port /api/grading-jobs routes to hono |
+| `29888a8` | feat: add worksheet scheduler adapter (planWorksheets) |
+| `f859f19` | feat: add worksheet generation adapter (generate + class batch) |
+| `ce8ed00` | feat: port /api/worksheet-generation routes to hono |
+
 ---
 
-## Route inventory (97 HTTP + 1 Cron)
+## Route inventory (106 HTTP + 1 Cron)
 
 ### Public API (under `/api`)
 
@@ -326,6 +348,8 @@ a Workers `scheduled` handler. Cron fires every minute. Closes concern C4.
 | Analytics | `GET /analytics/schools`, `/schools/:id/classes`, `/overall`, `/students`, `/students/download` | `routes/analytics.ts` |
 | Worksheets | 23 routes — reads, grade CRUD, admin mod, check-repeated, batch-save, Python utilities, multipart upload, class-date summary, incorrect-grading feed, recommend-next | `routes/worksheets.ts` |
 | Worksheet processing | `POST /upload-session`, `GET /:batchId`, `POST /:batchId/finalize`, `POST /process` | `routes/worksheetProcessing.ts` |
+| Grading jobs | `GET /teacher/today`, `GET /class/:classId`, `GET /:jobId`, `POST /batch-status` | `routes/gradingJobs.ts` |
+| Worksheet generation | `POST /generate`, `POST /generate-class`, `GET /batch/:batchId`, `GET /student/:studentId`, `GET /:id/pdf` | `routes/worksheetGeneration.ts` |
 
 ### Internal API (under `/internal`, shared-secret auth)
 
@@ -343,7 +367,7 @@ a Workers `scheduled` handler. Cron fires every minute. Closes concern C4.
 
 ---
 
-## Adapter inventory (14)
+## Adapter inventory (16)
 
 Every adapter is prisma-injected or env-based so it works in Workers.
 
@@ -361,6 +385,8 @@ Every adapter is prisma-injected or env-based so it works in Workers.
 | `adapters/gradingLifecycle.ts` | `services/gradingJobLifecycleService` | Job state transitions (acquire, heartbeat, complete, fail, requeue) |
 | `adapters/gradingPersistence.ts` | `services/gradingWorksheetPersistenceService` | Worksheet upsert with missing-index + P2002 race fallbacks |
 | `adapters/mastery.ts` | `services/masteryService` | `computeRecommendations` + `updateMasteryForWorksheet` |
+| `adapters/worksheetScheduler.ts` | `services/worksheetSchedulerService` | `planWorksheets` — FSRS-weighted curriculum walk + review picks |
+| `adapters/worksheetGeneration.ts` | `services/worksheetGenerationService` + `worksheetBatchService` | `generateWorksheets`, `createClassBatch`, `buildSections`; publishes to `PDF_RENDERING_QUEUE_ID` instead of in-process puppeteer |
 | `uploads.ts` | Multer | FormData parsing (image-only filter, size/count limits) |
 | `fallback.ts` | — | Catch-all proxy to Express for unported paths (now vestigial) |
 | `dispatch.ts` | `workers/gradingDispatchLoop` | Cron tick: stale requeue + CF Queues publish |
@@ -498,11 +524,11 @@ cloudflare/                             # Unchanged — existing workers
 
 ## Testing snapshot at cutover-ready
 
-- **538 unit tests passing** across 42 test files
+- **565 unit tests passing** across 40 test files (Phase 5.15 added 53 tests: 19 grading-jobs, 7 scheduler, 10 generation adapter, 17 worksheet-generation routes)
 - **0 integration tests** against a real DB (by design; see smoke test plan)
 - Test framework: Vitest with mocked Prisma + mocked `fetch`
 - `npm test` runs the full suite in ~2 seconds
-- `wrangler deploy --dry-run` succeeds (3.75 MB upload / 1.15 MB gzip, no bindings)
+- `wrangler deploy --dry-run` succeeds at 3.75 MB (pre-5.15); re-measure after the Phase 5.15 code to confirm headroom under the 10 MB Workers cap
 
 ---
 
@@ -512,5 +538,5 @@ cloudflare/                             # Unchanged — existing workers
 - **Deploy runbook:** `backend/DEPLOYMENT.md`
 - **Branch:** `refac/express_to_hono`
 - **First commit:** `1661ad6` (2026-04-13)
-- **Last commit:** `1fc5b96` (2026-04-16)
+- **Last commit:** `ce8ed00` (2026-04-22)
 - **Cutover-blocking work remaining:** ops only — see "What's left" above.
