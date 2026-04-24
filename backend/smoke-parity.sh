@@ -64,8 +64,12 @@ compare_case() {
   [ "$auth" = "1" ] && hdr=(-H "Authorization: Bearer $TOK")
 
   local a b
-  a=$(curl -s "${hdr[@]}" "$EXPRESS_URL$path" 2>/dev/null || echo '{"_curl_err":true}')
-  b=$(curl -s "${hdr[@]}" "$WORKER_URL$path"   2>/dev/null || echo '{"_curl_err":true}')
+  a=$(curl -s --max-time 15 "${hdr[@]}" "$EXPRESS_URL$path" 2>/dev/null || echo '{"_curl_err":true}')
+  b=$(curl -s --max-time 15 "${hdr[@]}" "$WORKER_URL$path"   2>/dev/null || echo '{"_curl_err":true}')
+  # Small pause so the local workerd + pg adapter can tear down its
+  # connection between requests (wrangler-dev quirk; not an issue in prod
+  # where Hyperdrive pools externally).
+  sleep 0.5
 
   local a_norm b_norm
   # jq -S sorts keys; fall back to raw text if the body isn't JSON
@@ -80,7 +84,8 @@ compare_case() {
     failed_names+=("$name")
     printf "${R}FAIL${N}  %s  (path=%s)\n" "$name" "$path"
     # Truncated diff — use the script output as a starting point, not a final report
-    diff <(echo "$a_norm") <(echo "$b_norm") | head -30 | sed 's/^/        /'
+    # `diff` exits 1 on difference; swallow so `set -e` doesn't abort.
+    diff <(echo "$a_norm") <(echo "$b_norm") | head -30 | sed 's/^/        /' || true
   fi
 }
 
