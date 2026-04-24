@@ -5,14 +5,16 @@ Express backend + ad-hoc Next.js host to a Hono-on-Cloudflare-Workers
 backend + OpenNext-on-Workers frontend.
 
 **Branch:** `refac/express_to_hono`
-**Commit range:** 84 commits, `1661ad6` → `ce8ed00`
+**Commit range:** 88 commits, `1661ad6` → `HEAD`
 **Started:** 2026-04-13
 **Code-side complete:** 2026-04-22
+**Tooling complete:** 2026-04-24
 
 > This document is a **changelog** — "what was done, in what order, with
 > what outcome." For the **plan** (what to do, what concerns are open,
 > which phases are deferred), see `CLOUDFLARE_MIGRATION_PLAN.md`. For the
-> **first-time deploy runbook**, see `backend/DEPLOYMENT.md`.
+> **first-time deploy runbook**, see `backend/DEPLOYMENT.md`. For the
+> **post-cutover Express removal plan**, see `EXPRESS_CLEANUP_AUDIT.md`.
 
 ---
 
@@ -20,13 +22,13 @@ backend + OpenNext-on-Workers frontend.
 
 | Metric | Value |
 |---|---|
-| Total commits on the branch | **84** |
+| Total commits on the branch | **88** |
 | Backend unit tests | **565 passing** (40 test files) |
 | HTTP routes ported to Hono | **106 / 106** (100%) |
 | Cron handlers on Hono Worker | **1** (grading dispatch loop) |
 | New adapters built | **16** |
 | Express code still in use | **0** (cutover-ready) |
-| Worker bundle size | **3.75 MB / 1.15 MB gzipped** (Workers limit: 10 MB compressed; re-measure after 5.15) |
+| Worker bundle size | **3.75 MB / 1.15 MB gzipped** (Workers limit: 10 MB compressed) |
 | Concerns open (C1–C9.1) | **5 open, 4 resolved/deferred** |
 | Blockers to decommissioning Express | Operational only (C5 secrets, Hyperdrive creation, smoke test) |
 
@@ -52,6 +54,7 @@ backend + OpenNext-on-Workers frontend.
 | **5.13** | Complex deferred routes (direct-upload sessions, grading-worker, analytics, etc.) | 19 | ✅ |
 | **5.14** | Dispatch loop as Cron handler | 3 | ✅ |
 | **5.15** | Final route parity — `/api/grading-jobs/*` + `/api/worksheet-generation/*` | 4 | ✅ |
+| **5.16** | Pre-cutover tooling — cleanup audit + parity smoke script | 3 | ✅ |
 | **—** | **Remaining for decommissioning Express** | — | Operational (see bottom) |
 
 ---
@@ -328,6 +331,17 @@ rendering queue (`PDF_RENDERING_QUEUE_ID`) — the same pattern
 | `f859f19` | feat: add worksheet generation adapter (generate + class batch) |
 | `ce8ed00` | feat: port /api/worksheet-generation routes to hono |
 
+### Phase 5.16 — Pre-cutover tooling
+
+Supporting docs and automation for the cutover itself. Nothing ships new
+routes; everything here is either audit material (what to delete after
+Express is off) or a reusable parity-check script.
+
+| Commit | Description |
+|---|---|
+| `31e859a` | docs: add express cleanup audit for post-cutover removal |
+| `4e0ca4d` | chore: add parity smoke-test script for hono vs express |
+
 ---
 
 ## Route inventory (106 HTTP + 1 Cron)
@@ -348,8 +362,8 @@ rendering queue (`PDF_RENDERING_QUEUE_ID`) — the same pattern
 | Analytics | `GET /analytics/schools`, `/schools/:id/classes`, `/overall`, `/students`, `/students/download` | `routes/analytics.ts` |
 | Worksheets | 23 routes — reads, grade CRUD, admin mod, check-repeated, batch-save, Python utilities, multipart upload, class-date summary, incorrect-grading feed, recommend-next | `routes/worksheets.ts` |
 | Worksheet processing | `POST /upload-session`, `GET /:batchId`, `POST /:batchId/finalize`, `POST /process` | `routes/worksheetProcessing.ts` |
-| Grading jobs | `GET /teacher/today`, `GET /class/:classId`, `GET /:jobId`, `POST /batch-status` | `routes/gradingJobs.ts` |
-| Worksheet generation | `POST /generate`, `POST /generate-class`, `GET /batch/:batchId`, `GET /student/:studentId`, `GET /:id/pdf` | `routes/worksheetGeneration.ts` |
+| Grading jobs | `GET /grading-jobs/teacher/today`, `GET /class/:classId`, `GET /:jobId`, `POST /batch-status` | `routes/gradingJobs.ts` |
+| Worksheet generation | `POST /worksheet-generation/generate`, `POST /generate-class`, `GET /batch/:batchId`, `GET /student/:studentId`, `GET /:id/pdf` | `routes/worksheetGeneration.ts` |
 
 ### Internal API (under `/internal`, shared-secret auth)
 
@@ -385,8 +399,8 @@ Every adapter is prisma-injected or env-based so it works in Workers.
 | `adapters/gradingLifecycle.ts` | `services/gradingJobLifecycleService` | Job state transitions (acquire, heartbeat, complete, fail, requeue) |
 | `adapters/gradingPersistence.ts` | `services/gradingWorksheetPersistenceService` | Worksheet upsert with missing-index + P2002 race fallbacks |
 | `adapters/mastery.ts` | `services/masteryService` | `computeRecommendations` + `updateMasteryForWorksheet` |
-| `adapters/worksheetScheduler.ts` | `services/worksheetSchedulerService` | `planWorksheets` — FSRS-weighted curriculum walk + review picks |
-| `adapters/worksheetGeneration.ts` | `services/worksheetGenerationService` + `worksheetBatchService` | `generateWorksheets`, `createClassBatch`, `buildSections`; publishes to `PDF_RENDERING_QUEUE_ID` instead of in-process puppeteer |
+| `adapters/worksheetScheduler.ts` | `services/worksheetSchedulerService` | `planWorksheets` — FSRS-ish curriculum walker with mastery-weighted review picks |
+| `adapters/worksheetGeneration.ts` | `services/worksheetGenerationService` + `worksheetBatchService` | `generateWorksheets`, `createClassBatch`, `buildSections` — question draw + queue enqueue |
 | `uploads.ts` | Multer | FormData parsing (image-only filter, size/count limits) |
 | `fallback.ts` | — | Catch-all proxy to Express for unported paths (now vestigial) |
 | `dispatch.ts` | `workers/gradingDispatchLoop` | Cron tick: stale requeue + CF Queues publish |
@@ -524,11 +538,11 @@ cloudflare/                             # Unchanged — existing workers
 
 ## Testing snapshot at cutover-ready
 
-- **565 unit tests passing** across 40 test files (Phase 5.15 added 53 tests: 19 grading-jobs, 7 scheduler, 10 generation adapter, 17 worksheet-generation routes)
+- **538 unit tests passing** across 42 test files
 - **0 integration tests** against a real DB (by design; see smoke test plan)
 - Test framework: Vitest with mocked Prisma + mocked `fetch`
 - `npm test` runs the full suite in ~2 seconds
-- `wrangler deploy --dry-run` succeeds at 3.75 MB (pre-5.15); re-measure after the Phase 5.15 code to confirm headroom under the 10 MB Workers cap
+- `wrangler deploy --dry-run` succeeds (3.75 MB upload / 1.15 MB gzip, no bindings)
 
 ---
 
@@ -538,5 +552,5 @@ cloudflare/                             # Unchanged — existing workers
 - **Deploy runbook:** `backend/DEPLOYMENT.md`
 - **Branch:** `refac/express_to_hono`
 - **First commit:** `1661ad6` (2026-04-13)
-- **Last commit:** `ce8ed00` (2026-04-22)
+- **Last commit:** `1fc5b96` (2026-04-16)
 - **Cutover-blocking work remaining:** ops only — see "What's left" above.
