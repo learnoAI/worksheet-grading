@@ -94,7 +94,7 @@ worksheetGeneration.post('/generate', async (c) => {
       distinctId: user.userId,
       stage: 'worksheetGeneration.generate',
     });
-    return c.json({ success: false, error: 'Server error' }, 500);
+    return c.json({ message: 'An unexpected error occurred' }, 500);
   }
 });
 
@@ -158,7 +158,7 @@ worksheetGeneration.post('/generate-class', async (c) => {
       distinctId: user.userId,
       stage: 'worksheetGeneration.generateClass',
     });
-    return c.json({ success: false, error: 'Server error' }, 500);
+    return c.json({ message: 'An unexpected error occurred' }, 500);
   }
 });
 
@@ -182,7 +182,7 @@ worksheetGeneration.get('/batch/:batchId', async (c) => {
       distinctId: user.userId,
       stage: 'worksheetGeneration.getBatchStatus',
     });
-    return c.json({ success: false, error: 'Server error' }, 500);
+    return c.json({ message: 'An unexpected error occurred' }, 500);
   }
 });
 
@@ -236,7 +236,7 @@ worksheetGeneration.get('/student/:studentId', async (c) => {
       distinctId: user.userId,
       stage: 'worksheetGeneration.listForStudent',
     });
-    return c.json({ success: false, error: 'Server error' }, 500);
+    return c.json({ message: 'An unexpected error occurred' }, 500);
   }
 });
 
@@ -271,7 +271,7 @@ worksheetGeneration.get('/:id/pdf', async (c) => {
       distinctId: user.userId,
       stage: 'worksheetGeneration.getPdf',
     });
-    return c.json({ success: false, error: 'Server error' }, 500);
+    return c.json({ message: 'An unexpected error occurred' }, 500);
   }
 });
 

@@ -70,9 +70,12 @@ app.all('*', expressFallback());
 
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
 
+// Match Express's global error middleware response shape so frontend
+// code that reads `response.data.message` keeps working after cutover.
+// See `backend/src/index.ts`'s `app.use((err, req, res, next) => ...)`.
 app.onError((err, c) => {
   console.error('[worker] unhandled error:', err);
-  return c.json({ error: 'Internal Server Error' }, 500);
+  return c.json({ message: 'An unexpected error occurred' }, 500);
 });
 
 /**
