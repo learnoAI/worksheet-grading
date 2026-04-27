@@ -127,14 +127,14 @@ export async function persistWorksheetForGradingJob(
                 }
             },
             update: {
-                grade: gradingResponse.grade,
+                // Refresh AI-derived analysis only. `grade`, `wrongQuestionNumbers`,
+                // and `isRepeated` are user-owned: an SR may have already saved a
+                // manual override before this worker finished, and overwriting them
+                // here would silently revert the SR's edit.
                 status: ProcessingStatus.COMPLETED,
                 outOf: gradingResponse.total_possible || 40,
                 mongoDbId: gradingResponse.mongodb_id,
-                gradingDetails,
-                wrongQuestionNumbers,
-                isRepeated: job.isRepeated,
-                worksheetNumber: job.worksheetNumber
+                gradingDetails
             },
             create: {
                 classId: job.classId,
@@ -187,14 +187,12 @@ export async function persistWorksheetForGradingJob(
                 worksheet = await db.worksheet.update({
                     where: { id: existing.id },
                     data: {
-                        grade: gradingResponse.grade,
+                        // See note in the upsert above: never overwrite user-owned
+                        // grade/wrongQuestionNumbers/isRepeated on an existing row.
                         status: ProcessingStatus.COMPLETED,
                         outOf: gradingResponse.total_possible || 40,
                         mongoDbId: gradingResponse.mongodb_id,
-                        gradingDetails,
-                        wrongQuestionNumbers,
-                        isRepeated: job.isRepeated,
-                        worksheetNumber: job.worksheetNumber
+                        gradingDetails
                     }
                 });
             } else {
@@ -240,13 +238,13 @@ export async function persistWorksheetForGradingJob(
             worksheet = await db.worksheet.update({
                 where: { id: alreadyCreated.id },
                 data: {
-                    grade: gradingResponse.grade,
+                    // P2002 means another writer (often an SR's manual save) created
+                    // the row between our findFirst and create. Treat it as an
+                    // existing user-owned row and refresh AI-derived fields only.
                     status: ProcessingStatus.COMPLETED,
                     outOf: gradingResponse.total_possible || 40,
                     mongoDbId: gradingResponse.mongodb_id,
-                    gradingDetails,
-                    wrongQuestionNumbers,
-                    isRepeated: job.isRepeated
+                    gradingDetails
                 }
             });
         } else {

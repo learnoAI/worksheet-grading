@@ -92,7 +92,104 @@ describe('gradingWorksheetPersistenceService', () => {
     const updateArgs = mockPrisma.worksheet.update.mock.calls[0][0];
     expect(updateArgs.where).toEqual({ id: 'ws-1' });
     expect(updateArgs.data.status).toBe(ProcessingStatus.COMPLETED);
-    expect(updateArgs.data.wrongQuestionNumbers).toBe('2, 3, 5');
+    // User-owned fields (grade, wrongQuestionNumbers, isRepeated) must not be
+    // touched on an existing row — an SR's manual override would otherwise be
+    // silently reverted when the AI worker completes.
+    expect(updateArgs.data).not.toHaveProperty('grade');
+    expect(updateArgs.data).not.toHaveProperty('wrongQuestionNumbers');
+    expect(updateArgs.data).not.toHaveProperty('isRepeated');
+  });
+
+  it('preserves user-owned fields on the upsert update path when a worksheet already exists', async () => {
+    mockPrisma.worksheet.findFirst.mockResolvedValue({ id: 'ws-existing' });
+    mockPrisma.worksheet.upsert.mockResolvedValue({ id: 'ws-existing' });
+
+    const result = await persistWorksheetForGradingJob(
+      {
+        studentId: 'student-1',
+        classId: 'class-1',
+        teacherId: 'teacher-1',
+        worksheetNumber: 15,
+        submittedOn: new Date('2026-02-14T12:34:56.789Z'),
+        isRepeated: true,
+      },
+      {
+        success: true,
+        grade: 22,
+        total_possible: 40,
+        total_questions: 10,
+        correct_answers: 6,
+        wrong_answers: 3,
+        unanswered: 1,
+        grade_percentage: 55,
+        question_scores: [],
+        wrong_questions: [{ question_number: 4 }],
+        unanswered_questions: [{ question_number: 7 }],
+        overall_feedback: 'ok',
+      }
+    );
+
+    expect(result.action).toBe('UPDATED');
+
+    const upsertArgs = mockPrisma.worksheet.upsert.mock.calls[0][0];
+    // create branch still seeds everything (it only runs when the row is new).
+    expect(upsertArgs.create.grade).toBe(22);
+    expect(upsertArgs.create.wrongQuestionNumbers).toBe('4, 7');
+    expect(upsertArgs.create.isRepeated).toBe(true);
+    // update branch refreshes AI-derived fields only.
+    expect(upsertArgs.update.status).toBe(ProcessingStatus.COMPLETED);
+    expect(upsertArgs.update.gradingDetails).toBeDefined();
+    expect(upsertArgs.update.outOf).toBe(40);
+    expect(upsertArgs.update).not.toHaveProperty('grade');
+    expect(upsertArgs.update).not.toHaveProperty('wrongQuestionNumbers');
+    expect(upsertArgs.update).not.toHaveProperty('isRepeated');
+    expect(upsertArgs.update).not.toHaveProperty('worksheetNumber');
+  });
+
+  it('preserves user-owned fields on the P2002 race-recovery update path', async () => {
+    const submittedOn = new Date('2026-02-14T12:34:56.789Z');
+
+    // Initial findFirst: row not yet there. Upsert then races and hits P2002.
+    mockPrisma.worksheet.findFirst.mockResolvedValueOnce(null);
+    const p2002 = Object.assign(new Error('Unique constraint failed'), {
+      code: 'P2002',
+    });
+    mockPrisma.worksheet.upsert.mockRejectedValue(p2002);
+    // Recovery path re-queries and finds the row that was inserted concurrently.
+    mockPrisma.worksheet.findFirst.mockResolvedValueOnce({ id: 'ws-raced' });
+    mockPrisma.worksheet.update.mockResolvedValue({ id: 'ws-raced' });
+
+    await persistWorksheetForGradingJob(
+      {
+        studentId: 'student-1',
+        classId: 'class-1',
+        teacherId: 'teacher-1',
+        worksheetNumber: 15,
+        submittedOn,
+        isRepeated: false,
+      },
+      {
+        success: true,
+        grade: 18,
+        total_possible: 40,
+        total_questions: 10,
+        correct_answers: 5,
+        wrong_answers: 4,
+        unanswered: 1,
+        grade_percentage: 45,
+        question_scores: [],
+        wrong_questions: [{ question_number: 2 }],
+        unanswered_questions: [],
+        overall_feedback: 'ok',
+      }
+    );
+
+    const updateArgs = mockPrisma.worksheet.update.mock.calls[0][0];
+    expect(updateArgs.where).toEqual({ id: 'ws-raced' });
+    expect(updateArgs.data.status).toBe(ProcessingStatus.COMPLETED);
+    expect(updateArgs.data).not.toHaveProperty('grade');
+    expect(updateArgs.data).not.toHaveProperty('wrongQuestionNumbers');
+    expect(updateArgs.data).not.toHaveProperty('isRepeated');
   });
 
   it('falls back to create when upsert fails due to missing unique index (42P10) and worksheet does not exist', async () => {
