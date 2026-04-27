@@ -53,7 +53,9 @@ describe('gradingWorksheetPersistenceService', () => {
     mockPrisma.worksheet.upsert.mockRejectedValue(
       new Error('there is no unique or exclusion constraint matching the ON CONFLICT specification')
     );
-    mockPrisma.worksheet.update.mockResolvedValue({ id: 'ws-1' });
+    // Simulate an existing row with an SR's manual override (grade 35) — the
+    // post-update row that Prisma returns must surface that, not the AI's 37.
+    mockPrisma.worksheet.update.mockResolvedValue({ id: 'ws-1', grade: 35, outOf: 40 });
 
     const result = await persistWorksheetForGradingJob(
       {
@@ -82,7 +84,9 @@ describe('gradingWorksheetPersistenceService', () => {
 
     expect(result.action).toBe('UPDATED');
     expect(result.worksheetId).toBe('ws-1');
-    expect(result.grade).toBe(37);
+    // Returns the persisted grade (SR override), not gradingResponse.grade.
+    expect(result.grade).toBe(35);
+    expect(result.outOf).toBe(40);
 
     const findArgs = mockPrisma.worksheet.findFirst.mock.calls[0][0];
     expect(findArgs.where.worksheetNumber).toBe(15);
@@ -102,7 +106,9 @@ describe('gradingWorksheetPersistenceService', () => {
 
   it('preserves user-owned fields on the upsert update path when a worksheet already exists', async () => {
     mockPrisma.worksheet.findFirst.mockResolvedValue({ id: 'ws-existing' });
-    mockPrisma.worksheet.upsert.mockResolvedValue({ id: 'ws-existing' });
+    // Simulate the row Prisma returns after the upsert: an SR's prior manual
+    // grade (28) survived because the update branch doesn't touch grade.
+    mockPrisma.worksheet.upsert.mockResolvedValue({ id: 'ws-existing', grade: 28, outOf: 40 });
 
     const result = await persistWorksheetForGradingJob(
       {
@@ -130,6 +136,9 @@ describe('gradingWorksheetPersistenceService', () => {
     );
 
     expect(result.action).toBe('UPDATED');
+    // Returned grade reflects what's in the DB (SR's 28), not the AI's 22.
+    expect(result.grade).toBe(28);
+    expect(result.outOf).toBe(40);
 
     const upsertArgs = mockPrisma.worksheet.upsert.mock.calls[0][0];
     // create branch still seeds everything (it only runs when the row is new).
@@ -157,9 +166,10 @@ describe('gradingWorksheetPersistenceService', () => {
     mockPrisma.worksheet.upsert.mockRejectedValue(p2002);
     // Recovery path re-queries and finds the row that was inserted concurrently.
     mockPrisma.worksheet.findFirst.mockResolvedValueOnce({ id: 'ws-raced' });
-    mockPrisma.worksheet.update.mockResolvedValue({ id: 'ws-raced' });
+    // The concurrent writer (an SR's manual save) put grade=12 in.
+    mockPrisma.worksheet.update.mockResolvedValue({ id: 'ws-raced', grade: 12, outOf: 40 });
 
-    await persistWorksheetForGradingJob(
+    const result = await persistWorksheetForGradingJob(
       {
         studentId: 'student-1',
         classId: 'class-1',
@@ -183,6 +193,10 @@ describe('gradingWorksheetPersistenceService', () => {
         overall_feedback: 'ok',
       }
     );
+
+    // Returned grade is the SR's 12 (what's in the row), not the AI's 18.
+    expect(result.grade).toBe(12);
+    expect(result.outOf).toBe(40);
 
     const updateArgs = mockPrisma.worksheet.update.mock.calls[0][0];
     expect(updateArgs.where).toEqual({ id: 'ws-raced' });

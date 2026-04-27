@@ -293,8 +293,10 @@ export async function executeGradingJob(
             worksheetId: persisted.worksheetId,
             studentId: job.studentId,
             worksheetNumber: job.worksheetNumber,
-            grade: pythonResponse.grade ?? 0,
-            outOf: pythonResponse.total_possible ?? 40,
+            // Use the persisted grade so mastery reflects an SR's manual
+            // override rather than the AI's raw output when the two diverge.
+            grade: persisted.grade ?? 0,
+            outOf: persisted.outOf,
             submittedOn: job.submittedOn
         });
     } catch (err) {
