@@ -32,6 +32,12 @@ export interface RosterStudent {
   worksheets: WorksheetSlotData[];
 }
 
+function sortWorksheets(worksheets: WorksheetSlotData[]): WorksheetSlotData[] {
+  return [...worksheets].sort(
+    (a, b) => (a.worksheetNumber || 0) - (b.worksheetNumber || 0),
+  );
+}
+
 function buildInitialWorksheet(
   _studentId: string,
   summary: StudentSummary | undefined,
@@ -133,7 +139,7 @@ export function useRoster(user: User) {
 
         const worksheets: WorksheetSlotData[] =
           existingWorksheets.length > 0
-            ? existingWorksheets.map((ws) => buildInitialWorksheet(s.id, summary, ws))
+            ? sortWorksheets(existingWorksheets.map((ws) => buildInitialWorksheet(s.id, summary, ws)))
             : [buildInitialWorksheet(s.id, summary)];
 
         return {
@@ -352,7 +358,7 @@ export function useRoster(user: User) {
           isIncorrectGrade: false,
           isUploading: false,
         };
-        return { ...student, worksheets: [...student.worksheets, newWs] };
+        return { ...student, worksheets: sortWorksheets([...student.worksheets, newWs]) };
       }),
     );
   }, []);
