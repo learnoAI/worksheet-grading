@@ -96,6 +96,10 @@ export default {
         queuePollIntervalMs: parseNumber(process.env.GRADING_QUEUE_POLL_INTERVAL_MS, 2000),
         heartbeatIntervalMs: parseNumber(process.env.GRADING_HEARTBEAT_INTERVAL_MS, 10000),
         staleProcessingMs: parseNumber(process.env.GRADING_STALE_PROCESSING_MS, 1200000),
+        // Threshold for treating a QUEUED job as orphaned (CF Queue exhausted retries
+        // without the worker handler running its cleanup path). Must be longer than
+        // the worst-case CF Queue retry cycle (max_retries × max retry-after delay).
+        dispatchOrphanMs: parseNumber(process.env.GRADING_DISPATCH_ORPHAN_MS, 1800000),
         dispatchLoopIntervalMs: parseNumber(process.env.GRADING_DISPATCH_LOOP_INTERVAL_MS, 5000),
         dispatchLoopOnWeb: parseBoolean(process.env.GRADING_DISPATCH_LOOP_ON_WEB, true)
     }

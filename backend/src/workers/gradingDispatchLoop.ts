@@ -26,6 +26,7 @@ function shouldRetryDispatch(lastErrorAt: Date | null, attemptCount: number): bo
 async function dispatchPendingJobs(): Promise<void> {
     const queueClient = getGradingQueueClient();
     const staleCutoff = new Date(Date.now() - config.grading.staleProcessingMs);
+    const orphanCutoff = new Date(Date.now() - config.grading.dispatchOrphanMs);
 
     const staleRequeued = await prisma.gradingJob.updateMany({
         where: {
@@ -59,6 +60,34 @@ async function dispatchPendingJobs(): Promise<void> {
         captureGradingPipelineEvent('dispatch_loop_stale_processing_requeued', 'dispatch-loop', {
             count: staleRequeued.count,
             staleProcessingMs: config.grading.staleProcessingMs
+        });
+    }
+
+    // Recover QUEUED jobs whose CF Queue message was never delivered to the worker
+    // (cold-start failure, OOM, or DLQ exhaustion without the cleanup path running).
+    // The updatedAt filter excludes jobs the worker recently /requeue'd: those are
+    // intentionally kept enqueued so CF Queue's own retry can redeliver, and
+    // republishing here would double-deliver. Anything silent for orphanCutoff is
+    // past every plausible CF retry cycle.
+    const orphanedRequeued = await prisma.gradingJob.updateMany({
+        where: {
+            status: GradingJobStatus.QUEUED,
+            leaseId: null,
+            startedAt: null,
+            enqueuedAt: { lt: orphanCutoff },
+            updatedAt: { lt: orphanCutoff }
+        },
+        data: {
+            enqueuedAt: null,
+            dispatchError: 'Requeued by dispatch loop: queued message orphaned',
+            lastErrorAt: new Date()
+        }
+    });
+
+    if (orphanedRequeued.count > 0) {
+        captureGradingPipelineEvent('dispatch_loop_orphaned_queued_requeued', 'dispatch-loop', {
+            count: orphanedRequeued.count,
+            dispatchOrphanMs: config.grading.dispatchOrphanMs
         });
     }
 
