@@ -28,33 +28,37 @@ async function main() {
   const prisma = new PrismaClient();
   const hash = await bcrypt.hash(PASSWORD, 10);
 
+  // Reset isArchived on every fixture — `POST /api/classes/:id/archive`
+  // cascades to students, and the matching unarchive does NOT cascade back,
+  // so re-running this script is the canonical way to recover from "where
+  // did my student go?" after archive testing.
   await prisma.school.upsert({
     where: { id: IDS.school },
-    update: { name: 'Staging School' },
+    update: { name: 'Staging School', isArchived: false },
     create: { id: IDS.school, name: 'Staging School' },
   });
 
   await prisma.user.upsert({
     where: { id: IDS.superadmin },
-    update: { username: 'staging_superadmin', name: 'Staging Superadmin', role: 'SUPERADMIN', password: hash },
+    update: { username: 'staging_superadmin', name: 'Staging Superadmin', role: 'SUPERADMIN', password: hash, isArchived: false },
     create: { id: IDS.superadmin, username: 'staging_superadmin', name: 'Staging Superadmin', role: 'SUPERADMIN', password: hash },
   });
 
   await prisma.user.upsert({
     where: { id: IDS.teacher },
-    update: { username: 'staging_teacher', name: 'Staging Teacher', role: 'TEACHER', password: hash },
+    update: { username: 'staging_teacher', name: 'Staging Teacher', role: 'TEACHER', password: hash, isArchived: false },
     create: { id: IDS.teacher, username: 'staging_teacher', name: 'Staging Teacher', role: 'TEACHER', password: hash },
   });
 
   await prisma.user.upsert({
     where: { id: IDS.student },
-    update: { username: 'staging_student', name: 'Staging Student', role: 'STUDENT', password: hash, tokenNumber: 'STAGING-001' },
+    update: { username: 'staging_student', name: 'Staging Student', role: 'STUDENT', password: hash, tokenNumber: 'STAGING-001', isArchived: false },
     create: { id: IDS.student, username: 'staging_student', name: 'Staging Student', role: 'STUDENT', password: hash, tokenNumber: 'STAGING-001' },
   });
 
   await prisma.class.upsert({
     where: { id: IDS.class },
-    update: { name: 'Staging Class', schoolId: IDS.school },
+    update: { name: 'Staging Class', schoolId: IDS.school, isArchived: false },
     create: { id: IDS.class, name: 'Staging Class', schoolId: IDS.school },
   });
 
