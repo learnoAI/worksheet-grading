@@ -44,6 +44,10 @@ export function corsMiddleware(): MiddlewareHandler<AppBindings> {
       // Mirrors Express's `allowedHeaders: ['*']` — accept anything the
       // browser sends. Required for headers like `Cache-Control` / `Pragma`
       // that the web-app uses for cache-busting on auth requests.
+      // Web-app's fetchAPI helper sets the no-cache trifecta (Cache-Control,
+      // Pragma, Expires) on every request, so all three must be on the
+      // allowlist. Express used `allowedHeaders: ['*']`; we cannot use a
+      // literal '*' here because credentials:true forces an explicit list.
       allowHeaders: [
         'Content-Type',
         'Authorization',
@@ -56,6 +60,7 @@ export function corsMiddleware(): MiddlewareHandler<AppBindings> {
         'Content-Language',
         'Cache-Control',
         'Pragma',
+        'Expires',
         'If-Modified-Since',
         'If-None-Match',
         'Range',
