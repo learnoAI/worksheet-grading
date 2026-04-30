@@ -257,3 +257,151 @@ describe('GET /api/analytics/schools/:schoolId/classes', () => {
     );
   });
 });
+
+describe('POST /api/analytics/students/:studentId/classes/:classId', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function prismaWith(overrides: Record<string, unknown> = {}) {
+    return {
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 'st1' }) },
+      class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1', schoolId: 'sch1' }) },
+      studentClass: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ studentId: 'st1', classId: 'c1', createdAt: new Date() }),
+      },
+      studentSchool: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({}),
+      },
+      ...overrides,
+    };
+  }
+
+  async function postAs(app: Hono<AppBindings>, role = 'SUPERADMIN') {
+    const token = await tokenAs(role);
+    return app.request(
+      '/api/analytics/students/st1/classes/c1',
+      { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+  }
+
+  it('returns 401 without a token', async () => {
+    const app = mountApp(prismaWith());
+    const res = await app.request(
+      '/api/analytics/students/st1/classes/c1',
+      { method: 'POST' },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 for non-SUPERADMIN', async () => {
+    const app = mountApp(prismaWith());
+    const res = await postAs(app, 'TEACHER');
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 404 when student not found', async () => {
+    const app = mountApp(prismaWith({ user: { findUnique: vi.fn().mockResolvedValue(null) } }));
+    const res = await postAs(app);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/Student not found/);
+  });
+
+  it('returns 404 when class not found', async () => {
+    const app = mountApp(prismaWith({ class: { findUnique: vi.fn().mockResolvedValue(null) } }));
+    const res = await postAs(app);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/Class not found/);
+  });
+
+  it('returns 400 when student is already in the class', async () => {
+    const prisma = prismaWith({
+      studentClass: {
+        findUnique: vi.fn().mockResolvedValue({ studentId: 'st1', classId: 'c1' }),
+        create: vi.fn(),
+      },
+    });
+    const app = mountApp(prisma);
+    const res = await postAs(app);
+    expect(res.status).toBe(400);
+    expect(prisma.studentClass.create).not.toHaveBeenCalled();
+  });
+
+  it('creates StudentClass and StudentSchool when both are missing', async () => {
+    const prisma = prismaWith();
+    const app = mountApp(prisma);
+    const res = await postAs(app);
+    expect(res.status).toBe(201);
+    expect(prisma.studentClass.create).toHaveBeenCalledWith({ data: { studentId: 'st1', classId: 'c1' } });
+    expect(prisma.studentSchool.create).toHaveBeenCalledWith({ data: { studentId: 'st1', schoolId: 'sch1' } });
+  });
+
+  it('skips StudentSchool creation when student is already in the school', async () => {
+    const prisma = prismaWith({
+      studentSchool: {
+        findUnique: vi.fn().mockResolvedValue({ studentId: 'st1', schoolId: 'sch1' }),
+        create: vi.fn(),
+      },
+    });
+    const app = mountApp(prisma);
+    const res = await postAs(app);
+    expect(res.status).toBe(201);
+    expect(prisma.studentSchool.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /api/analytics/students/:studentId/classes/:classId', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  async function delAs(prisma: unknown, role = 'SUPERADMIN') {
+    const app = mountApp(prisma);
+    const token = await tokenAs(role);
+    return app.request(
+      '/api/analytics/students/st1/classes/c1',
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+  }
+
+  it('returns 401 without a token', async () => {
+    const app = mountApp({ studentClass: { findUnique: vi.fn(), delete: vi.fn() } });
+    const res = await app.request(
+      '/api/analytics/students/st1/classes/c1',
+      { method: 'DELETE' },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 for non-SUPERADMIN', async () => {
+    const res = await delAs({ studentClass: { findUnique: vi.fn(), delete: vi.fn() } }, 'TEACHER');
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 404 when StudentClass does not exist', async () => {
+    const prisma = {
+      studentClass: { findUnique: vi.fn().mockResolvedValue(null), delete: vi.fn() },
+    };
+    const res = await delAs(prisma);
+    expect(res.status).toBe(404);
+    expect(prisma.studentClass.delete).not.toHaveBeenCalled();
+  });
+
+  it('deletes the link and returns 200 on success', async () => {
+    const prisma = {
+      studentClass: {
+        findUnique: vi.fn().mockResolvedValue({ studentId: 'st1', classId: 'c1' }),
+        delete: vi.fn().mockResolvedValue({}),
+      },
+    };
+    const res = await delAs(prisma);
+    expect(res.status).toBe(200);
+    expect(prisma.studentClass.delete).toHaveBeenCalledWith({
+      where: { studentId_classId: { studentId: 'st1', classId: 'c1' } },
+    });
+  });
+});

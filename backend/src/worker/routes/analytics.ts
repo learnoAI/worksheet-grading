@@ -7,11 +7,13 @@ import type { AppBindings } from '../types';
  * Analytics routes — full port of `backend/src/routes/analyticsRoutes.ts`.
  *
  * All endpoints require SUPERADMIN. Includes:
- *   GET /schools                        — school list for filter dropdowns
- *   GET /schools/:schoolId/classes      — class list for a school
- *   GET /overall                        — aggregated grading metrics
- *   GET /students                       — paginated student-level analytics
- *   GET /students/download              — CSV export of student analytics
+ *   GET    /schools                                            — school list for filter dropdowns
+ *   GET    /schools/:schoolId/classes                          — class list for a school
+ *   GET    /overall                                            — aggregated grading metrics
+ *   GET    /students                                           — paginated student-level analytics
+ *   GET    /students/download                                  — CSV export of student analytics
+ *   POST   /students/:studentId/classes/:classId               — assign student to class
+ *   DELETE /students/:studentId/classes/:classId               — remove student from class
  *
  * The Express version had an in-process cache (5-min TTL with `setInterval`
  * cleanup). That cache was **already commented out** in production code, so
@@ -516,6 +518,78 @@ analytics.get('/students', async (c) => {
       { message: 'Server error while retrieving student analytics data' },
       500
     );
+  }
+});
+
+analytics.post('/students/:studentId/classes/:classId', async (c) => {
+  const prisma = c.get('prisma');
+  if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+  const studentId = c.req.param('studentId');
+  const classId = c.req.param('classId');
+
+  try {
+    const student = await prisma.user.findUnique({
+      where: { id: studentId, role: 'STUDENT' },
+    });
+    if (!student) {
+      return c.json({ message: 'Student not found' }, 404);
+    }
+
+    const classEntity = await prisma.class.findUnique({ where: { id: classId } });
+    if (!classEntity) {
+      return c.json({ message: 'Class not found' }, 404);
+    }
+
+    const existing = await prisma.studentClass.findUnique({
+      where: { studentId_classId: { studentId, classId } },
+    });
+    if (existing) {
+      return c.json({ message: 'Student is already in this class' }, 400);
+    }
+
+    const newStudentClass = await prisma.studentClass.create({
+      data: { studentId, classId },
+    });
+
+    const schoolId = classEntity.schoolId;
+    const existingStudentSchool = await prisma.studentSchool.findUnique({
+      where: { studentId_schoolId: { studentId, schoolId } },
+    });
+    if (!existingStudentSchool) {
+      await prisma.studentSchool.create({ data: { studentId, schoolId } });
+    }
+
+    return c.json(newStudentClass, 201);
+  } catch (error) {
+    console.error('Error adding student to class:', error);
+    return c.json({ message: 'Server error while adding student to class' }, 500);
+  }
+});
+
+analytics.delete('/students/:studentId/classes/:classId', async (c) => {
+  const prisma = c.get('prisma');
+  if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+  const studentId = c.req.param('studentId');
+  const classId = c.req.param('classId');
+
+  try {
+    const studentClass = await prisma.studentClass.findUnique({
+      where: { studentId_classId: { studentId, classId } },
+    });
+    if (!studentClass) {
+      return c.json({ message: 'Student is not in this class' }, 404);
+    }
+
+    await prisma.studentClass.delete({
+      where: { studentId_classId: { studentId, classId } },
+    });
+
+    return c.json({ message: 'Student removed from class successfully' }, 200);
+  } catch (error) {
+    console.error('Error removing student from class:', error);
+    return c.json({ message: 'Server error while removing student from class' }, 500);
   }
 });
 
