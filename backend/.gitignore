@@ -9,3 +9,6 @@ dist-worker
 
 # Wrangler / Cloudflare Workers
 .wrangler
+
+# Staging seed output (contains throwaway credentials)
+prisma/seed-staging.out.json
