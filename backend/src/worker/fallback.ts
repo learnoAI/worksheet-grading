@@ -4,11 +4,13 @@ import type { AppBindings } from './types';
 /**
  * Proxy-to-Express fallback.
  *
- * Phase 5.11 ported ~75 endpoints to Hono; ~20 remain on Express (see C9
- * in the migration plan — complex worksheet uploads, grading-worker
- * internal routes, heavy analytics, etc.). This middleware is mounted
- * *last* so it only runs when Hono has no matching route: it forwards the
- * original request to the Express service and streams the response back.
+ * All Express routes have been ported to Hono — this fallback exists as a
+ * safety net for any path the worker does not match (typically a typo or a
+ * route added on the Express side after the Hono port). With the catch-all
+ * Hono routes in place, this middleware is mounted *last* and forwards the
+ * original request to the Express service when configured. In a fully
+ * cut-over environment, `EXPRESS_FALLBACK_URL` can be left unset and any
+ * unmatched request will return a clear 404.
  *
  * Config:
  *   - `EXPRESS_FALLBACK_URL` (required) — e.g.
@@ -64,7 +66,7 @@ export function expressFallback(options: {
       return c.json(
         {
           error:
-            'EXPRESS_FALLBACK_URL is not configured. Deferred Phase 5.13 routes cannot be proxied.',
+            'EXPRESS_FALLBACK_URL is not configured. No matching route on the worker.',
         },
         404
       );
