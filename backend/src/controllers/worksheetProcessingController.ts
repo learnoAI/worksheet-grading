@@ -641,7 +641,60 @@ export const createDirectUploadSession = async (req: Request, res: Response) => 
 
         await assertDirectUploadAccess(req, classId, items.map((item) => item.studentId));
 
+        // Stale prior batches for this teacher/class/date are abandoned uploads
+        // — typically duplicates from a shared login or a tab the user closed
+        // mid-flight. Mark their PENDING items FAILED so the new session has a
+        // clean slate; QUEUED items are real worksheets in the AI pipeline and
+        // are left alone. Threshold avoids interfering with a slow upload that
+        // is still genuinely in-flight from another tab.
+        let supersededBatchCount = 0;
+        let supersededItemCount = 0;
+
         const created = await prisma.$transaction(async (tx) => {
+            const staleCutoff = new Date(Date.now() - config.grading.staleUploadBatchMs);
+            const staleBatches = await tx.worksheetUploadBatch.findMany({
+                where: {
+                    teacherId,
+                    classId,
+                    submittedOn,
+                    status: WorksheetUploadBatchStatus.UPLOADING,
+                    updatedAt: { lt: staleCutoff }
+                },
+                select: { id: true }
+            });
+
+            for (const stale of staleBatches) {
+                const supersededItems = await tx.worksheetUploadItem.updateMany({
+                    where: {
+                        batchId: stale.id,
+                        status: WorksheetUploadItemStatus.PENDING
+                    },
+                    data: {
+                        status: WorksheetUploadItemStatus.FAILED,
+                        errorMessage: 'Superseded by new upload session'
+                    }
+                });
+                supersededItemCount += supersededItems.count;
+
+                const remainingPending = await tx.worksheetUploadItem.count({
+                    where: {
+                        batchId: stale.id,
+                        status: WorksheetUploadItemStatus.PENDING
+                    }
+                });
+
+                if (remainingPending === 0) {
+                    await tx.worksheetUploadBatch.update({
+                        where: { id: stale.id },
+                        data: {
+                            status: WorksheetUploadBatchStatus.FINALIZED,
+                            finalizedAt: new Date()
+                        }
+                    });
+                    supersededBatchCount += 1;
+                }
+            }
+
             const batch = await tx.worksheetUploadBatch.create({
                 data: {
                     classId,
@@ -735,6 +788,17 @@ export const createDirectUploadSession = async (req: Request, res: Response) => 
             worksheetsCount: items.length,
             filesCount: items.reduce((total, item) => total + item.files.length, 0)
         });
+
+        if (supersededItemCount > 0 || supersededBatchCount > 0) {
+            captureGradingPipelineEvent('direct_upload_session_superseded_prior', created.id, {
+                batchId: created.id,
+                classId,
+                teacherId,
+                supersededBatchCount,
+                supersededItemCount,
+                staleUploadBatchMs: config.grading.staleUploadBatchMs
+            });
+        }
 
         // serializeUploadBatch → toUploadFileResponse → getPresignedUrl can throw
         // synchronously if the R2 signing layer fails (missing/invalid creds,

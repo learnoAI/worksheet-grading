@@ -100,6 +100,11 @@ export default {
         // without the worker handler running its cleanup path). Must be longer than
         // the worst-case CF Queue retry cycle (max_retries × max retry-after delay).
         dispatchOrphanMs: parseNumber(process.env.GRADING_DISPATCH_ORPHAN_MS, 1800000),
+        // Older UPLOADING batches with PENDING items are treated as abandoned
+        // when a new upload session is created for the same teacher/class/date.
+        // Long enough to outlast a slow real upload, short enough to clear
+        // shared-login duplicates on the next try.
+        staleUploadBatchMs: parseNumber(process.env.GRADING_STALE_UPLOAD_BATCH_MS, 300000),
         dispatchLoopIntervalMs: parseNumber(process.env.GRADING_DISPATCH_LOOP_INTERVAL_MS, 5000),
         dispatchLoopOnWeb: parseBoolean(process.env.GRADING_DISPATCH_LOOP_ON_WEB, true)
     }
