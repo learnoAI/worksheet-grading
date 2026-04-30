@@ -250,3 +250,145 @@ describe('GET /api/mastery/student/:studentId/recommendations', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('POST /api/mastery/backfill', () => {
+  function buildPrisma(overrides: Record<string, unknown> = {}) {
+    return {
+      worksheetSkillMap: { findMany: vi.fn().mockResolvedValue([]) },
+      worksheet: { findMany: vi.fn().mockResolvedValue([]) },
+      skillPracticeLog: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        createMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      studentSkillMastery: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        createMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 401 without a token', async () => {
+    const app = mountApp(buildPrisma());
+    const res = await app.request(
+      '/api/mastery/backfill',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 for non-SUPERADMIN', async () => {
+    const app = mountApp(buildPrisma());
+    const token = await tokenAs('TEACHER');
+    const res = await app.request(
+      '/api/mastery/backfill',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('returns zero stats and skips DB writes when no skill mappings exist', async () => {
+    const prisma = buildPrisma();
+    const app = mountApp(prisma);
+    const token = await tokenAs('SUPERADMIN');
+    const res = await app.request(
+      '/api/mastery/backfill',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { processed: number; created: number; dryRun: boolean } };
+    expect(body.data).toMatchObject({ processed: 0, created: 0, dryRun: false });
+    expect(prisma.studentSkillMastery.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.studentSkillMastery.createMany).not.toHaveBeenCalled();
+  });
+
+  it('honors dryRun by not deleting or creating data', async () => {
+    const prisma = buildPrisma({
+      worksheetSkillMap: {
+        findMany: vi.fn().mockResolvedValue([
+          { worksheetNumber: 1, mathSkillId: 'sk1', isTest: false },
+        ]),
+      },
+      worksheet: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'w1',
+            studentId: 'st1',
+            worksheetNumber: 1,
+            grade: 30,
+            outOf: 40,
+            submittedOn: new Date('2026-04-01T00:00:00Z'),
+          },
+        ]),
+      },
+    });
+    const app = mountApp(prisma);
+    const token = await tokenAs('SUPERADMIN');
+    const res = await app.request(
+      '/api/mastery/backfill',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: true }),
+      },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { processed: number; created: number; dryRun: boolean } };
+    expect(body.data).toMatchObject({ processed: 1, created: 1, dryRun: true });
+    expect(prisma.studentSkillMastery.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.studentSkillMastery.createMany).not.toHaveBeenCalled();
+  });
+
+  it('writes mastery rows and practice logs on a non-dry run', async () => {
+    const prisma = buildPrisma({
+      worksheetSkillMap: {
+        findMany: vi.fn().mockResolvedValue([
+          { worksheetNumber: 1, mathSkillId: 'sk1', isTest: false },
+        ]),
+      },
+      worksheet: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'w1',
+            studentId: 'st1',
+            worksheetNumber: 1,
+            grade: 30,
+            outOf: 40,
+            submittedOn: new Date('2026-04-01T00:00:00Z'),
+          },
+        ]),
+      },
+    });
+    const app = mountApp(prisma);
+    const token = await tokenAs('SUPERADMIN');
+    const res = await app.request(
+      '/api/mastery/backfill',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentIds: ['st1'] }),
+      },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(200);
+    expect(prisma.studentSkillMastery.deleteMany).toHaveBeenCalledWith({
+      where: { studentId: { in: ['st1'] } },
+    });
+    expect(prisma.studentSkillMastery.createMany).toHaveBeenCalledTimes(1);
+    expect(prisma.skillPracticeLog.createMany).toHaveBeenCalledTimes(1);
+  });
+});

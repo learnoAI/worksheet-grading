@@ -253,3 +253,200 @@ export async function updateMasteryForWorksheet(
     }),
   ]);
 }
+
+// ── Backfill ──────────────────────────────────────────────────────────────
+
+export interface BackfillStats {
+  processed: number;
+  skipped: number;
+  created: number;
+  errors: number;
+}
+
+interface InMemoryMastery {
+  studentId: string;
+  mathSkillId: string;
+  masteryLevel: MasteryLevel;
+  stability: number;
+  difficulty: number;
+  lastPracticeAt: Date;
+  lastScore: number;
+  practiceCount: number;
+  testCount: number;
+}
+
+interface InMemoryLog {
+  studentId: string;
+  mathSkillId: string;
+  worksheetId: string;
+  worksheetNumber: number;
+  isTest: boolean;
+  score: number;
+  rawGrade: number;
+  rawOutOf: number;
+  previousLevel: MasteryLevel;
+  newLevel: MasteryLevel;
+  stabilityAfter: number;
+  difficultyAfter: number;
+  practicedAt: Date;
+}
+
+/**
+ * Recomputes `StudentSkillMastery` and `SkillPracticeLog` from scratch by
+ * replaying every graded worksheet through the same FSRS state machine
+ * `updateMasteryForWorksheet` uses. Mirrors the Express `backfillMasteryData`
+ * 1:1 so output is byte-identical.
+ *
+ * Worker caveat: this loads all matching worksheets into memory at once.
+ * On the 128 MB Worker isolate that's fine for staging-sized data and for
+ * scoped backfills (a list of `studentIds`), but a full-table backfill on
+ * production-scale data may hit the limit. If that ever happens, switch to a
+ * batched/cursor-paginated load — the per-student state is independent so
+ * we can shard by `studentId` easily.
+ */
+export async function backfillMasteryData(
+  prisma: PrismaClient,
+  studentIds?: string[],
+  dryRun = false
+): Promise<BackfillStats> {
+  const stats: BackfillStats = { processed: 0, skipped: 0, created: 0, errors: 0 };
+
+  const skillMaps = await prisma.worksheetSkillMap.findMany();
+  const skillMapByNumber = new Map(skillMaps.map((m) => [m.worksheetNumber, m]));
+
+  if (skillMapByNumber.size === 0) {
+    return stats;
+  }
+
+  const worksheetWhere = {
+    isAbsent: false,
+    worksheetNumber: { gt: 0 },
+    grade: { not: null },
+    studentId: { not: null },
+    ...(studentIds ? { studentId: { in: studentIds } } : {}),
+  };
+
+  const worksheets = await prisma.worksheet.findMany({
+    where: worksheetWhere,
+    orderBy: [{ studentId: 'asc' }, { submittedOn: 'asc' }],
+    select: {
+      id: true,
+      studentId: true,
+      worksheetNumber: true,
+      grade: true,
+      outOf: true,
+      submittedOn: true,
+    },
+  });
+
+  const masteryMap = new Map<string, InMemoryMastery>();
+  const logs: InMemoryLog[] = [];
+
+  for (const ws of worksheets) {
+    if (!ws.studentId || ws.grade === null || !ws.submittedOn) {
+      stats.skipped++;
+      continue;
+    }
+    const skillMap = skillMapByNumber.get(ws.worksheetNumber);
+    if (!skillMap) {
+      stats.skipped++;
+      continue;
+    }
+    stats.processed++;
+
+    const { mathSkillId, isTest } = skillMap;
+    const outOf = ws.outOf ?? 40;
+    const score = Math.max(0, Math.min(1, ws.grade / outOf));
+    const practicedAt = new Date(ws.submittedOn);
+    const key = `${ws.studentId}:${mathSkillId}`;
+
+    const existing = masteryMap.get(key);
+    const previousLevel = existing?.masteryLevel ?? MasteryLevel.NOT_STARTED;
+    const currentStability = existing?.stability ?? 1.0;
+    const currentDifficulty = existing?.difficulty ?? 5.0;
+
+    const newLevel = computeNewLevel(previousLevel, score, isTest);
+    const newDifficulty = updateDifficulty(currentDifficulty, score);
+    const newStability = updateStability(currentStability, score, newDifficulty);
+
+    const practiceCount = (existing?.practiceCount ?? 0) + 1;
+    const testCount = (existing?.testCount ?? 0) + (isTest ? 1 : 0);
+
+    masteryMap.set(key, {
+      studentId: ws.studentId,
+      mathSkillId,
+      masteryLevel: newLevel,
+      stability: newStability,
+      difficulty: newDifficulty,
+      lastPracticeAt: practicedAt,
+      lastScore: score,
+      practiceCount,
+      testCount,
+    });
+
+    logs.push({
+      studentId: ws.studentId,
+      mathSkillId,
+      worksheetId: ws.id,
+      worksheetNumber: ws.worksheetNumber,
+      isTest,
+      score,
+      rawGrade: ws.grade,
+      rawOutOf: outOf,
+      previousLevel,
+      newLevel,
+      stabilityAfter: newStability,
+      difficultyAfter: newDifficulty,
+      practicedAt,
+    });
+
+    stats.created++;
+  }
+
+  if (dryRun) return stats;
+
+  const scopeWhere = studentIds ? { studentId: { in: studentIds } } : {};
+  await prisma.skillPracticeLog.deleteMany({ where: scopeWhere });
+  await prisma.studentSkillMastery.deleteMany({ where: scopeWhere });
+
+  const masteryRows = Array.from(masteryMap.values());
+  const MASTERY_BATCH = 500;
+  for (let i = 0; i < masteryRows.length; i += MASTERY_BATCH) {
+    await prisma.studentSkillMastery.createMany({
+      data: masteryRows.slice(i, i + MASTERY_BATCH).map((r) => ({
+        studentId: r.studentId,
+        mathSkillId: r.mathSkillId,
+        masteryLevel: r.masteryLevel,
+        stability: r.stability,
+        difficulty: r.difficulty,
+        lastPracticeAt: r.lastPracticeAt,
+        lastScore: r.lastScore,
+        practiceCount: r.practiceCount,
+        testCount: r.testCount,
+      })),
+    });
+  }
+
+  const LOG_BATCH = 1000;
+  for (let i = 0; i < logs.length; i += LOG_BATCH) {
+    await prisma.skillPracticeLog.createMany({
+      data: logs.slice(i, i + LOG_BATCH).map((l) => ({
+        studentId: l.studentId,
+        mathSkillId: l.mathSkillId,
+        worksheetId: l.worksheetId,
+        worksheetNumber: l.worksheetNumber,
+        isTest: l.isTest,
+        score: l.score,
+        rawGrade: l.rawGrade,
+        rawOutOf: l.rawOutOf,
+        previousLevel: l.previousLevel,
+        newLevel: l.newLevel,
+        stabilityAfter: l.stabilityAfter,
+        difficultyAfter: l.difficultyAfter,
+        practicedAt: l.practicedAt,
+      })),
+    });
+  }
+
+  return stats;
+}

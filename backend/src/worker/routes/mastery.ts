@@ -1,24 +1,59 @@
 import { Hono } from 'hono';
 import { MasteryLevel, UserRole } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
-import { computeRecommendations } from '../adapters/mastery';
+import { computeRecommendations, backfillMasteryData } from '../adapters/mastery';
 import type { AppBindings } from '../types';
 
 /**
- * Mastery routes — port of `backend/src/routes/masteryRoutes.ts` (read-only).
+ * Mastery routes — port of `backend/src/routes/masteryRoutes.ts`.
  *
  * Mounted under `/api/mastery`. Covers:
- *   GET /student/:studentId                  — full skill mastery list
- *   GET /student/:studentId/by-topic         — rolled up by main topic
- *   GET /student/:studentId/recommendations  — FSRS-ranked review list
- *   GET /class/:classId                      — student × skill matrix
- *
- * `POST /backfill` (SUPERADMIN) is still on the Express side — it's a
- * one-shot admin job that doesn't need to move to the worker.
+ *   GET  /student/:studentId                  — full skill mastery list
+ *   GET  /student/:studentId/by-topic         — rolled up by main topic
+ *   GET  /student/:studentId/recommendations  — FSRS-ranked review list
+ *   GET  /class/:classId                      — student × skill matrix
+ *   POST /backfill                            — recompute mastery for a
+ *                                                scoped or full list of
+ *                                                students (SUPERADMIN only)
  */
 const mastery = new Hono<AppBindings>();
 
 mastery.use('*', authenticate);
+
+mastery.post('/backfill', authorize([UserRole.SUPERADMIN]), async (c) => {
+  const prisma = c.get('prisma');
+  if (!prisma) return c.json({ message: 'Database is not available' }, 500);
+
+  let body: { studentIds?: unknown; dryRun?: unknown } = {};
+  try {
+    body = (await c.req.json()) ?? {};
+  } catch {
+    // Empty/invalid body is allowed — the Express version treats it the same.
+  }
+
+  const studentIds = Array.isArray(body.studentIds)
+    ? body.studentIds.filter((s): s is string => typeof s === 'string')
+    : undefined;
+  const dryRun = body.dryRun === true;
+
+  try {
+    const stats = await backfillMasteryData(prisma, studentIds, dryRun);
+    return c.json(
+      {
+        success: true,
+        data: {
+          dryRun,
+          ...stats,
+        },
+      },
+      200
+    );
+  } catch (error) {
+    console.error('Mastery backfill error:', error);
+    return c.json({ message: 'Server error while backfilling mastery' }, 500);
+  }
+});
+
 mastery.use('*', authorize([UserRole.TEACHER, UserRole.ADMIN, UserRole.SUPERADMIN]));
 
 const LEVEL_SCORES: Record<MasteryLevel, number> = {
