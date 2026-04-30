@@ -2054,9 +2054,11 @@ export default function UploadWorksheetPage() {
             if (isAbsent) {
                 // Student is marked as absent - always save this state
                 shouldSave = true;
-            } else if (isValidWorksheetNumber) {
-                // For non-absent students, only require worksheet number (grade is optional)
+            } else if (isValidWorksheetNumber && isValidGrade) {
                 shouldSave = true;
+            } else if (isValidWorksheetNumber && !isValidGrade) {
+                toast.warning(`${currentStudentData.name} needs a grade entered or to be marked absent before saving.`);
+                return;
             } else if (!isValidWorksheetNumber && !isValidGrade) {
                 if (currentStudentData.id && currentStudentData.existing) {
                     // Delete existing record if both fields are cleared
