@@ -41,6 +41,9 @@ export function corsMiddleware(): MiddlewareHandler<AppBindings> {
       origin: allowlist === '*' ? (origin) => origin ?? '*' : allowlist,
       credentials: true,
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+      // Mirrors Express's `allowedHeaders: ['*']` — accept anything the
+      // browser sends. Required for headers like `Cache-Control` / `Pragma`
+      // that the web-app uses for cache-busting on auth requests.
       allowHeaders: [
         'Content-Type',
         'Authorization',
@@ -51,6 +54,11 @@ export function corsMiddleware(): MiddlewareHandler<AppBindings> {
         'Accept',
         'Accept-Language',
         'Content-Language',
+        'Cache-Control',
+        'Pragma',
+        'If-Modified-Since',
+        'If-None-Match',
+        'Range',
       ],
     });
 
