@@ -266,11 +266,9 @@ describe('POST /api/analytics/students/:studentId/classes/:classId', () => {
       user: { findUnique: vi.fn().mockResolvedValue({ id: 'st1' }) },
       class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1', schoolId: 'sch1' }) },
       studentClass: {
-        findUnique: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ studentId: 'st1', classId: 'c1', createdAt: new Date() }),
       },
       studentSchool: {
-        findUnique: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({}),
       },
       ...overrides,
@@ -318,17 +316,15 @@ describe('POST /api/analytics/students/:studentId/classes/:classId', () => {
     expect(body.message).toMatch(/Class not found/);
   });
 
-  it('returns 400 when student is already in the class', async () => {
+  it('returns 400 when StudentClass create hits a unique constraint (already in class)', async () => {
     const prisma = prismaWith({
       studentClass: {
-        findUnique: vi.fn().mockResolvedValue({ studentId: 'st1', classId: 'c1' }),
-        create: vi.fn(),
+        create: vi.fn().mockRejectedValue({ code: 'P2002', message: 'unique constraint' }),
       },
     });
     const app = mountApp(prisma);
     const res = await postAs(app);
     expect(res.status).toBe(400);
-    expect(prisma.studentClass.create).not.toHaveBeenCalled();
   });
 
   it('creates StudentClass and StudentSchool when both are missing', async () => {
@@ -340,17 +336,16 @@ describe('POST /api/analytics/students/:studentId/classes/:classId', () => {
     expect(prisma.studentSchool.create).toHaveBeenCalledWith({ data: { studentId: 'st1', schoolId: 'sch1' } });
   });
 
-  it('skips StudentSchool creation when student is already in the school', async () => {
+  it('swallows P2002 from the StudentSchool create when student is already in the school', async () => {
     const prisma = prismaWith({
       studentSchool: {
-        findUnique: vi.fn().mockResolvedValue({ studentId: 'st1', schoolId: 'sch1' }),
-        create: vi.fn(),
+        create: vi.fn().mockRejectedValue({ code: 'P2002', message: 'unique constraint' }),
       },
     });
     const app = mountApp(prisma);
     const res = await postAs(app);
     expect(res.status).toBe(201);
-    expect(prisma.studentSchool.create).not.toHaveBeenCalled();
+    expect(prisma.studentSchool.create).toHaveBeenCalledWith({ data: { studentId: 'st1', schoolId: 'sch1' } });
   });
 });
 
@@ -368,7 +363,7 @@ describe('DELETE /api/analytics/students/:studentId/classes/:classId', () => {
   }
 
   it('returns 401 without a token', async () => {
-    const app = mountApp({ studentClass: { findUnique: vi.fn(), delete: vi.fn() } });
+    const app = mountApp({ studentClass: { delete: vi.fn() } });
     const res = await app.request(
       '/api/analytics/students/st1/classes/c1',
       { method: 'DELETE' },
@@ -378,23 +373,23 @@ describe('DELETE /api/analytics/students/:studentId/classes/:classId', () => {
   });
 
   it('returns 403 for non-SUPERADMIN', async () => {
-    const res = await delAs({ studentClass: { findUnique: vi.fn(), delete: vi.fn() } }, 'TEACHER');
+    const res = await delAs({ studentClass: { delete: vi.fn() } }, 'TEACHER');
     expect(res.status).toBe(403);
   });
 
-  it('returns 404 when StudentClass does not exist', async () => {
+  it('returns 404 when prisma.delete reports P2025 (record not found)', async () => {
     const prisma = {
-      studentClass: { findUnique: vi.fn().mockResolvedValue(null), delete: vi.fn() },
+      studentClass: {
+        delete: vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' }),
+      },
     };
     const res = await delAs(prisma);
     expect(res.status).toBe(404);
-    expect(prisma.studentClass.delete).not.toHaveBeenCalled();
   });
 
   it('deletes the link and returns 200 on success', async () => {
     const prisma = {
       studentClass: {
-        findUnique: vi.fn().mockResolvedValue({ studentId: 'st1', classId: 'c1' }),
         delete: vi.fn().mockResolvedValue({}),
       },
     };

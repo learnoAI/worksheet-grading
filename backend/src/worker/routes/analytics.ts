@@ -541,23 +541,28 @@ analytics.post('/students/:studentId/classes/:classId', async (c) => {
       return c.json({ message: 'Class not found' }, 404);
     }
 
-    const existing = await prisma.studentClass.findUnique({
-      where: { studentId_classId: { studentId, classId } },
-    });
-    if (existing) {
-      return c.json({ message: 'Student is already in this class' }, 400);
+    // Attempt the create directly and let the DB's unique constraint surface
+    // the "already in class" case. A pre-check via findUnique is unsafe here
+    // because Hyperdrive's read cache can return stale rows for a few
+    // seconds after a delete, leading to false-positive 400 responses.
+    let newStudentClass;
+    try {
+      newStudentClass = await prisma.studentClass.create({
+        data: { studentId, classId },
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return c.json({ message: 'Student is already in this class' }, 400);
+      }
+      throw error;
     }
 
-    const newStudentClass = await prisma.studentClass.create({
-      data: { studentId, classId },
-    });
-
     const schoolId = classEntity.schoolId;
-    const existingStudentSchool = await prisma.studentSchool.findUnique({
-      where: { studentId_schoolId: { studentId, schoolId } },
-    });
-    if (!existingStudentSchool) {
+    // Same pattern for StudentSchool — try-create, swallow uniqueness conflicts.
+    try {
       await prisma.studentSchool.create({ data: { studentId, schoolId } });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
     }
 
     return c.json(newStudentClass, 201);
@@ -567,6 +572,18 @@ analytics.post('/students/:studentId/classes/:classId', async (c) => {
   }
 });
 
+function isUniqueConstraintError(error: unknown): boolean {
+  // Prisma's known-error code for a unique constraint failure. Matched by
+  // string instead of importing PrismaClientKnownRequestError directly to
+  // avoid pulling the runtime types into the worker bundle.
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: unknown }).code === 'P2002'
+  );
+}
+
 analytics.delete('/students/:studentId/classes/:classId', async (c) => {
   const prisma = c.get('prisma');
   if (!prisma) return c.json({ message: 'Database is not available' }, 500);
@@ -575,22 +592,29 @@ analytics.delete('/students/:studentId/classes/:classId', async (c) => {
   const classId = c.req.param('classId');
 
   try {
-    const studentClass = await prisma.studentClass.findUnique({
-      where: { studentId_classId: { studentId, classId } },
-    });
-    if (!studentClass) {
-      return c.json({ message: 'Student is not in this class' }, 404);
-    }
-
+    // Skip the existence check entirely — same Hyperdrive-cache rationale as
+    // the POST handler. Let Prisma's `delete` surface P2025 (record not found)
+    // and translate that into a 404.
     await prisma.studentClass.delete({
       where: { studentId_classId: { studentId, classId } },
     });
-
     return c.json({ message: 'Student removed from class successfully' }, 200);
   } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return c.json({ message: 'Student is not in this class' }, 404);
+    }
     console.error('Error removing student from class:', error);
     return c.json({ message: 'Server error while removing student from class' }, 500);
   }
 });
+
+function isRecordNotFoundError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: unknown }).code === 'P2025'
+  );
+}
 
 export default analytics;
