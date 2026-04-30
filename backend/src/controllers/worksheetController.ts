@@ -9,6 +9,51 @@ import { buildWorksheetRecommendationFromHistory, WorksheetHistoryEntry } from "
 
 interface MulterFile extends Express.Multer.File {}
 
+// A non-absent grade of exactly 0 is only legitimate when something attests to
+// it: AI gradingDetails, an explicit wrong-question list, or the absent flag.
+// Without any of those, the row is almost certainly a default-state save from
+// a card the teacher never actually graded — saving it would silently corrupt
+// the student's record. Reject at the boundary so the client surfaces the
+// problem instead of the row landing in the DB.
+function isUntrustedZeroSave(
+  payload: {
+    isAbsent?: boolean | null;
+    grade?: unknown;
+    gradingDetails?: unknown;
+    wrongQuestionNumbers?: unknown;
+  },
+  existing?: {
+    gradingDetails: unknown;
+    wrongQuestionNumbers: string | null;
+  },
+): boolean {
+  if (payload.isAbsent) return false;
+  const numeric = Number(payload.grade);
+  if (!Number.isFinite(numeric) || numeric !== 0) return false;
+
+  const detailsAfterSave =
+    payload.gradingDetails === undefined
+      ? existing?.gradingDetails
+      : payload.gradingDetails;
+  if (detailsAfterSave !== undefined && detailsAfterSave !== null) return false;
+
+  const wrongAfterSave =
+    payload.wrongQuestionNumbers === undefined
+      ? existing?.wrongQuestionNumbers ?? null
+      : payload.wrongQuestionNumbers;
+  const wrongStr =
+    typeof wrongAfterSave === "string" ? wrongAfterSave.trim() : "";
+  if (wrongStr !== "") return false;
+
+  return true;
+}
+
+const EMPTY_GRADE_REJECTION = {
+  code: "EMPTY_GRADE_REJECTED",
+  message:
+    "Cannot save grade of 0 without AI grading details or wrong-question evidence. Mark the student absent if they did not submit, or enter the grade manually.",
+} as const;
+
 function getEffectiveWorksheetNumber(
   worksheetNumber: number | null | undefined,
   templateWorksheetNumber: number | null | undefined,
@@ -497,6 +542,10 @@ export const createGradedWorksheet = async (req: Request, res: Response) => {
       });
     }
 
+    if (isUntrustedZeroSave(req.body)) {
+      return res.status(400).json(EMPTY_GRADE_REJECTION);
+    }
+
     // Find the template by worksheet number for non-absent students
     const template = await prisma.worksheetTemplate.findFirst({
       where: {
@@ -737,6 +786,15 @@ export const updateGradedWorksheet = async (req: Request, res: Response) => {
         message:
           "Valid grade between 0 and 40 is required for non-absent students",
       });
+    }
+
+    if (
+      isUntrustedZeroSave(req.body, {
+        gradingDetails: existingWorksheet.gradingDetails,
+        wrongQuestionNumbers: existingWorksheet.wrongQuestionNumbers,
+      })
+    ) {
+      return res.status(400).json(EMPTY_GRADE_REJECTION);
     }
 
     // Find the template by worksheet number
@@ -2110,6 +2168,15 @@ export const batchSaveWorksheets = async (req: Request, res: Response) => {
           results.errors.push({
             studentId,
             error: "Invalid grade (must be 0-40)",
+          });
+          continue;
+        }
+
+        if (isUntrustedZeroSave(ws)) {
+          results.failed++;
+          results.errors.push({
+            studentId,
+            error: EMPTY_GRADE_REJECTION.message,
           });
           continue;
         }
