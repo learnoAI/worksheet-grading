@@ -1,34 +1,15 @@
 import type { MiddlewareHandler } from 'hono';
-import type { PrismaClient } from '@prisma/client';
 import { createPrismaClient } from '../db';
 import type { AppBindings, WorkerEnv } from '../types';
 
 /**
- * Per-isolate cache of the Prisma client. A Cloudflare Worker isolate handles
- * many requests; creating a Prisma+pg pool per request would be wasteful, so
- * we lazily initialize once and reuse for the life of the isolate. Each
- * isolate is stateless across deployments — if env changes, a new isolate
- * spins up and this cache starts fresh.
- */
-let cachedClient: PrismaClient | undefined;
-let cachedSignature: string | undefined;
-
-function envSignature(env: WorkerEnv): string {
-  return env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL ?? '';
-}
-
-function getOrCreateClient(env: WorkerEnv): PrismaClient {
-  const sig = envSignature(env);
-  if (cachedClient && cachedSignature === sig) {
-    return cachedClient;
-  }
-  cachedClient = createPrismaClient(env);
-  cachedSignature = sig;
-  return cachedClient;
-}
-
-/**
- * Injects a Prisma client into `c.var.prisma` for downstream handlers.
+ * Injects a fresh Prisma client into `c.var.prisma` for downstream handlers,
+ * and schedules its disposal after the response is sent.
+ *
+ * Why fresh-per-request: see the comment in `../db.ts`. Caching across
+ * requests broke under deployed load because Workers freezes idle isolates
+ * and Hyperdrive silently drops idle TCP sockets, leaving cached pools with
+ * dead connections.
  *
  * Behavior:
  *   - If a prisma client is already on the context (e.g. set by tests), skip.
@@ -39,20 +20,38 @@ function getOrCreateClient(env: WorkerEnv): PrismaClient {
  *     message. Health / readiness endpoints that don't need a DB still work.
  */
 export const withDb: MiddlewareHandler<AppBindings> = async (c, next) => {
+  let createdHere: ReturnType<typeof createPrismaClient> | undefined;
   if (!c.get('prisma')) {
     const env = c.env ?? ({} as WorkerEnv);
     if (env.HYPERDRIVE?.connectionString || env.DATABASE_URL) {
-      c.set('prisma', getOrCreateClient(env));
+      createdHere = createPrismaClient(env);
+      c.set('prisma', createdHere);
     }
   }
-  await next();
+  try {
+    await next();
+  } finally {
+    // Only dispose clients we created here — tests set their own and manage
+    // disposal themselves. `executionCtx.waitUntil` extends the request
+    // lifetime so disconnect can finish after the response is sent without
+    // blocking the user.
+    if (createdHere) {
+      const disconnect = createdHere.$disconnect().catch(() => {});
+      // `c.executionCtx` throws when no Workers ctx is bound (e.g. in unit
+      // tests via `app.request()`), so try/catch instead of a truthy check.
+      let scheduled = false;
+      try {
+        const ctx = c.executionCtx;
+        if (ctx && typeof ctx.waitUntil === 'function') {
+          ctx.waitUntil(disconnect);
+          scheduled = true;
+        }
+      } catch {
+        // No execution context — fall through to await.
+      }
+      if (!scheduled) {
+        await disconnect;
+      }
+    }
+  }
 };
-
-/**
- * Test helper — resets the isolate-level Prisma cache. Only used by unit
- * tests that rely on module-level mocks of `createPrismaClient`.
- */
-export function __resetDbCacheForTests(): void {
-  cachedClient = undefined;
-  cachedSignature = undefined;
-}

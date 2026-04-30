@@ -4,18 +4,26 @@ import type { AppBindings } from '../types';
 
 // Mock createPrismaClient so this test doesn't need the generated client.
 const clientsMade: string[] = [];
+const disconnectCalls: string[] = [];
 vi.mock('../db', () => ({
   createPrismaClient: vi.fn((env: { DATABASE_URL?: string }) => {
-    clientsMade.push(env.DATABASE_URL ?? '');
-    return { __mockClient: true, __createdFrom: env.DATABASE_URL } as unknown;
+    const url = env.DATABASE_URL ?? '';
+    clientsMade.push(url);
+    return {
+      __mockClient: true,
+      __createdFrom: url,
+      $disconnect: vi.fn(async () => {
+        disconnectCalls.push(url);
+      }),
+    } as unknown;
   }),
 }));
 
-import { withDb, __resetDbCacheForTests } from './db';
+import { withDb } from './db';
 
 beforeEach(() => {
   clientsMade.length = 0;
-  __resetDbCacheForTests();
+  disconnectCalls.length = 0;
 });
 
 function buildApp() {
@@ -37,19 +45,29 @@ describe('withDb middleware', () => {
     expect(clientsMade).toEqual(['postgres://x']);
   });
 
-  it('reuses the cached client across requests with the same env', async () => {
+  it('builds a fresh client per request (no caching across requests)', async () => {
     const app = buildApp();
     await app.request('/ping', {}, { DATABASE_URL: 'postgres://x' });
     await app.request('/ping', {}, { DATABASE_URL: 'postgres://x' });
     await app.request('/ping', {}, { DATABASE_URL: 'postgres://x' });
-    expect(clientsMade.length).toBe(1);
+    expect(clientsMade.length).toBe(3);
   });
 
-  it('recreates the client when the env signature changes', async () => {
+  it('disposes the client it created after the request completes', async () => {
     const app = buildApp();
-    await app.request('/ping', {}, { DATABASE_URL: 'postgres://a' });
-    await app.request('/ping', {}, { DATABASE_URL: 'postgres://b' });
-    expect(clientsMade).toEqual(['postgres://a', 'postgres://b']);
+    await app.request('/ping', {}, { DATABASE_URL: 'postgres://x' });
+    expect(disconnectCalls).toEqual(['postgres://x']);
+  });
+
+  it('disposes even when the handler throws', async () => {
+    const app = new Hono<AppBindings>();
+    app.use('*', withDb);
+    app.get('/boom', () => {
+      throw new Error('handler exploded');
+    });
+    app.onError((_err, c) => c.json({ error: 'caught' }, 500));
+    await app.request('/boom', {}, { DATABASE_URL: 'postgres://x' });
+    expect(disconnectCalls).toEqual(['postgres://x']);
   });
 
   it('is a no-op when a prisma client is already set on the context', async () => {
@@ -64,5 +82,6 @@ describe('withDb middleware', () => {
     const res = await app.request('/ping', {}, { DATABASE_URL: 'postgres://x' });
     expect(await res.json()).toEqual({ __fromTest: true });
     expect(clientsMade).toEqual([]); // factory never called
+    expect(disconnectCalls).toEqual([]); // not ours, don't dispose
   });
 });
