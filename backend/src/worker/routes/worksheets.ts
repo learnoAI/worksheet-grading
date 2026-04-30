@@ -297,6 +297,22 @@ worksheets.get(
         }
       > = {};
 
+      // Pre-seed every student with a default summary so frontends can
+      // index `studentSummaries[studentId]` without checking. Express only
+      // populated entries for students without a worksheet that day, which
+      // surfaced as a runtime crash in the upload page when a graded
+      // worksheet for the day already existed. Below, students without a
+      // same-day worksheet overwrite this default with their real summary.
+      for (const studentId of studentIds) {
+        studentSummaries[studentId] = {
+          lastWorksheetNumber: null,
+          lastGrade: null,
+          completedWorksheetNumbers: [],
+          recommendedWorksheetNumber: 0,
+          isRecommendedRepeated: false,
+        };
+      }
+
       if (studentsWithoutWorksheets.length > 0) {
         const endDateForHistory = new Date(dateStr);
         endDateForHistory.setHours(23, 59, 59, 999);

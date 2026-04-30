@@ -1141,8 +1141,17 @@ describe('GET /api/worksheets/class-date', () => {
     };
     expect(body.studentSummaries.st2.recommendedWorksheetNumber).toBe(5);
     expect(body.studentSummaries.st2.lastWorksheetNumber).toBe(4);
-    // st1 has a worksheet today → not summarized
-    expect(body.studentSummaries.st1).toBeUndefined();
+    // st1 has a worksheet today — gets a default summary so frontends can
+    // index the map without a presence check. The "real" recommendation
+    // is intentionally left at the defaults because today's worksheet
+    // already lives in `worksheetsByStudent[st1]`.
+    expect(body.studentSummaries.st1).toEqual({
+      lastWorksheetNumber: null,
+      lastGrade: null,
+      completedWorksheetNumbers: [],
+      recommendedWorksheetNumber: 0,
+      isRecommendedRepeated: false,
+    });
   });
 
   it('falls back to prior-class history when student has no current-class rows', async () => {
