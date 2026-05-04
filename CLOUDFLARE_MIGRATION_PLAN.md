@@ -660,8 +660,17 @@ the following have been ported to Hono:
 - `POST /api/worksheets/upload` — multipart worksheet image upload into
   R2. Honors the existing 5 MB / 10-file / image-only limits. Skips the
   legacy Bull `enqueueWorksheet` call since `ENABLE_LEGACY_BULL_QUEUE=false`
-  in production — worksheets stay `PENDING` for the dispatch loop to pick
-  up, matching existing Express behavior.
+  in production. **No auto-grading**: worksheets created here stay
+  `PENDING` indefinitely. The Worker cron dispatch loop scans
+  `GradingJob` rows, not `Worksheet` rows, so it never picks them up;
+  Express had the same effective behavior (Bull's mock processor was
+  never wired to real grading). The auto-graded path is
+  `POST /api/worksheet-processing/process`, which creates a `GradingJob`
+  in the same transaction. The web-app uses that path; the mobile-app
+  does not currently call this endpoint either, so the legacy upload
+  route survives only for API compatibility. (Earlier drafts of this
+  doc said worksheets stay PENDING "for the dispatch loop to pick up" —
+  that was inaccurate and has been corrected here.)
 
 **Still pending under C9 (the rest of Phase 5.13):**
 

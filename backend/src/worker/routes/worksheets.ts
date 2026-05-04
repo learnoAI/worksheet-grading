@@ -1344,7 +1344,13 @@ worksheets.post('/upload', requireAuthoringRole, async (c) => {
         id: worksheet.id,
         images,
         status: worksheet.status,
-        message: 'Worksheet uploaded and queued for processing',
+        // Express returned "Worksheet uploaded and queued for processing"
+        // but in practice neither stack auto-grades from here: Express's
+        // Bull enqueue is disabled and the new Hono cron scans GradingJob,
+        // not Worksheet. Drop the misleading "queued for processing" wording
+        // — the `status` field above already reports PENDING accurately.
+        // Verified no caller (web-app, mobile-app) parses this string.
+        message: 'Worksheet uploaded',
       },
       201
     );

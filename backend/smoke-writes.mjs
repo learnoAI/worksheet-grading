@@ -321,7 +321,7 @@ async function main() {
     ['POST   /api/worksheet-generation/generate', 'publishes to PDF queue (prod CF)'],
     ['POST   /api/worksheet-generation/generate-class', 'publishes to question + PDF queues'],
     ['POST   /api/worksheet-processing/process', 'publishes to grading queue'],
-    ['POST   /api/worksheets/upload', 'multipart + queue publish'],
+    ['POST   /api/worksheets/upload', 'multipart upload only — does NOT publish a queue message; matches Express (Bull disabled). Worksheets created here stay PENDING and are not auto-graded. Real grading flow: /api/worksheet-processing/process'],
     ['POST   /api/users/upload-csv', 'multipart CSV; needs FormData parity test'],
     ['POST   /api/classes/.../csv', 'multipart CSV; needs FormData parity test'],
     ['POST   /internal/grading-worker/jobs/:id/*', 'state-machine mutators; need lease orchestration'],
