@@ -11,7 +11,7 @@ vi.mock('../utils/prisma', () => ({
   default: mockPrisma,
 }));
 
-import { acquireGradingJobLease, requeueGradingJobForRetry } from './gradingJobLifecycleService';
+import { acquireGradingJobLease, requeueGradingJobForRetry, resetQueuedJobDispatch } from './gradingJobLifecycleService';
 
 describe('gradingJobLifecycleService', () => {
   beforeEach(() => {
@@ -59,5 +59,28 @@ describe('gradingJobLifecycleService', () => {
 
     // Critical: we must NOT clear enqueuedAt here or the dispatch loop might publish duplicates.
     expect(call.data).not.toHaveProperty('enqueuedAt');
+  });
+
+  it('resetQueuedJobDispatch clears enqueuedAt for stuck queued jobs', async () => {
+    mockPrisma.gradingJob.updateMany.mockResolvedValue({ count: 1 });
+
+    const updated = await resetQueuedJobDispatch('job-4', 'queue delivery exhausted');
+
+    expect(updated).toBe(true);
+    expect(mockPrisma.gradingJob.updateMany).toHaveBeenCalledTimes(1);
+
+    const call = mockPrisma.gradingJob.updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({
+      id: 'job-4',
+      status: GradingJobStatus.QUEUED,
+      leaseId: null,
+    });
+    expect(call.data.enqueuedAt).toBeNull();
+    expect(call.data.dispatchError).toBe('queue delivery exhausted');
+    expect(call.data.lastErrorAt).toBeInstanceOf(Date);
+    expect(call.data.startedAt).toBeNull();
+    expect(call.data.lastHeartbeatAt).toBeNull();
+    expect(call.data.completedAt).toBeNull();
+    expect(call.data.errorMessage).toBeNull();
   });
 });

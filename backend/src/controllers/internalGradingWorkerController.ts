@@ -4,6 +4,7 @@ import config from '../config/env';
 import {
     acquireGradingJobLease,
     markGradingJobFailed,
+    resetQueuedJobDispatch,
     requeueGradingJobForRetry,
     touchGradingJobHeartbeat
 } from '../services/gradingJobLifecycleService';
@@ -284,7 +285,9 @@ export async function complete(req: Request, res: Response): Promise<Response> {
             if (current.status === GradingJobStatus.COMPLETED) {
                 return {
                     worksheetId: current.worksheetId,
-                    action: 'ALREADY_COMPLETED' as const
+                    action: 'ALREADY_COMPLETED' as const,
+                    grade: null as number | null,
+                    outOf: null as number | null
                 };
             }
 
@@ -318,7 +321,9 @@ export async function complete(req: Request, res: Response): Promise<Response> {
 
             return {
                 worksheetId: persistedWorksheet.worksheetId,
-                action: persistedWorksheet.action
+                action: persistedWorksheet.action,
+                grade: persistedWorksheet.grade,
+                outOf: persistedWorksheet.outOf as number | null
             };
         });
 
@@ -340,8 +345,13 @@ export async function complete(req: Request, res: Response): Promise<Response> {
                     worksheetId: persisted.worksheetId,
                     studentId: job.studentId,
                     worksheetNumber: job.worksheetNumber,
-                    grade: gradingResponse.grade ?? 0,
-                    outOf: gradingResponse.total_possible ?? 40,
+                    // Use the persisted grade so mastery reflects an SR's
+                    // manual override rather than the raw AI response when the
+                    // upsert preserved an existing row's grade. The fallback
+                    // covers ALREADY_COMPLETED duplicate deliveries, where the
+                    // transaction skipped persistence and so has no row data.
+                    grade: persisted.grade ?? gradingResponse.grade ?? 0,
+                    outOf: persisted.outOf ?? gradingResponse.total_possible ?? 40,
                     submittedOn: job.submittedOn
                 });
             }
@@ -503,5 +513,49 @@ export async function requeue(req: Request, res: Response): Promise<Response> {
         });
         capturePosthogException(error, { distinctId: jobId, stage: 'worker_requeue_failed', extra: { jobId, leaseId } });
         return res.status(500).json({ success: false, error: 'Failed to requeue job' });
+    }
+}
+
+/**
+ * POST /internal/grading-worker/jobs/:jobId/reset-dispatch
+ * Body: { reason?: string }
+ *
+ * Clears the dispatch marker for a QUEUED job whose Cloudflare queue message
+ * has already been exhausted before lease acquisition, allowing the dispatch
+ * loop to publish a fresh message.
+ */
+export async function resetDispatch(req: Request, res: Response): Promise<Response> {
+    const { jobId } = req.params;
+    const reason = isObject(req.body) && typeof req.body.reason === 'string' ? req.body.reason : undefined;
+
+    try {
+        const updated = await resetQueuedJobDispatch(jobId, reason);
+        if (!updated) {
+            captureGradingPipelineEvent('worker_reset_dispatch_mismatch', jobId, {
+                jobId
+            });
+            return res.status(409).json({ success: false, error: 'Job is not queued and dispatch-resettable' });
+        }
+
+        captureGradingPipelineEvent('worker_reset_dispatch_succeeded', jobId, {
+            jobId,
+            reason
+        });
+        return res.json({ success: true });
+    } catch (error) {
+        await logError(
+            'internal-grading-worker-reset-dispatch',
+            error instanceof Error ? error : new Error('Reset dispatch failed'),
+            { jobId }
+        ).catch(() => {
+            // best effort
+        });
+
+        captureGradingPipelineEvent('worker_reset_dispatch_failed', jobId, {
+            jobId,
+            error: error instanceof Error ? error.message : 'Reset dispatch failed'
+        });
+        capturePosthogException(error, { distinctId: jobId, stage: 'worker_reset_dispatch_failed', extra: { jobId } });
+        return res.status(500).json({ success: false, error: 'Failed to reset dispatch state' });
     }
 }

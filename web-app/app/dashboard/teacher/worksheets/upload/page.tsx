@@ -942,7 +942,7 @@ export default function UploadWorksheetPage() {
                 return;
             }
 
-            const grade = gradedWs.grade ?? 0;
+            const grade = gradedWs.grade;
             const gradingDetails = gradedWs.gradingDetails as GradingDetails;
             const wrongQuestionNumbers = gradedWs.wrongQuestionNumbers || '';
             const images = gradedWs.images || [];
@@ -951,7 +951,7 @@ export default function UploadWorksheetPage() {
 
             updatePollingTarget(target, (worksheet) => ({
                 ...worksheet,
-                grade: grade.toString(),
+                grade: grade != null ? grade.toString() : '',
                 isUploading: false,
                 jobStatus: 'COMPLETED',
                 gradingDetails,
@@ -965,7 +965,12 @@ export default function UploadWorksheetPage() {
             }));
 
             if (target.showSuccessToast) {
-                toast.success(`Worksheet for ${target.studentName || 'student'} graded! Score: ${grade}`);
+                const studentLabel = target.studentName || 'student';
+                if (grade != null) {
+                    toast.success(`Worksheet for ${studentLabel} graded! Score: ${grade}`);
+                } else {
+                    toast.warning(`Worksheet for ${studentLabel} processed but no grade returned — please enter manually or mark absent.`);
+                }
             }
         } catch (error) {
             console.error('Completed grading job hydration failed:', error);
@@ -1097,8 +1102,8 @@ export default function UploadWorksheetPage() {
 
             if (worksheetsOnDate.length > 0) {
                 const sortedWorksheets = [...worksheetsOnDate].sort((a: any, b: any) => {
-                    const wsNumA = a.template?.worksheetNumber || 0;
-                    const wsNumB = b.template?.worksheetNumber || 0;
+                    const wsNumA = (a.worksheetNumber > 0 ? a.worksheetNumber : a.template?.worksheetNumber) || 0;
+                    const wsNumB = (b.worksheetNumber > 0 ? b.worksheetNumber : b.template?.worksheetNumber) || 0;
                     return wsNumA - wsNumB;
                 });
 
@@ -1571,14 +1576,17 @@ export default function UploadWorksheetPage() {
             }
 
             // Fallback for immediate response (shouldn't happen with new backend)
-            const grade = result.grade || result.totalScore || 0;
-            const roundedGrade = Math.max(0, Math.min(40, Math.round(grade)));
+            const rawGrade = result.grade ?? result.totalScore;
+            const hasGrade = typeof rawGrade === 'number' && Number.isFinite(rawGrade);
+            const gradeStr = hasGrade
+                ? Math.max(0, Math.min(40, Math.round(rawGrade as number))).toString()
+                : '';
 
             setStudentWorksheets(prev => prev.map(sw =>
                 sw.worksheetEntryId === worksheet.worksheetEntryId
                     ? {
                         ...sw,
-                        grade: roundedGrade.toString(),
+                        grade: gradeStr,
                         isUploading: false,
                         page1File: null,
                         page2File: null
@@ -1586,7 +1594,11 @@ export default function UploadWorksheetPage() {
                     : sw
             ));
 
-            toast.success(`Worksheet for ${worksheet.name} processed! Grade: ${roundedGrade}`);
+            if (hasGrade) {
+                toast.success(`Worksheet for ${worksheet.name} processed! Grade: ${gradeStr}`);
+            } else {
+                toast.warning(`Worksheet for ${worksheet.name} processed but no grade returned — please enter manually or mark absent.`);
+            }
             return { success: true };
         } catch (error) {
             console.error('Upload error:', error);
@@ -2054,9 +2066,11 @@ export default function UploadWorksheetPage() {
             if (isAbsent) {
                 // Student is marked as absent - always save this state
                 shouldSave = true;
-            } else if (isValidWorksheetNumber) {
-                // For non-absent students, only require worksheet number (grade is optional)
+            } else if (isValidWorksheetNumber && isValidGrade) {
                 shouldSave = true;
+            } else if (isValidWorksheetNumber && !isValidGrade) {
+                toast.warning(`${currentStudentData.name} needs a grade entered or to be marked absent before saving.`);
+                return;
             } else if (!isValidWorksheetNumber && !isValidGrade) {
                 if (currentStudentData.id && currentStudentData.existing) {
                     // Delete existing record if both fields are cleared
