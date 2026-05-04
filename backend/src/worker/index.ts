@@ -136,6 +136,15 @@ async function runScheduledDispatch(env: WorkerEnv): Promise<void> {
       distinctId: 'dispatch-loop',
       stage: 'dispatch_loop_crashed',
     });
+  } finally {
+    // Release the per-tick pg.Pool. The cron fires every minute; without
+    // this, a warm Worker isolate accumulates pools across ticks and
+    // re-introduces the stale-connection issue we explicitly designed the
+    // fresh-per-request HTTP path to avoid (see middleware/db.ts and
+    // commit 3b47c15). Failures here are non-fatal — log and move on.
+    await prisma.$disconnect().catch((err) => {
+      console.error('[dispatch-loop] prisma disconnect failed:', err);
+    });
   }
 }
 

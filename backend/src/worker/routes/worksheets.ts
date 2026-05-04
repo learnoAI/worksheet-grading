@@ -1204,9 +1204,22 @@ worksheets.patch('/:id/mark-correct', requireSuperadmin, async (c) => {
  *   5. Return the created worksheet.
  *
  * Behavioral note: the Express version calls `enqueueWorksheet` (legacy
- * Bull queue). Bull is disabled in production (`ENABLE_LEGACY_BULL_QUEUE=false`),
- * so the enqueue is a no-op there too. We skip it here; the grading
- * dispatch loop picks up PENDING worksheets through its own path.
+ * Bull queue) which only ran a mock OCR/grading processor. Bull is
+ * disabled in production (`ENABLE_LEGACY_BULL_QUEUE=false`), so that
+ * enqueue is a no-op in prod. We skip it here too — preserving Express
+ * behavior verbatim.
+ *
+ * Important: this route does NOT trigger AI grading. The Worker cron
+ * dispatch loop (`dispatch.ts`) scans `GradingJob` rows, not `Worksheet`
+ * rows; it never picks up the worksheets created here. The real
+ * teacher-upload-then-grade flow is `POST /api/worksheet-processing/process`,
+ * which creates a `GradingJob` in the same transaction as the worksheet.
+ *
+ * No frontend currently posts to this route (web-app uses
+ * `/api/worksheet-processing/process`). Kept for legacy/mobile API
+ * compatibility. If a future caller needs auto-grading from this path,
+ * mirror `worksheetProcessing.ts:304` and create a `GradingJob` in the
+ * same transaction; the dispatch loop will then publish it.
  */
 worksheets.post('/upload', requireAuthoringRole, async (c) => {
   const prisma = c.get('prisma');

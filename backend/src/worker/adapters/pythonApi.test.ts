@@ -157,12 +157,17 @@ describe('callPython — retries', () => {
       maxRetries: 2,
       baseDelayMs: 10,
     });
-    await vi.runAllTimersAsync();
-    await expect(promise).rejects.toMatchObject({
+    // Subscribe to the rejection BEFORE advancing fake timers — otherwise
+    // `vi.runAllTimersAsync()` drives the promise to terminal rejection
+    // while no `.catch` is attached, and Vitest reports an unhandled
+    // rejection even though the assertion later passes.
+    const assertion = expect(promise).rejects.toMatchObject({
       name: 'PythonApiError',
       status: 500,
       responseText: 'db exploded',
     });
+    await vi.runAllTimersAsync();
+    await assertion;
   });
 });
 
