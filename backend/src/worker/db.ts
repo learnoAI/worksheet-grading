@@ -27,6 +27,18 @@ export interface WorkerEnv {
  * multiplexes connections on its side so the underlying database does not
  * see the extra connection setup. See `middleware/db.ts` for the request
  * lifecycle and cleanup via `ctx.waitUntil`.
+ *
+ * Pool sizing: each request gets its own pool, and a Hono request handler is
+ * single-flow within an isolate — the only reason to allow more than one
+ * connection is `Promise.all([...prisma queries])` style fan-out. A handful
+ * of routes do exactly that (count+rows pagination in `users`/`analytics`,
+ * the 6-way count fan-out in the analytics dashboard, per-row recovery in
+ * `gradingJobs`), so we keep `max: 3` — enough to actually run those in
+ * parallel against Hyperdrive without burning extra connection slots in
+ * Hyperdrive's connection cache for the common 1-2 query path. We do not
+ * set `allowExitOnIdle`: it's a Node-process flag (lets the Node process
+ * exit when all pool connections go idle) and is meaningless in Workers,
+ * where the runtime owns isolate lifecycle.
  */
 export function createPrismaClient(env: WorkerEnv): PrismaClient {
   const connectionString = env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL;
@@ -37,9 +49,8 @@ export function createPrismaClient(env: WorkerEnv): PrismaClient {
   }
   const pool = new pg.Pool({
     connectionString,
-    max: 5,
+    max: 3,
     idleTimeoutMillis: 0,
-    allowExitOnIdle: true,
   });
   const adapter = new PrismaPg(pool);
   return new PrismaClient({ adapter });

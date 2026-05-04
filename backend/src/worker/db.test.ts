@@ -54,9 +54,8 @@ describe('createPrismaClient', () => {
     expect(poolCalls).toEqual([
       {
         connectionString: 'postgres://localhost:5432/foo',
-        max: 5,
+        max: 3,
         idleTimeoutMillis: 0,
-        allowExitOnIdle: true,
       },
     ]);
     expect(prismaPgCalls.length).toBe(1);
