@@ -105,14 +105,16 @@ describe('dispatchPendingJobs — stale requeue', () => {
       attemptCount: number;
       lastErrorAt: Date | null;
     } = { id: 'rescued-1', attemptCount: 4, lastErrorAt: new Date(Date.now() - 1000) };
-    const updateMany = vi.fn(async (args: any) => {
-      // Tick 1's stale-requeue should null these out (the bug we're fixing).
-      Object.assign(dbRow, {
-        attemptCount: args.data.attemptCount,
-        lastErrorAt: args.data.lastErrorAt,
-      });
-      return { count: 1 };
-    });
+    const updateMany = vi.fn(
+      async (args: { data: { attemptCount?: number; lastErrorAt?: Date | null } }) => {
+        // Tick 1's stale-requeue should null these out (the bug we're fixing).
+        Object.assign(dbRow, {
+          attemptCount: args.data.attemptCount,
+          lastErrorAt: args.data.lastErrorAt,
+        });
+        return { count: 1 };
+      }
+    );
     // First tick: findMany returns nothing (job was just moved from PROCESSING
     // to QUEUED but we model the dispatch loop's two-step read).
     // Second tick: findMany returns the rescued row with whatever
