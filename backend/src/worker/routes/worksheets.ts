@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { ProcessingStatus, UserRole, Prisma, GradingJobStatus } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
+import { isRecordNotFoundError } from '../lib/prismaErrors';
 import { validateQuery, validateJson } from '../validation';
 import { callPython } from '../adapters/pythonApi';
 import { uploadObject, StorageError } from '../adapters/storage';
@@ -1009,30 +1010,36 @@ worksheets.put(
     const submittedById = user.userId;
 
     try {
-      const existing = await prisma.worksheet.findUnique({ where: { id } });
-      if (!existing) return c.json({ message: 'No worksheet found to update' }, 404);
-
+      // Skip the existence findUnique pre-check; let the update surface
+      // P2025 (Hyperdrive-cache safe).
       if (body.isAbsent) {
-        const row = await prisma.worksheet.update({
-          where: { id },
-          data: {
-            class: { connect: { id: body.classId } },
-            student: { connect: { id: body.studentId } },
-            submittedBy: { connect: { id: submittedById } },
-            grade: 0,
-            notes: body.notes || 'Student absent',
-            status: ProcessingStatus.COMPLETED,
-            outOf: 40,
-            template: { disconnect: true },
-            submittedOn: body.submittedOn ? new Date(body.submittedOn) : undefined,
-            isAbsent: true,
-            isRepeated: false,
-            isIncorrectGrade: false,
-            gradingDetails: Prisma.DbNull,
-            wrongQuestionNumbers: null,
-          },
-        });
-        return c.json(row, 200);
+        try {
+          const row = await prisma.worksheet.update({
+            where: { id },
+            data: {
+              class: { connect: { id: body.classId } },
+              student: { connect: { id: body.studentId } },
+              submittedBy: { connect: { id: submittedById } },
+              grade: 0,
+              notes: body.notes || 'Student absent',
+              status: ProcessingStatus.COMPLETED,
+              outOf: 40,
+              template: { disconnect: true },
+              submittedOn: body.submittedOn ? new Date(body.submittedOn) : undefined,
+              isAbsent: true,
+              isRepeated: false,
+              isIncorrectGrade: false,
+              gradingDetails: Prisma.DbNull,
+              wrongQuestionNumbers: null,
+            },
+          });
+          return c.json(row, 200);
+        } catch (error) {
+          if (isRecordNotFoundError(error)) {
+            return c.json({ message: 'No worksheet found to update' }, 404);
+          }
+          throw error;
+        }
       }
 
       const worksheetNum = Number(body.worksheetNumber);
@@ -1066,27 +1073,34 @@ worksheets.put(
           ? undefined
           : body.wrongQuestionNumbers;
 
-      const row = await prisma.worksheet.update({
-        where: { id },
-        data: {
-          class: { connect: { id: body.classId } },
-          student: { connect: { id: body.studentId } },
-          submittedBy: { connect: { id: submittedById } },
-          grade: gradeValue,
-          worksheetNumber: worksheetNum,
-          notes: body.notes ?? undefined,
-          status: ProcessingStatus.COMPLETED,
-          outOf: 40,
-          ...(template ? { template: { connect: { id: template.id } } } : {}),
-          submittedOn: body.submittedOn ? new Date(body.submittedOn) : undefined,
-          isAbsent: false,
-          isRepeated: body.isRepeated ?? false,
-          isIncorrectGrade: body.isIncorrectGrade ?? false,
-          gradingDetails,
-          wrongQuestionNumbers,
-        },
-      });
-      return c.json(row, 200);
+      try {
+        const row = await prisma.worksheet.update({
+          where: { id },
+          data: {
+            class: { connect: { id: body.classId } },
+            student: { connect: { id: body.studentId } },
+            submittedBy: { connect: { id: submittedById } },
+            grade: gradeValue,
+            worksheetNumber: worksheetNum,
+            notes: body.notes ?? undefined,
+            status: ProcessingStatus.COMPLETED,
+            outOf: 40,
+            ...(template ? { template: { connect: { id: template.id } } } : {}),
+            submittedOn: body.submittedOn ? new Date(body.submittedOn) : undefined,
+            isAbsent: false,
+            isRepeated: body.isRepeated ?? false,
+            isIncorrectGrade: body.isIncorrectGrade ?? false,
+            gradingDetails,
+            wrongQuestionNumbers,
+          },
+        });
+        return c.json(row, 200);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return c.json({ message: 'No worksheet found to update' }, 404);
+        }
+        throw error;
+      }
     } catch (error) {
       console.error('Update graded worksheet error:', error);
       return c.json({ message: 'Server error while updating worksheet' }, 500);
@@ -1119,16 +1133,21 @@ worksheets.patch(
     const { adminComments } = c.req.valid('json');
 
     try {
-      const existing = await prisma.worksheet.findUnique({ where: { id } });
-      if (!existing) return c.json({ message: 'Worksheet not found' }, 404);
-
-      const updated = await prisma.worksheet.update({
-        where: { id },
-        data: {
-          adminComments: adminComments || null,
-          updatedAt: new Date(),
-        },
-      });
+      let updated;
+      try {
+        updated = await prisma.worksheet.update({
+          where: { id },
+          data: {
+            adminComments: adminComments || null,
+            updatedAt: new Date(),
+          },
+        });
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return c.json({ message: 'Worksheet not found' }, 404);
+        }
+        throw error;
+      }
       return c.json(
         { message: 'Admin comments updated successfully', worksheet: updated },
         200
@@ -1146,13 +1165,18 @@ worksheets.patch('/:id/mark-correct', requireSuperadmin, async (c) => {
 
   const id = c.req.param('id');
   try {
-    const existing = await prisma.worksheet.findUnique({ where: { id } });
-    if (!existing) return c.json({ message: 'Worksheet not found' }, 404);
-
-    const updated = await prisma.worksheet.update({
-      where: { id },
-      data: { isIncorrectGrade: false, updatedAt: new Date() },
-    });
+    let updated;
+    try {
+      updated = await prisma.worksheet.update({
+        where: { id },
+        data: { isIncorrectGrade: false, updatedAt: new Date() },
+      });
+    } catch (error) {
+      if (isRecordNotFoundError(error)) {
+        return c.json({ message: 'Worksheet not found' }, 404);
+      }
+      throw error;
+    }
     return c.json(
       { message: 'Worksheet marked as correctly graded', worksheet: updated },
       200

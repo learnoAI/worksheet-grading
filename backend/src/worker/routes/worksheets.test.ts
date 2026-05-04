@@ -335,12 +335,12 @@ describe('POST /api/worksheets/grade — non-absent validation', () => {
 describe('PUT /api/worksheets/grade/:id', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns 404 when the worksheet does not exist', async () => {
+  it('returns 404 when update reports P2025', async () => {
     const app = mountApp({
       worksheet: {
-        findUnique: vi.fn().mockResolvedValue(null),
-        update: vi.fn(),
+        update: vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' }),
       },
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
     });
     const res = await jsonRequest(app, '/api/worksheets/grade/missing', 'PUT', {
       classId: 'c1',
@@ -1486,11 +1486,10 @@ describe('POST /api/worksheets/batch-save', () => {
 });
 
 describe('PATCH /api/worksheets/:id/mark-correct', () => {
-  it('returns 404 when worksheet missing', async () => {
+  it('returns 404 when update reports P2025', async () => {
     const app = mountApp({
       worksheet: {
-        findUnique: vi.fn().mockResolvedValue(null),
-        update: vi.fn(),
+        update: vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' }),
       },
     });
     const res = await jsonRequest(
