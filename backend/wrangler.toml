@@ -1,0 +1,105 @@
+name = "worksheet-grading-api"
+main = "src/worker/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# ── Cron triggers ─────────────────────────────────────────────────────────
+# Grading dispatch loop — runs the same logic as the Express
+# `startGradingDispatchLoop()` did in-process. Re-queues stale PROCESSING
+# jobs, publishes QUEUED → CF Queues with exponential backoff. Minimum
+# supported interval is 1 minute; Express polled every 5 s but grading
+# itself takes 10s+ per page so the extra latency is negligible. See
+# `backend/src/worker/dispatch.ts` for the tick logic.
+[triggers]
+crons = ["*/1 * * * *"]
+
+# Account ID comes from CLOUDFLARE_ACCOUNT_ID in the shell env (see
+# `.dev.vars.example`). Secrets are set with `wrangler secret put`.
+
+# ── Bindings ───────────────────────────────────────────────────────────────
+#
+# Every production binding is commented out by default. Uncomment a block
+# only after you have (a) created the resource in the Cloudflare dashboard,
+# and (b) populated the matching id/name fields. `npm run worker:build`
+# works without any bindings — it just won't be able to query the DB, read
+# R2 files, or publish to queues.
+
+# ── Hyperdrive (Postgres) ─────────────────────────────────────────────────
+# Create with:
+#   wrangler hyperdrive create worksheet-grading-pg \
+#     --connection-string="postgres://user:pass@host:5432/db"
+#
+# [[hyperdrive]]
+# binding = "HYPERDRIVE"
+# id = "<hyperdrive-id-from-dashboard>"
+# localConnectionString = "postgresql://postgres:postgres@localhost:5432/saarthi_test?schema=public"
+
+# ── R2 (Object Storage) ───────────────────────────────────────────────────
+# Reuses the existing production bucket — matches R2_BUCKET_NAME in the
+# Express backend so files written by the grading consumer stay readable.
+#
+# [[r2_buckets]]
+# binding = "WORKSHEET_FILES"
+# bucket_name = "worksheet-grading-files"
+
+# ── Static variables ──────────────────────────────────────────────────────
+# Non-secret config goes in [vars]; secrets (DB URL, API tokens, JWT
+# secret) go through `wrangler secret put`. See DEPLOYMENT.md.
+#
+# [vars]
+# NODE_ENV = "production"
+# CORS_ORIGINS = "https://worksheet-grading-web.madhav-2ff.workers.dev,https://app.saarthi.ai"
+# CF_API_BASE_URL = "https://api.cloudflare.com/client/v4"
+# POSTHOG_HOST = "https://us.i.posthog.com"
+# EXPRESS_FALLBACK_URL = "https://king-prawn-app-k2urh.ondigitalocean.app/worksheet-grading-backend"
+# # Dispatch loop tunables (defaults in code: 20min stale window, 25 batch)
+# GRADING_STALE_PROCESSING_MS = "1200000"
+# GRADING_QUEUE_POLL_BATCH_SIZE = "25"
+
+# ── Secrets (set via `wrangler secret put` — never in this file) ─────────
+#   DATABASE_URL                    — Postgres URL (fallback when no
+#                                      Hyperdrive binding; not needed in
+#                                      production once Hyperdrive is live)
+#   JWT_SECRET                      — matches the Express backend
+#   GRADING_WORKER_TOKEN            — shared secret with the grading CF worker
+#   WORKSHEET_CREATION_WORKER_TOKEN — shared secret with the PDF renderer
+#   CF_ACCOUNT_ID                   — account that owns the grading queue
+#   CF_API_TOKEN                    — token with queues:write scope
+#   CF_QUEUE_ID                     — ID of grading-fast queue
+#   POSTHOG_API_KEY                 — only set when analytics is enabled
+#   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
+#   R2_BUCKET_NAME, R2_ENDPOINT, R2_PUBLIC_BASE_URL
+#                                   — needed by aws4fetch for presigned
+#                                     upload URLs
+
+# ── Staging environment ──────────────────────────────────────────────────
+# Deploy with: wrangler deploy --env staging
+# Backed by:
+#   - DO Postgres database `worksheet_grading_hono_test` (separate from prod
+#     `defaultdb`), via Hyperdrive 25a7b3a9cc28419b875c118202958715
+#   - R2 bucket `worksheet-grading-files-staging`
+#   - CF Queue `grading-fast-staging` (id 7e046369a51645158868e7f58b56f9e1)
+# Cron triggers are intentionally omitted for staging — re-enable once
+# read-parity smoke passes against the deployed worker.
+[env.staging]
+name = "worksheet-grading-api-staging"
+
+# Inherit the same dispatch cron as prod — staging has zero queued jobs so
+# this just exercises the loop and keeps the schedule path covered.
+[env.staging.triggers]
+crons = ["*/1 * * * *"]
+
+[env.staging.vars]
+NODE_ENV = "staging"
+CORS_ORIGINS = "*"
+CF_API_BASE_URL = "https://api.cloudflare.com/client/v4"
+GRADING_STALE_PROCESSING_MS = "1200000"
+GRADING_QUEUE_POLL_BATCH_SIZE = "25"
+
+[[env.staging.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "25a7b3a9cc28419b875c118202958715"
+
+[[env.staging.r2_buckets]]
+binding = "WORKSHEET_FILES"
+bucket_name = "worksheet-grading-files-staging"

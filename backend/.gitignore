@@ -1,5 +1,14 @@
 node_modules
 # Keep environment variables out of version control
 .env
+.env.local
+.dev.vars
 
 dist
+dist-worker
+
+# Wrangler / Cloudflare Workers
+.wrangler
+
+# Staging seed output (contains throwaway credentials)
+prisma/seed-staging.out.json

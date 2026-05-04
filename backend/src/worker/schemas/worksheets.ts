@@ -1,0 +1,103 @@
+import { z } from 'zod';
+
+export const findWorksheetQuerySchema = z.object({
+  classId: z.string().min(1, { message: 'Class ID is required' }),
+  studentId: z.string().min(1, { message: 'Student ID is required' }),
+  startDate: z.string().datetime({ message: 'startDate must be a valid ISO date' }),
+  endDate: z.string().datetime({ message: 'endDate must be a valid ISO date' }),
+});
+
+export const historyQuerySchema = z.object({
+  classId: z.string().min(1, { message: 'Class ID is required' }),
+  studentId: z.string().min(1, { message: 'Student ID is required' }),
+  endDate: z.string().datetime({ message: 'endDate must be a valid ISO date' }),
+});
+
+export const classDateQuerySchema = z.object({
+  classId: z.string().min(1, { message: 'Class ID is required' }),
+  submittedOn: z.string().min(1, { message: 'submittedOn is required' }),
+});
+
+/**
+ * Body accepted by `POST /api/worksheets/grade` (create) and
+ * `PUT /api/worksheets/grade/:id` (update). Fields beyond the required
+ * `classId` + `studentId` are optional because absent-student submissions
+ * and regular grade submissions share the same shape; individual handlers
+ * enforce the additional constraints (worksheetNumber > 0 when not absent,
+ * grade ∈ [0, 40] when not absent).
+ */
+export const gradeWorksheetSchema = z.object({
+  classId: z.string().min(1, { message: 'Class ID is required' }),
+  studentId: z.string().min(1, { message: 'Student ID is required' }),
+  worksheetNumber: z.union([z.number(), z.string()]).optional(),
+  grade: z.union([z.number(), z.string()]).optional(),
+  notes: z.string().nullish(),
+  submittedOn: z
+    .string()
+    .datetime({ message: 'submittedOn must be a valid ISO date' })
+    .optional(),
+  isAbsent: z.boolean().optional(),
+  isRepeated: z.boolean().optional(),
+  isIncorrectGrade: z.boolean().optional(),
+  gradingDetails: z.unknown().optional(),
+  // Wire format is a comma-separated string ("1, 7") to match the
+  // existing Express schema and the Prisma `String?` column. The frontend
+  // sends + parses it as a string (web-app uses `parseWrongQuestionNumbers`
+  // to split on commas). Express controllers pass it through unchanged.
+  wrongQuestionNumbers: z.string().nullable().optional(),
+});
+
+export const updateAdminCommentsSchema = z.object({
+  adminComments: z.string().nullable().optional(),
+});
+
+export const checkRepeatedSchema = z.object({
+  classId: z.string().min(1, { message: 'Class ID is required' }),
+  studentId: z.string().min(1, { message: 'Student ID is required' }),
+  worksheetNumber: z.union([z.number(), z.string()]),
+  beforeDate: z.string().datetime({ message: 'beforeDate must be a valid ISO date' }).optional(),
+});
+
+export const batchSaveSchema = z.object({
+  classId: z.string().min(1, { message: 'Class ID is required' }),
+  submittedOn: z.string().datetime({ message: 'submittedOn must be a valid ISO date' }),
+  worksheets: z.array(z.record(z.string(), z.unknown())),
+});
+
+export const pythonImagesSchema = z.object({
+  token_no: z.string().min(1, { message: 'Token number is required' }),
+  worksheet_name: z.string().min(1, { message: 'Worksheet name is required' }),
+});
+
+export const pythonGradingDetailsSchema = z.object({
+  token_no: z.string().min(1, { message: 'Token number is required' }),
+  worksheet_name: z.string().min(1, { message: 'Worksheet name is required' }),
+  overall_score: z.number().optional(),
+});
+
+export const totalAiGradedSchema = z.object({
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+});
+
+export const recommendNextSchema = z.object({
+  classId: z.string().min(1, { message: 'Class ID is required' }),
+  studentId: z.string().min(1, { message: 'Student ID is required' }),
+  beforeDate: z
+    .string()
+    .datetime({ message: 'beforeDate must be a valid ISO date' })
+    .optional(),
+});
+
+export const incorrectGradingQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+  startDate: z
+    .string()
+    .datetime({ message: 'startDate must be a valid ISO date' })
+    .optional(),
+  endDate: z
+    .string()
+    .datetime({ message: 'endDate must be a valid ISO date' })
+    .optional(),
+});

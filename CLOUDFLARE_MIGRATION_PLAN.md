@@ -468,3 +468,304 @@ express                     # Replace with Hono (Phase 5)
 cors                        # Built into Hono (Phase 5)
 form-data                   # Native in Workers (Phase 5)
 ```
+
+---
+
+## Known Concerns / Tracked Issues
+
+Items discovered during migration that do not block current progress but must
+be revisited before full cutover (Phase 5.12) or soon after.
+
+### C1 — Worker bundle size inflated by Prisma client
+
+**Discovered:** Phase 5.5 (auth routes on Hono worker).
+
+**Observation:** Before mounting Prisma-using routes, the worker bundle is
+~87 KiB. After importing `@prisma/client` for the auth route, the bundle
+jumps to ~3.4 MB uncompressed / ~1.1 MB gzipped. Cloudflare Workers paid
+plan allows up to 10 MB compressed, so we are under the limit but with
+only ~9 MB of headroom — and we have not yet ported the other 14 route
+groups that will pull in more Prisma model code.
+
+**Why it matters:**
+
+- Larger bundles increase Worker cold-start time (isolate boot + JS parse).
+- We risk hitting the 10 MB cap as more models and business logic ship.
+- Prisma's default client bundles the entire query engine, including code
+  paths we do not use (e.g. MongoDB adapter, Data Proxy transport).
+
+**Mitigation options (in preference order):**
+
+1. **Prisma `client` generator with Workers target.** Regenerate the client
+   with `generator client { provider = "prisma-client"; runtime = "workerd"; moduleFormat = "esm"; output = "..." }`.
+   The new-style generator emits a smaller Workers-optimized client and
+   supports tree-shaking per-model code. Requires Prisma 6.7+ (we are on
+   6.19, so supported).
+2. **Scope Prisma imports.** Import `PrismaClient` only where needed and
+   audit route files to avoid accidental re-exports that pull the whole
+   client into every route's tree.
+3. **Prisma Accelerate (paid service).** Moves query execution to
+   Cloudflare-adjacent proxies, leaving the Worker with a thin HTTP client
+   (<50 KiB). Adds vendor dependency and per-query cost; treat as fallback.
+4. **Split deploys.** If the bundle keeps growing, split into multiple
+   Workers (e.g. public API worker vs internal worker) routed via service
+   bindings or path-based routing.
+
+**When to address:** Before Phase 5.11 (complex route batch), or earlier
+if dev builds approach 7 MB compressed. Track bundle size after every
+phase as a smoke check.
+
+**Tracking:** Re-measure at end of each sub-phase with
+`cd backend && npx wrangler deploy --dry-run --outdir=dist-worker` and
+record the `Total Upload` size.
+
+### C2 — Pre-existing Express test flake: `internalGradingWorkerController.test.ts`
+
+**Discovered:** Phase 5.1, self-resolved in Phase 5.2.
+
+**Observation:** On first run the test failed with
+`TypeError: Cannot read properties of undefined (reading 'NOT_STARTED')` at
+`masteryService.ts:192`. Re-ran after `npx prisma generate` in Phase 5.2
+and it passed; has been stable since. Root cause was a stale generated
+Prisma client where the `MasteryLevel` enum had not been regenerated after
+a recent schema change.
+
+**Action:** Add a `postinstall` guard that runs `prisma generate` (already
+present) and ensure CI does the same. No code change needed now.
+
+### C3 — Node engine mismatch in local dev
+
+**Discovered:** Phase 5.2 (npm install warnings).
+
+**Observation:** `backend/package.json` declares `"engines": { "node": "22.x" }`
+but the local machine runs Node 25. npm emits `EBADENGINE` warnings and
+some transitive packages (notably `jsonwebtoken`'s `buffer-equal-constant-time`)
+fail to initialize in the Vitest runtime. We worked around this in the
+worker by using `hono/jwt` instead.
+
+**Why it matters:** The Express server still uses `jsonwebtoken`. If
+production runs on Node 22.x (per `engines`), this is invisible there, but
+any developer running on a newer Node version gets a broken test suite for
+Express code paths.
+
+**Mitigation:** Either (a) loosen the engines range to `">=22"` after
+validating Node 24/25 compatibility for the Express stack, or (b) document
+that contributors must use Node 22.x locally (e.g. via `.nvmrc`).
+
+**When to address:** Opportunistically. Not urgent while Express is being
+deprecated.
+
+### C4 — Dispatch loop migration (RESOLVED ✅)
+
+**Discovered:** Background knowledge during exploration (Phase 5 planning).
+
+**Observation:** The Express server ran the grading dispatch loop
+in-process (`GRADING_DISPATCH_LOOP_ON_WEB=true`). The Hono Worker is
+request-scoped and cannot host a long-running interval loop.
+
+**Resolution (Phase 5.14):** The dispatch loop was ported to a
+`scheduled` Cron handler on the main Hono worker (`backend/src/worker/index.ts`
++ `backend/src/worker/dispatch.ts`). Cron trigger in `wrangler.toml`:
+`crons = ["*/1 * * * *"]` — fires every minute. The tick does the same
+two things the Express loop did:
+
+  1. Requeue stale PROCESSING jobs (heartbeat past threshold)
+  2. Publish QUEUED → CF Queues with exponential backoff
+
+14 unit tests cover stale requeue, backoff, success, failure, overrides,
+and mixed-outcome batches. `dispatch_loop_crashed` PostHog event fires on
+tick failure so a silently-dead loop is alertable.
+
+**Latency trade-off:** Express polled every 5 s; Cron minimum is 1 min.
+Acceptable — grading itself is multi-second per page, and the queue
+consumer picks up messages immediately after publish.
+
+**When to turn Express off:** Now safe, once C5 (secrets) is addressed.
+
+### C6 — Multer-using routes deferred past Phase 5.8
+
+**Discovered:** Phase 5.8 (file upload routes).
+
+**Observation:** Only two endpoints in the Express backend actually use
+Multer: `POST /api/worksheets/upload` and `POST /api/worksheet-processing/process`.
+Phase 5.8 delivered the `parseMultipartFiles` helper (a Multer replacement
+for Workers) but did not port the two routes themselves, because both also
+depend on service-layer code that is not yet Workers-compatible:
+
+- `POST /api/worksheets/upload` — calls `s3Service.uploadToS3`, which uses
+  `aws-sdk` v2 (Node-only). Must migrate to `aws4fetch` or AWS SDK v3 in
+  Phase 5.10.
+- `POST /api/worksheet-processing/process` — calls the Python API with
+  `node-fetch` and `form-data`. Must migrate to native `fetch` + native
+  `FormData` in Phase 5.10.
+
+**When to address:** Phase 5.11 (complex routes), after service adaptations
+in Phase 5.10 land. The `parseMultipartFiles` helper is ready and tested;
+the routes are thin layers on top of it.
+
+### C7 — Worksheet-processing direct-upload session routes pending
+
+**Discovered:** Phase 5.8 scope review.
+
+**Observation:** The direct-upload session routes
+(`POST /api/worksheet-processing/upload-session`,
+`GET /api/worksheet-processing/upload-session/:batchId`,
+`POST /api/worksheet-processing/upload-session/:batchId/finalize`) are
+pure JSON endpoints (no Multer), but they still depend on
+`s3Service.getPresignedUrl` and the Cloudflare Queue publisher service.
+They were not ported in Phase 5.8 and are tracked for Phase 5.10/5.11.
+
+**When to address:** Phase 5.11, bundled with the Multer-using routes.
+
+### C8 — Internal grading-worker + question-bank routes deferred past 5.9
+
+**Discovered:** Phase 5.9 (internal worker routes).
+
+**Observation:** Phase 5.9 ported `/internal/worksheet-generation/*` (3
+routes) but deferred the other two internal route groups because their
+controllers pull in heavy service dependencies that have not yet been made
+Workers-compatible:
+
+- `/internal/grading-worker/*` (5 routes, 507-line controller) depends on
+  `gradingJobLifecycleService`, `gradingWorksheetPersistenceService`,
+  `gradingDiagnostics`, `errorLogService` (MongoDB), `logger`,
+  `posthogService`, `masteryService` — all reading Prisma via the module
+  singleton, plus raw `$queryRaw` for `SELECT NOW()` and `FOR UPDATE`.
+- `/internal/question-bank/*` (2 routes) depends on
+  `worksheetBatchService.onSkillQuestionsReady` which in turn pulls in
+  `buildSections`, `enqueuePdfRendering`, `createPdfRenderMessage` and the
+  whole CF Queues HTTP client.
+
+**Pragmatic note — duplication in C8a:** For
+`/internal/worksheet-generation/*` we chose to **inline** the 15-line
+`onWorksheetPdfComplete` helper inside the worker route rather than refactor
+`worksheetBatchService` now. The Express path still uses the original
+service file. Both paths write to the same `WorksheetBatch` rows, so staying
+in sync during the parallel-run window is OK — but the duplication must be
+collapsed when the service layer is adapted in Phase 5.10.
+
+**When to address:** Phase 5.11 (complex routes), after Phase 5.10 lands
+prisma-injected service helpers and a Workers-compatible CF Queues client.
+
+### C9.1 — Phase 5.13 progress (partial)
+
+**Status (current):** Of the deferred Phase 5.13 work catalogued in C9,
+the following have been ported to Hono:
+
+- `POST /api/worksheets/images` — Python API image lookup.
+- `POST /api/worksheets/total-ai-graded` — DB count of completed grading
+  jobs (optional date range).
+- `POST /api/worksheets/student-grading-details` — Python API grading
+  detail lookup.
+- `POST /api/worksheets/upload` — multipart worksheet image upload into
+  R2. Honors the existing 5 MB / 10-file / image-only limits. Skips the
+  legacy Bull `enqueueWorksheet` call since `ENABLE_LEGACY_BULL_QUEUE=false`
+  in production. **No auto-grading**: worksheets created here stay
+  `PENDING` indefinitely. The Worker cron dispatch loop scans
+  `GradingJob` rows, not `Worksheet` rows, so it never picks them up;
+  Express had the same effective behavior (Bull's mock processor was
+  never wired to real grading). The auto-graded path is
+  `POST /api/worksheet-processing/process`, which creates a `GradingJob`
+  in the same transaction. The web-app uses that path; the mobile-app
+  does not currently call this endpoint either, so the legacy upload
+  route survives only for API compatibility. (Earlier drafts of this
+  doc said worksheets stay PENDING "for the dispatch loop to pick up" —
+  that was inaccurate and has been corrected here.)
+
+**Still pending under C9 (the rest of Phase 5.13):**
+
+- Direct-upload session trio (`POST /upload-session`,
+  `GET /upload-session/:batchId`, `POST /upload-session/:batchId/finalize`) —
+  1,100-line controller; needs bespoke helpers ported too.
+- `POST /api/worksheet-processing/process` — Python API forwarding for
+  inline grading.
+- `GET /api/worksheets/class-date` + `GET /api/worksheets/incorrect-grading` +
+  `POST /api/worksheets/recommend-next` — heavy queries with
+  `worksheetRecommendation` service dependency.
+- `/internal/grading-worker/*` — 5 routes, 507-line state machine with
+  raw `$queryRaw` and `FOR UPDATE`.
+- `/internal/question-bank/*` — question-generation pipeline glue.
+- `/api/analytics/overall`, `/students`, `/students/download` — in-process
+  cache + `setInterval` cleanup to migrate to KV + Cron.
+
+**Coverage:** ~80 of ~96 endpoints are now on Hono. The remaining routes
+continue to serve through the Express fallback until their own
+dedicated port.
+
+### C9 — Complex/stateful routes deferred past Phase 5.11
+
+**Discovered:** Phase 5.11 scoping.
+
+**Observation:** Phase 5.11 ported 20 worksheet routes (CRUD, grade save,
+check-repeated, batch-save, admin moderation, templates, teacher classes,
+class students). The remaining worksheet-area routes carry 500–1,100+
+lines of bespoke business logic each, plus dependencies on services that
+would require their own adapters. Porting these cleanly calls for a
+follow-up phase dedicated to each slice, not more of the same batch port:
+
+**Deferred to a follow-up "Phase 5.13 — Complex worksheet + grading":**
+
+- `POST /api/worksheets/upload` (Multer + R2) — helpers ready
+  (`uploads.ts` + `adapters/storage.ts`), but the controller also does
+  domain validation around page numbers and teacher↔class ownership that
+  belongs near the new route.
+- `POST /api/worksheet-processing/upload-session` (create, ~150 lines +
+  helpers), `GET .../upload-session/:batchId`,
+  `POST .../upload-session/:batchId/finalize` — 1,100-line controller.
+  Depends on bespoke helpers: `requireString`, `parseSubmittedOn`,
+  `normalizeDirectUploadItems`, `assertDirectUploadAccess`,
+  `buildDirectUploadKey`, `serializeUploadBatch`,
+  `toUploadFileResponse`, `loadUploadBatchForUser`, plus queue
+  publishing.
+- `POST /api/worksheet-processing/process` — Python API forwarding.
+  `pythonApi` adapter is ready; the route pieces multipart files +
+  fields together and surfaces upload telemetry.
+- Python utility endpoints on `/api/worksheets`:
+  `POST /images`, `POST /total-ai-graded`, `POST /student-grading-details`.
+  Small glue layer over `adapters/pythonApi`.
+- `GET /api/worksheets/class-date` (~285 lines) — complex fallback
+  chain for student progression recommendations; depends on
+  `services/worksheetRecommendation.ts` (already has tests, but reads
+  Prisma via the module singleton).
+- `GET /api/worksheets/incorrect-grading` (~350 lines) — paginated
+  moderation feed with filters.
+- `POST /api/worksheets/recommend-next` — same recommendation service.
+- `/internal/grading-worker/*` (5 routes, 507-line controller) — full
+  grading-job state machine with raw `$queryRaw`, `FOR UPDATE`,
+  transaction-wrapped persistence, mastery updates, diagnostics.
+  Depends on `gradingJobLifecycleService`,
+  `gradingWorksheetPersistenceService`, `errorLogService`
+  (MongoDB — already flagged in Phase 3 for removal).
+- `/internal/question-bank/*` (2 routes) — question generation pipeline.
+  `adapters/batchProgress.incrementBatchCompletedSkills` is ready for the
+  counter flip; still need a Workers-compatible `assembleAndEnqueuePdfs`
+  (current version depends on `buildSections` and the PDF rendering
+  queue publisher).
+- `GET /api/analytics/overall`, `GET /api/analytics/students`,
+  `GET /api/analytics/students/download` — 1,000+ lines of analytics
+  with an in-process cache + `setInterval` cleanup loop. Cache needs to
+  move to KV; `setInterval` is not available in Workers.
+
+**When to address:** Phase 5.13 (to be planned as its own scoped effort)
+before final cutover. Until then, Express continues to serve these
+routes — the Hono worker can ship in front of Express as a partial
+implementation, with a rule-based proxy (Cloudflare Worker route
+pattern or application-level fallback) sending the unported paths to
+Express. That proxy setup is part of **Phase 5.12 (cutover)**.
+
+### C5 — Production credentials currently in `backend/.env`
+
+**Discovered:** Phase 5 planning (env file review).
+
+**Observation:** `backend/.env` contains live production secrets
+(database URL, JWT secret, CF API tokens, R2 keys, Mongo URL) — fine for
+single-developer local dev with a `.gitignore`'d file, but risky if the
+backend worker inherits the same resolution chain. The worker reads from
+`.dev.vars` / wrangler secrets, not `backend/.env`, so this is already
+isolated, but the principle stands.
+
+**Action:** Before deploying the Hono worker to production, migrate all
+secrets to `wrangler secret put`. Never copy production values into
+`.dev.vars`.
+
+**When to address:** Phase 5.12 (deployment prep).

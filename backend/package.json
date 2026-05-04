@@ -15,7 +15,10 @@
     "prisma:deploy": "prisma migrate deploy",
     "import-learning-outcomes": "npm run prisma:generate && ts-node src/scripts/import-learning-outcomes.ts",
     "archive-dropouts": "ts-node src/scripts/archive-dropout-students.ts",
-    "export-admin-comments": "ts-node src/scripts/export-admin-comments.ts"
+    "export-admin-comments": "ts-node src/scripts/export-admin-comments.ts",
+    "worker:dev": "wrangler dev",
+    "worker:build": "wrangler deploy --dry-run --outdir=dist-worker",
+    "worker:deploy": "wrangler deploy"
   },
   "keywords": [],
   "author": "",
@@ -25,30 +28,38 @@
     "node": "22.x"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260414.1",
     "@eslint/js": "^9.22.0",
     "@types/bcrypt": "^5.0.2",
+    "@types/bcryptjs": "^2.4.6",
     "@types/bull": "^3.15.9",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.13.10",
+    "@types/pg": "^8.20.0",
     "eslint": "^9.22.0",
     "globals": "^16.0.0",
     "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.26.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "^4.82.2"
   },
   "dependencies": {
+    "@hono/zod-validator": "^0.7.6",
+    "@prisma/adapter-pg": "^6.19.3",
     "@prisma/client": "6.19.1",
     "@tanstack/react-table": "^8.21.2",
     "@types/form-data": "^2.2.1",
     "@types/node-fetch": "^2.6.12",
     "aws-sdk": "^2.1692.0",
+    "aws4fetch": "^1.0.20",
     "axios": "^1.9.0",
     "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.3",
     "bottleneck": "^2.19.5",
     "bull": "^4.16.5",
     "cors": "^2.8.5",
@@ -56,12 +67,15 @@
     "express": "^4.21.2",
     "express-validator": "^7.2.1",
     "form-data": "^4.0.2",
+    "hono": "^4.12.12",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^7.0.0",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^2.7.0",
+    "pg": "^8.20.0",
     "prisma": "6.19.1",
     "puppeteer": "^24.38.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
   }
 }
