@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { UserRole } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
+import { isUniqueConstraintError, isRecordNotFoundError } from '../lib/prismaErrors';
 import { validateJson } from '../validation';
 import {
   createWorksheetTemplateSchema,
@@ -60,11 +61,12 @@ worksheetTemplateReadRoutes.delete('/images/:id', requireSuper, async (c) => {
   if (!prisma) return c.json({ message: 'Database is not available' }, 500);
   const id = c.req.param('id');
   try {
-    const image = await prisma.worksheetTemplateImage.findUnique({ where: { id } });
-    if (!image) return c.json({ message: 'Template image not found' }, 404);
     await prisma.worksheetTemplateImage.delete({ where: { id } });
     return c.json({ message: 'Template image deleted successfully' }, 200);
   } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return c.json({ message: 'Template image not found' }, 404);
+    }
     console.error('Error deleting template image:', error);
     return c.json({ message: 'Server error while deleting template image' }, 500);
   }
@@ -81,24 +83,26 @@ worksheetTemplateReadRoutes.put(
     const { question, answer, outOf, skillIds } = c.req.valid('json');
 
     try {
-      const existing = await prisma.worksheetTemplateQuestion.findUnique({
-        where: { id },
-        include: { skills: true },
-      });
-      if (!existing) return c.json({ message: 'Template question not found' }, 404);
-
-      const updated = await prisma.worksheetTemplateQuestion.update({
-        where: { id },
-        data: {
-          question: question || undefined,
-          answer: answer || undefined,
-          outOf: outOf !== undefined ? Number(outOf) : undefined,
-          skills: skillIds
-            ? { set: skillIds.map((skillId) => ({ id: skillId })) }
-            : undefined,
-        },
-        include: { skills: true },
-      });
+      let updated;
+      try {
+        updated = await prisma.worksheetTemplateQuestion.update({
+          where: { id },
+          data: {
+            question: question || undefined,
+            answer: answer || undefined,
+            outOf: outOf !== undefined ? Number(outOf) : undefined,
+            skills: skillIds
+              ? { set: skillIds.map((skillId) => ({ id: skillId })) }
+              : undefined,
+          },
+          include: { skills: true },
+        });
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return c.json({ message: 'Template question not found' }, 404);
+        }
+        throw error;
+      }
       return c.json(updated, 200);
     } catch (error) {
       console.error('Error updating template question:', error);
@@ -112,11 +116,12 @@ worksheetTemplateReadRoutes.delete('/questions/:id', requireSuper, async (c) => 
   if (!prisma) return c.json({ message: 'Database is not available' }, 500);
   const id = c.req.param('id');
   try {
-    const existing = await prisma.worksheetTemplateQuestion.findUnique({ where: { id } });
-    if (!existing) return c.json({ message: 'Template question not found' }, 404);
     await prisma.worksheetTemplateQuestion.delete({ where: { id } });
     return c.json({ message: 'Template question deleted successfully' }, 200);
   } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return c.json({ message: 'Template question not found' }, 404);
+    }
     console.error('Error deleting template question:', error);
     return c.json({ message: 'Server error while deleting template question' }, 500);
   }
@@ -151,19 +156,20 @@ worksheetTemplateReadRoutes.post(
     try {
       if (worksheetNumber !== undefined && worksheetNumber !== null && worksheetNumber !== '') {
         const num = Number(worksheetNumber);
-        const dup = await prisma.worksheetTemplate.findUnique({
-          where: { worksheetNumber: num },
-        });
-        if (dup) {
-          return c.json(
-            { message: 'A template with this worksheet number already exists' },
-            400
-          );
+        try {
+          const created = await prisma.worksheetTemplate.create({
+            data: { worksheetNumber: num },
+          });
+          return c.json(created, 201);
+        } catch (error) {
+          if (isUniqueConstraintError(error)) {
+            return c.json(
+              { message: 'A template with this worksheet number already exists' },
+              400
+            );
+          }
+          throw error;
         }
-        const created = await prisma.worksheetTemplate.create({
-          data: { worksheetNumber: num },
-        });
-        return c.json(created, 201);
       }
       const created = await prisma.worksheetTemplate.create({ data: {} });
       return c.json(created, 201);
@@ -185,30 +191,29 @@ worksheetTemplateReadRoutes.put(
     const { worksheetNumber } = c.req.valid('json');
 
     try {
-      const existing = await prisma.worksheetTemplate.findUnique({ where: { id } });
-      if (!existing) return c.json({ message: 'Worksheet template not found' }, 404);
-
       const num =
         worksheetNumber !== undefined && worksheetNumber !== null && worksheetNumber !== ''
           ? Number(worksheetNumber)
           : null;
 
-      if (num !== null && num !== existing.worksheetNumber) {
-        const dup = await prisma.worksheetTemplate.findUnique({
-          where: { worksheetNumber: num },
+      let updated;
+      try {
+        updated = await prisma.worksheetTemplate.update({
+          where: { id },
+          data: { worksheetNumber: num },
         });
-        if (dup) {
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return c.json({ message: 'Worksheet template not found' }, 404);
+        }
+        if (isUniqueConstraintError(error)) {
           return c.json(
             { message: 'A template with this worksheet number already exists' },
             400
           );
         }
+        throw error;
       }
-
-      const updated = await prisma.worksheetTemplate.update({
-        where: { id },
-        data: { worksheetNumber: num },
-      });
       return c.json(updated, 200);
     } catch (error) {
       console.error('Error updating worksheet template:', error);
@@ -222,10 +227,17 @@ worksheetTemplateReadRoutes.delete('/:id', requireSuper, async (c) => {
   if (!prisma) return c.json({ message: 'Database is not available' }, 500);
   const id = c.req.param('id');
   try {
-    const tpl = await prisma.worksheetTemplate.findUnique({ where: { id } });
-    if (!tpl) return c.json({ message: 'Worksheet template not found' }, 404);
+    // deleteMany on the child table is idempotent (count=0 if there are no
+    // matches); only the parent delete needs the P2025 translation.
     await prisma.worksheetTemplateImage.deleteMany({ where: { worksheetTemplateId: id } });
-    await prisma.worksheetTemplate.delete({ where: { id } });
+    try {
+      await prisma.worksheetTemplate.delete({ where: { id } });
+    } catch (error) {
+      if (isRecordNotFoundError(error)) {
+        return c.json({ message: 'Worksheet template not found' }, 404);
+      }
+      throw error;
+    }
     return c.json({ message: 'Worksheet template deleted successfully' }, 200);
   } catch (error) {
     console.error('Error deleting worksheet template:', error);

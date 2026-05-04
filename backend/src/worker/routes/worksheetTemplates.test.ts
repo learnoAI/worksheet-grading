@@ -269,20 +269,17 @@ describe('POST /api/worksheet-templates', () => {
     expect(create).toHaveBeenCalledWith({ data: {} });
   });
 
-  it('returns 400 when worksheetNumber already exists', async () => {
-    const findUnique = vi.fn().mockResolvedValue({ id: 'existing' });
-    const create = vi.fn();
-    const app = mountApp({ worksheetTemplate: { findUnique, create } });
+  it('returns 400 when create reports P2002 on worksheetNumber', async () => {
+    const create = vi.fn().mockRejectedValue({ code: 'P2002', message: 'unique' });
+    const app = mountApp({ worksheetTemplate: { create } });
     const token = await tokenAs('SUPERADMIN');
     const res = await postJson(app, '/api/worksheet-templates', { worksheetNumber: 5 }, token);
     expect(res.status).toBe(400);
-    expect(create).not.toHaveBeenCalled();
   });
 
   it('creates with worksheetNumber when unique', async () => {
-    const findUnique = vi.fn().mockResolvedValue(null);
     const create = vi.fn().mockResolvedValue({ id: 't-new', worksheetNumber: 5 });
-    const app = mountApp({ worksheetTemplate: { findUnique, create } });
+    const app = mountApp({ worksheetTemplate: { create } });
     const token = await tokenAs('SUPERADMIN');
     const res = await postJson(app, '/api/worksheet-templates', { worksheetNumber: 5 }, token);
     expect(res.status).toBe(201);
@@ -293,34 +290,25 @@ describe('POST /api/worksheet-templates', () => {
 describe('PUT /api/worksheet-templates/:id', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns 404 when template not found', async () => {
-    const findUnique = vi.fn().mockResolvedValue(null);
-    const app = mountApp({ worksheetTemplate: { findUnique, update: vi.fn() } });
+  it('returns 404 when update reports P2025', async () => {
+    const update = vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' });
+    const app = mountApp({ worksheetTemplate: { update } });
     const token = await tokenAs('SUPERADMIN');
     const res = await putJson(app, '/api/worksheet-templates/missing', { worksheetNumber: 5 }, token);
     expect(res.status).toBe(404);
   });
 
-  it('rejects when new worksheetNumber conflicts with another template', async () => {
-    const findUnique = vi
-      .fn()
-      .mockResolvedValueOnce({ id: 't1', worksheetNumber: 1 })
-      .mockResolvedValueOnce({ id: 't2', worksheetNumber: 5 });
-    const update = vi.fn();
-    const app = mountApp({ worksheetTemplate: { findUnique, update } });
+  it('returns 400 when update reports P2002 (worksheetNumber conflict)', async () => {
+    const update = vi.fn().mockRejectedValue({ code: 'P2002', message: 'unique' });
+    const app = mountApp({ worksheetTemplate: { update } });
     const token = await tokenAs('SUPERADMIN');
     const res = await putJson(app, '/api/worksheet-templates/t1', { worksheetNumber: 5 }, token);
     expect(res.status).toBe(400);
-    expect(update).not.toHaveBeenCalled();
   });
 
   it('updates worksheetNumber when unique', async () => {
-    const findUnique = vi
-      .fn()
-      .mockResolvedValueOnce({ id: 't1', worksheetNumber: 1 })
-      .mockResolvedValueOnce(null);
     const update = vi.fn().mockResolvedValue({ id: 't1', worksheetNumber: 5 });
-    const app = mountApp({ worksheetTemplate: { findUnique, update } });
+    const app = mountApp({ worksheetTemplate: { update } });
     const token = await tokenAs('SUPERADMIN');
     const res = await putJson(app, '/api/worksheet-templates/t1', { worksheetNumber: 5 }, token);
     expect(res.status).toBe(200);
@@ -404,9 +392,11 @@ describe('POST /api/worksheet-templates/:id/images', () => {
 describe('DELETE /api/worksheet-templates/images/:id', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns 404 when not found', async () => {
+  it('returns 404 when delete reports P2025', async () => {
     const app = mountApp({
-      worksheetTemplateImage: { findUnique: vi.fn().mockResolvedValue(null), delete: vi.fn() },
+      worksheetTemplateImage: {
+        delete: vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' }),
+      },
     });
     const token = await tokenAs('SUPERADMIN');
     const res = await app.request(
