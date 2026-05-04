@@ -2,6 +2,11 @@ import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
 import { UserRole, type Prisma } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
+import {
+  isUniqueConstraintError,
+  isRecordNotFoundError,
+  getUniqueConstraintTarget,
+} from '../lib/prismaErrors';
 import { validateJson } from '../validation';
 import {
   createUserSchema,
@@ -184,39 +189,47 @@ users.post('/', requireAdminOrSuper, validateJson(createUserSchema), async (c) =
     c.req.valid('json');
 
   try {
-    const usernameTaken = await prisma.user.findUnique({ where: { username } });
-    if (usernameTaken) {
-      return c.json({ message: 'Username already exists' }, 400);
-    }
-
-    if (tokenNumber) {
-      const tokenTaken = await prisma.user.findFirst({ where: { tokenNumber } });
-      if (tokenTaken) {
-        return c.json({ message: 'Token number already exists' }, 400);
-      }
-    }
-
+    // Skip findUnique pre-checks for username / tokenNumber — both are unique
+    // columns, so the create itself is authoritative. Hyperdrive's read cache
+    // can return stale rows after a delete, which made the pre-checks
+    // produce false-positive 400s. Disambiguate the duplicate column from
+    // P2002's `meta.target`.
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const newUser = await prisma.user.create({
-      data: {
-        name,
-        username,
-        password: hashedPassword,
-        role: role as UserRole,
-        tokenNumber: tokenNumber || null,
-      },
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        role: true,
-        tokenNumber: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    let newUser;
+    try {
+      newUser = await prisma.user.create({
+        data: {
+          name,
+          username,
+          password: hashedPassword,
+          role: role as UserRole,
+          tokenNumber: tokenNumber || null,
+        },
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          role: true,
+          tokenNumber: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        const target = getUniqueConstraintTarget(error);
+        if (target.includes('username')) {
+          return c.json({ message: 'Username already exists' }, 400);
+        }
+        if (target.includes('tokenNumber')) {
+          return c.json({ message: 'Token number already exists' }, 400);
+        }
+        return c.json({ message: 'A user with these details already exists' }, 400);
+      }
+      throw error;
+    }
 
     // Side-effect joins. Mirrors Express: not wrapped in a transaction.
     if (role === 'STUDENT' && classId) {
@@ -228,15 +241,12 @@ users.post('/', requireAdminOrSuper, validateJson(createUserSchema), async (c) =
         select: { schoolId: true },
       });
       if (cls) {
-        const existing = await prisma.studentSchool.findUnique({
-          where: {
-            studentId_schoolId: { studentId: newUser.id, schoolId: cls.schoolId },
-          },
-        });
-        if (!existing) {
+        try {
           await prisma.studentSchool.create({
             data: { studentId: newUser.id, schoolId: cls.schoolId },
           });
+        } catch (error) {
+          if (!isUniqueConstraintError(error)) throw error;
         }
       }
     } else if (role === 'TEACHER' && classId) {
@@ -266,58 +276,64 @@ users.put('/:id', requireAdminOrSuper, validateJson(updateUserSchema), async (c)
   const body = c.req.valid('json');
 
   try {
+    // Read the existing user once for the role-change guard. We still
+    // can't avoid this read because the request payload doesn't carry the
+    // current role, but it's read-only — staleness here only matters for
+    // the role-change guard, which is informational rather than a security
+    // boundary (DB-level role enforcement would be a separate change).
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) return c.json({ message: 'User not found' }, 404);
-
-    const data: Prisma.UserUpdateInput = {};
-
-    if (body.name) data.name = body.name;
-
-    if (body.username && body.username !== existing.username) {
-      const usernameTaken = await prisma.user.findUnique({
-        where: { username: body.username },
-      });
-      if (usernameTaken) {
-        return c.json({ message: 'Username already exists' }, 400);
-      }
-      data.username = body.username;
-    }
-
-    if (body.password) {
-      const salt = await bcrypt.genSalt(10);
-      data.password = await bcrypt.hash(body.password, salt);
-    }
 
     if (body.role && body.role !== existing.role) {
       return c.json({ message: 'Changing user role is not allowed' }, 400);
     }
 
+    const data: Prisma.UserUpdateInput = {};
+    if (body.name) data.name = body.name;
+    if (body.username) data.username = body.username;
+    if (body.password) {
+      const salt = await bcrypt.genSalt(10);
+      data.password = await bcrypt.hash(body.password, salt);
+    }
     if (body.tokenNumber !== undefined) {
-      if (body.tokenNumber && body.tokenNumber !== existing.tokenNumber) {
-        const tokenTaken = await prisma.user.findFirst({
-          where: { tokenNumber: body.tokenNumber, id: { not: id } },
-        });
-        if (tokenTaken) {
-          return c.json({ message: 'Token number already exists' }, 400);
-        }
-      }
       data.tokenNumber = body.tokenNumber || null;
     }
 
-    const updated = await prisma.user.update({
-      where: { id },
-      data,
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        role: true,
-        tokenNumber: true,
-        isArchived: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    // Let the DB enforce uniqueness on username / tokenNumber rather than
+    // pre-checking with Hyperdrive-stale findUnique calls. Disambiguate via
+    // P2002's meta.target.
+    let updated;
+    try {
+      updated = await prisma.user.update({
+        where: { id },
+        data,
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          role: true,
+          tokenNumber: true,
+          isArchived: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    } catch (error) {
+      if (isRecordNotFoundError(error)) {
+        return c.json({ message: 'User not found' }, 404);
+      }
+      if (isUniqueConstraintError(error)) {
+        const target = getUniqueConstraintTarget(error);
+        if (target.includes('username')) {
+          return c.json({ message: 'Username already exists' }, 400);
+        }
+        if (target.includes('tokenNumber')) {
+          return c.json({ message: 'Token number already exists' }, 400);
+        }
+        return c.json({ message: 'A user with these details already exists' }, 400);
+      }
+      throw error;
+    }
     return c.json(updated, 200);
   } catch (error) {
     console.error('Update user error:', error);
@@ -337,13 +353,17 @@ users.post(
     const { newPassword } = c.req.valid('json');
 
     try {
-      const existing = await prisma.user.findUnique({ where: { id } });
-      if (!existing) return c.json({ message: 'User not found' }, 404);
-
       const salt = await bcrypt.genSalt(10);
       const hashed = await bcrypt.hash(newPassword, salt);
 
-      await prisma.user.update({ where: { id }, data: { password: hashed } });
+      try {
+        await prisma.user.update({ where: { id }, data: { password: hashed } });
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return c.json({ message: 'User not found' }, 404);
+        }
+        throw error;
+      }
       return c.json({ message: 'Password reset successful' }, 200);
     } catch (error) {
       console.error('Password reset error:', error);
@@ -481,11 +501,12 @@ users.post('/:id/archive', requireSuperadmin, async (c) => {
 
   const id = c.req.param('id');
   try {
-    const existing = await prisma.user.findUnique({ where: { id } });
-    if (!existing) return c.json({ message: 'Student not found' }, 404);
     await prisma.user.update({ where: { id }, data: { isArchived: true } });
     return c.json({ message: 'Student archived successfully' }, 200);
   } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return c.json({ message: 'Student not found' }, 404);
+    }
     console.error('Archive student error:', error);
     return c.json({ message: 'Server error during student archiving' }, 500);
   }
@@ -497,11 +518,12 @@ users.post('/:id/unarchive', requireSuperadmin, async (c) => {
 
   const id = c.req.param('id');
   try {
-    const existing = await prisma.user.findUnique({ where: { id } });
-    if (!existing) return c.json({ message: 'Student not found' }, 404);
     await prisma.user.update({ where: { id }, data: { isArchived: false } });
     return c.json({ message: 'Student unarchived successfully' }, 200);
   } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return c.json({ message: 'Student not found' }, 404);
+    }
     console.error('Unarchive student error:', error);
     return c.json({ message: 'Server error during student unarchiving' }, 500);
   }

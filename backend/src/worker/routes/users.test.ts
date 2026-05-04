@@ -266,25 +266,30 @@ describe('POST /api/users', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 when username is taken', async () => {
-    const findUnique = vi.fn().mockResolvedValue({ id: 'existing' });
-    const create = vi.fn();
-    const app = mountApp({ user: { findUnique, findFirst: vi.fn(), create } });
+  it('returns 400 when create reports P2002 on username', async () => {
+    const create = vi.fn().mockRejectedValue({
+      code: 'P2002',
+      meta: { target: ['username'] },
+    });
+    const app = mountApp({ user: { create } });
     const token = await tokenAs('SUPERADMIN');
     const res = await postJson(app, '/api/users', validNewUser, token);
     expect(res.status).toBe(400);
-    expect(create).not.toHaveBeenCalled();
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/Username/);
   });
 
-  it('returns 400 when tokenNumber is taken', async () => {
-    const findUnique = vi.fn().mockResolvedValue(null);
-    const findFirst = vi.fn().mockResolvedValue({ id: 'token-owner' });
-    const create = vi.fn();
-    const app = mountApp({ user: { findUnique, findFirst, create } });
+  it('returns 400 when create reports P2002 on tokenNumber', async () => {
+    const create = vi.fn().mockRejectedValue({
+      code: 'P2002',
+      meta: { target: ['tokenNumber'] },
+    });
+    const app = mountApp({ user: { create } });
     const token = await tokenAs('SUPERADMIN');
     const res = await postJson(app, '/api/users', { ...validNewUser, tokenNumber: 'T1' }, token);
     expect(res.status).toBe(400);
-    expect(create).not.toHaveBeenCalled();
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/Token number/);
   });
 
   it('creates a teacher with hashed password and returns 201', async () => {
@@ -377,18 +382,18 @@ describe('PUT /api/users/:id', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('returns 400 when new username is taken by another user', async () => {
-    // findUnique called twice: first by id (existing), then by username (taken)
-    const findUnique = vi
-      .fn()
-      .mockResolvedValueOnce({ id: 'u1', username: 'old' })
-      .mockResolvedValueOnce({ id: 'u2', username: 'new' });
-    const update = vi.fn();
-    const app = mountApp({ user: { findUnique, findFirst: vi.fn(), update } });
+  it('returns 400 when update reports P2002 on username', async () => {
+    const findUnique = vi.fn().mockResolvedValue({ id: 'u1', username: 'old', role: 'TEACHER' });
+    const update = vi.fn().mockRejectedValue({
+      code: 'P2002',
+      meta: { target: ['username'] },
+    });
+    const app = mountApp({ user: { findUnique, update } });
     const token = await tokenAs('SUPERADMIN');
     const res = await putJson(app, '/api/users/u1', { username: 'new' }, token);
     expect(res.status).toBe(400);
-    expect(update).not.toHaveBeenCalled();
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/Username/);
   });
 
   it('updates name when only name is provided', async () => {
@@ -410,10 +415,9 @@ describe('PUT /api/users/:id', () => {
 describe('POST /api/users/:id/reset-password', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns 404 when user does not exist', async () => {
-    const findUnique = vi.fn().mockResolvedValue(null);
-    const update = vi.fn();
-    const app = mountApp({ user: { findUnique, update } });
+  it('returns 404 when update reports P2025', async () => {
+    const update = vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' });
+    const app = mountApp({ user: { update } });
     const token = await tokenAs('SUPERADMIN');
     const res = await postJson(
       app,
@@ -464,9 +468,9 @@ describe('POST /api/users/:id/archive and unarchive', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns 404 when user not found', async () => {
-    const findUnique = vi.fn().mockResolvedValue(null);
-    const app = mountApp({ user: { findUnique, update: vi.fn() } });
+  it('returns 404 when update reports P2025', async () => {
+    const update = vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' });
+    const app = mountApp({ user: { update } });
     const token = await tokenAs('SUPERADMIN');
     const res = await postJson(app, '/api/users/missing/archive', {}, token);
     expect(res.status).toBe(404);

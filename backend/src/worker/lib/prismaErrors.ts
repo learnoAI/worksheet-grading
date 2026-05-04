@@ -44,3 +44,23 @@ export function isRecordNotFoundError(error: unknown): boolean {
 export function isForeignKeyConstraintError(error: unknown): boolean {
   return hasCode(error, 'P2003');
 }
+
+/**
+ * Returns the field names that participated in a P2002 unique-constraint
+ * violation, e.g. `['username']` or `['name', 'schoolId', 'academicYear']`.
+ * Used to disambiguate which column was the duplicate when a single create
+ * could violate any of several unique constraints.
+ *
+ * Returns `[]` if the error isn't P2002 or doesn't carry a target.
+ */
+export function getUniqueConstraintTarget(error: unknown): string[] {
+  if (!isUniqueConstraintError(error)) return [];
+  const meta = (error as { meta?: unknown }).meta;
+  if (typeof meta !== 'object' || meta === null) return [];
+  const target = (meta as { target?: unknown }).target;
+  if (Array.isArray(target)) {
+    return target.filter((t): t is string => typeof t === 'string');
+  }
+  if (typeof target === 'string') return [target];
+  return [];
+}
