@@ -11,7 +11,6 @@ import { authenticate, authorize } from '../middleware/auth';
 import {
   createPresignedPutUrl,
   publicObjectUrl,
-  StorageError,
 } from '../adapters/storage';
 import { publishToQueue, QueueError } from '../adapters/queues';
 import { uploadObject } from '../adapters/storage';
@@ -28,7 +27,6 @@ import {
   parseSubmittedOn,
   requireString,
   DIRECT_UPLOAD_URL_TTL_SECONDS,
-  type DirectUploadWorksheetInput,
 } from '../lib/directUpload';
 import type { AppBindings, WorkerEnv } from '../types';
 
@@ -711,7 +709,6 @@ worksheetProcessing.post(
         200
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to finalize upload session';
       console.error('[direct-upload-finalize]', error, {
         batchId,
         teacherId: user.userId,

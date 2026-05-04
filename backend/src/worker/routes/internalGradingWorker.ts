@@ -67,12 +67,9 @@ const heartbeatSchema = z.object({
   phase: z.string().optional(),
 });
 
-const completeSchema = z
-  .object({
-    leaseId: z.string().min(1, { message: 'leaseId is required' }),
-    gradingResponse: z.record(z.string(), z.unknown()).optional(),
-  })
-  .passthrough();
+// NOTE: the `/jobs/:jobId/complete` route does NOT use a zod schema —
+// it manually parses two body shapes for backwards compatibility (see
+// `getGradingResponseFromBody`). This matches the Express controller.
 
 const failSchema = z.object({
   leaseId: z.string().min(1, { message: 'leaseId is required' }),
