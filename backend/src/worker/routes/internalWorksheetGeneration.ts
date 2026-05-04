@@ -22,14 +22,18 @@ import type { AppBindings } from '../types';
  * progress stays consistent during the parallel-run window.
  */
 
+// `batchId` uses `.nullish()` (string | null | undefined) because the
+// pdf-renderer Worker types it as `string | null` and serializes JSON `null`
+// when a worksheet has no batch (single-render flow). The Express route
+// tolerated `null` via permissive manual parsing; matching that here.
 const completeSchema = z.object({
   pdfUrl: z.string().min(1, { message: 'pdfUrl required' }),
-  batchId: z.string().optional(),
+  batchId: z.string().nullish(),
 });
 
 const failSchema = z.object({
   error: z.string().optional(),
-  batchId: z.string().optional(),
+  batchId: z.string().nullish(),
 });
 
 const internalWorksheetGeneration = new Hono<AppBindings>();

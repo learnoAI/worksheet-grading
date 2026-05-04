@@ -122,6 +122,21 @@ describe('POST /internal/worksheet-generation/:id/complete', () => {
     expect(batchUpdate).not.toHaveBeenCalled();
   });
 
+  it('accepts an explicit batchId: null (pdf-renderer wire format)', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const batchUpdate = vi.fn();
+    const app = mountApp({
+      generatedWorksheet: { update },
+      worksheetBatch: { update: batchUpdate },
+    });
+    const res = await postJson(app, '/internal/worksheet-generation/w1/complete', {
+      pdfUrl: 'https://cdn/worksheet.pdf',
+      batchId: null,
+    });
+    expect(res.status).toBe(200);
+    expect(batchUpdate).not.toHaveBeenCalled();
+  });
+
   it('increments completedWorksheets on the batch when batchId is provided', async () => {
     const update = vi.fn().mockResolvedValue({});
     const batchUpdate = vi.fn().mockResolvedValue({
@@ -189,6 +204,21 @@ describe('POST /internal/worksheet-generation/:id/complete', () => {
 
 describe('POST /internal/worksheet-generation/:id/fail', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('accepts an explicit batchId: null on /fail (pdf-renderer wire format)', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const batchUpdate = vi.fn();
+    const app = mountApp({
+      generatedWorksheet: { update },
+      worksheetBatch: { update: batchUpdate },
+    });
+    const res = await postJson(app, '/internal/worksheet-generation/w1/fail', {
+      error: 'rendering failed',
+      batchId: null,
+    });
+    expect(res.status).toBe(200);
+    expect(batchUpdate).not.toHaveBeenCalled();
+  });
 
   it('marks the worksheet FAILED even without a batchId', async () => {
     const update = vi.fn().mockResolvedValue({});
