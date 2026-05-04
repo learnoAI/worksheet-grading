@@ -1,28 +1,35 @@
 import puppeteer from 'puppeteer';
 import prisma from '../utils/prisma';
 import { uploadToS3 } from './s3Service';
+import {
+    WORKSHEET_QUESTION_STYLES,
+    WorksheetQuestion,
+    escapeHtml,
+    renderWorksheetQuestion
+} from './worksheetQuestionFormatter';
 
 interface SectionData {
     skillId: string;
     skillName: string;
     instruction: string;
-    questions: { question: string; answer: string }[];
+    questions: WorksheetQuestion[];
 }
 
 function buildPageHtml(sections: [SectionData, SectionData], pageStartQ: number): string {
     const [sectionTop, sectionBottom] = sections;
 
-    const renderGrid = (questions: { question: string }[], startNum: number) => {
+    const renderGrid = (section: SectionData, startNum: number) => {
+        const questions = section.questions;
         const cols = 4;
         const rows = Math.ceil(questions.length / cols);
-        let html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(' + rows + ',1fr);gap:8px 16px;margin-top:12px;">';
+        let html = '<div class="worksheet-grid" style="grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(' + rows + ',minmax(88px,1fr));">';
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
                 const idx = c * rows + r; // column-major order (Q1-5 in col 1, Q6-10 in col 2, etc.)
                 const q = questions[idx];
                 const num = startNum + idx;
                 if (q) {
-                    html += `<div style="font-size:14px;padding:4px 0;min-height:60px;border-left:${c > 0 ? '1px solid #ccc' : 'none'};padding-left:${c > 0 ? '12px' : '0'};">Q${num}. ${escapeHtml(q.question)}</div>`;
+                    html += `<div class="worksheet-cell" style="border-left:${c > 0 ? '1px solid #111' : 'none'};padding-left:${c > 0 ? '12px' : '0'};">${renderWorksheetQuestion(num, q, section)}</div>`;
                 } else {
                     html += '<div></div>';
                 }
@@ -43,14 +50,14 @@ function buildPageHtml(sections: [SectionData, SectionData], pageStartQ: number)
             <div style="flex:1;display:flex;flex-direction:column;">
                 <div style="flex:1;">
                     <div style="font-size:13px;font-weight:bold;margin-top:12px;white-space:pre-line;">${escapeHtml(sectionTop.instruction)}</div>
-                    ${renderGrid(sectionTop.questions, pageStartQ)}
+                    ${renderGrid(sectionTop, pageStartQ)}
                 </div>
 
                 <div style="border-top:2px solid #aaa;margin:12px 0;"></div>
 
                 <div style="flex:1;">
                     <div style="font-size:13px;font-weight:bold;white-space:pre-line;">${escapeHtml(sectionBottom.instruction)}</div>
-                    ${renderGrid(sectionBottom.questions, pageStartQ + 10)}
+                    ${renderGrid(sectionBottom, pageStartQ + 10)}
                 </div>
             </div>
 
@@ -59,10 +66,6 @@ function buildPageHtml(sections: [SectionData, SectionData], pageStartQ: number)
             </div>
         </div>
     `;
-}
-
-function escapeHtml(text: string): string {
-    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function buildFullHtml(sections: SectionData[]): string {
@@ -77,6 +80,7 @@ function buildFullHtml(sections: SectionData[]): string {
     body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 0; }
     .page { width: 100%; height: 100vh; page-break-after: always; }
     .page:last-child { page-break-after: auto; }
+    ${WORKSHEET_QUESTION_STYLES}
 </style>
 </head>
 <body>

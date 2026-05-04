@@ -31,7 +31,7 @@ export interface WorksheetBatch {
 
 export const worksheetGenerationAPI = {
     generate: async (studentId: string, days: number, startDate: string) => {
-        return fetchAPI<{ success: boolean; data: { worksheetIds: string[]; status: string; errors: string[] } }>(
+        return fetchAPI<{ success: boolean; data: { batchId: string; worksheetIds: string[]; status: string; totalWorksheets: number; skillsToGenerate: number; errors: string[] } }>(
             '/worksheet-generation/generate',
             { method: 'POST', body: JSON.stringify({ studentId, days, startDate }) }
         );
