@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { NotificationStatus } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
+import { isRecordNotFoundError } from '../lib/prismaErrors';
 import type { AppBindings } from '../types';
 
 /**
@@ -61,6 +62,16 @@ notifications.put('/:id/read', async (c) => {
 
   const id = c.req.param('id');
   try {
+    // The findUnique pre-check is kept here because we need the row's
+    // userId to disambiguate 404 (doesn't exist) from 403 (exists but
+    // belongs to another user) — that distinction is part of the Express
+    // contract we're preserving. Notifications aren't subject to the
+    // delete-then-recreate flows that make this pattern dangerous in
+    // analytics / classes; the only Hyperdrive-cache risk is a transient
+    // false-positive 404 immediately after a notification is created,
+    // which is preferable to leaking existence to non-owners. The
+    // followup `update` is defended with a P2025 catch in case the row
+    // disappeared between read and write.
     const existing = await prisma.notification.findUnique({ where: { id } });
     if (!existing) {
       return c.json({ message: 'Notification not found' }, 404);
@@ -69,10 +80,18 @@ notifications.put('/:id/read', async (c) => {
       return c.json({ message: 'Not authorized to update this notification' }, 403);
     }
 
-    const updated = await prisma.notification.update({
-      where: { id },
-      data: { status: NotificationStatus.READ },
-    });
+    let updated;
+    try {
+      updated = await prisma.notification.update({
+        where: { id },
+        data: { status: NotificationStatus.READ },
+      });
+    } catch (error) {
+      if (isRecordNotFoundError(error)) {
+        return c.json({ message: 'Notification not found' }, 404);
+      }
+      throw error;
+    }
     return c.json(updated, 200);
   } catch (error) {
     console.error('Mark notification as read error:', error);
