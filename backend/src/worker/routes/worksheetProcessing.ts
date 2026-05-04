@@ -200,10 +200,14 @@ async function dispatchJob(
 
   const queuedAt = new Date().toISOString();
   try {
+    // Field name is `v`, not `version` — matches the GradingQueueMessageV1
+    // schema in Express (`services/queue/gradingQueue.ts`) and the
+    // grading-consumer's `parseQueueMessage`. See dispatch.ts for the
+    // matching publish in the cron path.
     await publishToQueue(env, 'CF_QUEUE_ID', {
+      v: 1,
       jobId,
       enqueuedAt: queuedAt,
-      version: 1,
     });
     await prisma.gradingJob.update({
       where: { id: jobId },

@@ -170,10 +170,15 @@ export async function dispatchPendingJobs(
 
     const queuedAt = new Date().toISOString();
     try {
+      // Field name is `v`, not `version` — matches the Express
+      // GradingQueueMessageV1 schema (`services/queue/gradingQueue.ts`) and
+      // what the grading-consumer Worker reads (`parseQueueMessage` in
+      // `cloudflare/grading-consumer/src/index.ts:71`). Renaming this would
+      // break the consumer's `Unsupported message version: undefined` check.
       await publishToQueue(env, 'CF_QUEUE_ID', {
+        v: 1,
         jobId: job.id,
         enqueuedAt: queuedAt,
-        version: 1,
       });
       await prisma.gradingJob.update({
         where: { id: job.id },
