@@ -94,6 +94,52 @@ describe('expressFallback — request passthrough', () => {
     await app.request('/api/unknown', { method: 'GET' }, ENV);
     expect((upstream.mock.calls[0][1] as RequestInit).body).toBeUndefined();
   });
+
+  it('strips inbound Host so fetch infers Host from the target URL', async () => {
+    const upstream = mockUpstream(200);
+    const app = buildApp(upstream as unknown as typeof fetch);
+    await app.request(
+      'https://worksheet-grading-api.example.workers.dev/api/unknown',
+      {
+        method: 'POST',
+        headers: {
+          Host: 'worksheet-grading-api.example.workers.dev',
+          Authorization: 'Bearer abc',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ x: 1 }),
+      },
+      ENV
+    );
+    const init = upstream.mock.calls[0][1] as RequestInit;
+    const h = init.headers as Headers;
+    // Host must not be forwarded — fetch will set it from the upstream URL.
+    expect(h.get('host')).toBeNull();
+    // Sanity: other forwarding semantics are unaffected.
+    expect(h.get('authorization')).toBe('Bearer abc');
+    expect(h.get('content-type')).toBe('application/json');
+    expect(h.get('x-forwarded-host')).toBe('worksheet-grading-api.example.workers.dev');
+  });
+
+  it('strips inbound Cookie to avoid cross-origin credential leakage', async () => {
+    const upstream = mockUpstream(200);
+    const app = buildApp(upstream as unknown as typeof fetch);
+    await app.request(
+      '/api/unknown',
+      {
+        method: 'GET',
+        headers: {
+          Cookie: 'session=super-secret; other=1',
+          Authorization: 'Bearer abc',
+        },
+      },
+      ENV
+    );
+    const h = upstream.mock.calls[0][1].headers as Headers;
+    expect(h.get('cookie')).toBeNull();
+    // Authorization is the supported auth path and must still flow.
+    expect(h.get('authorization')).toBe('Bearer abc');
+  });
 });
 
 describe('expressFallback — response passthrough', () => {
@@ -136,6 +182,21 @@ describe('expressFallback — response passthrough', () => {
     const res = await app.request('/api/unknown', {}, ENV);
     expect(res.status).toBe(500);
     expect(await res.text()).toBe('internal boom');
+  });
+
+  it('strips Set-Cookie from upstream response (different origin)', async () => {
+    const upstreamRes = new Response('ok', {
+      status: 200,
+      headers: {
+        'content-type': 'text/plain',
+        'set-cookie': 'session=upstream-set; Path=/; HttpOnly',
+      },
+    });
+    const upstream = mockUpstream(upstreamRes);
+    const app = buildApp(upstream as unknown as typeof fetch);
+    const res = await app.request('/api/unknown', {}, ENV);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('set-cookie')).toBeNull();
   });
 });
 

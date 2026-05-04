@@ -27,6 +27,20 @@ import type { AppBindings } from './types';
  *
  * Hop-by-hop headers — per RFC 7230 §6.1 — must not be forwarded. We
  * filter them on the way in and out.
+ *
+ * `host` is not technically hop-by-hop, but the inbound `Host` is the
+ * worker's own hostname (e.g. `*.workers.dev`); forwarding it to Express
+ * on a different origin (`*.ondigitalocean.app`) confuses upstream
+ * routing and virtual-host resolution. Dropping it lets `fetch` infer
+ * the correct Host from the target URL.
+ *
+ * `cookie` / `set-cookie` are dropped because the worker and Express
+ * live on different domains. Browser cookies are scoped to the worker's
+ * domain — forwarding them verbatim is a cross-origin credential leak
+ * (Express, its logs, or any intermediary would see tokens that were
+ * not meant for that origin). Express does not use cookie-based auth
+ * (`Authorization: Bearer …` is the auth path), so stripping these
+ * doesn't break any flow.
  */
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -37,6 +51,10 @@ const HOP_BY_HOP_HEADERS = new Set([
   'trailer',
   'transfer-encoding',
   'upgrade',
+  // Not hop-by-hop, but must not be forwarded across origins (see above).
+  'host',
+  'cookie',
+  'set-cookie',
   // Cloudflare-managed headers that must not be forwarded verbatim.
   'cf-connecting-ip',
   'cf-ray',
