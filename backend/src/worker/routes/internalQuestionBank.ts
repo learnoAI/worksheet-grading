@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { requireWorksheetCreationToken } from '../middleware/workerTokens';
 import { validateJson } from '../validation';
@@ -26,6 +27,12 @@ import type { AppBindings } from '../types';
  * against the same database during the parallel-run window.
  */
 
+// `renderSpec` is the layout contract the question-generator Worker emits
+// for each question (e.g. long-division layout, vertical arithmetic, MCQ
+// circles). The Express controller persisted it as opaque JSON; the
+// PDF renderer relies on it being non-NULL for special-render paths. We
+// accept it as an unknown JSON value here — schema-level validation lives
+// in the question-generator that produced it.
 const storeQuestionsSchema = z.object({
   mathSkillId: z.string().min(1),
   questions: z
@@ -34,6 +41,7 @@ const storeQuestionsSchema = z.object({
         question: z.string(),
         answer: z.string(),
         instruction: z.string().optional(),
+        renderSpec: z.unknown().optional(),
       })
     )
     .min(1, { message: 'questions[] must not be empty' }),
@@ -75,6 +83,13 @@ internalQuestionBank.post(
           question: q.question,
           answer: q.answer,
           instruction: q.instruction,
+          // Persist `renderSpec` as opaque JSON when present. Required by
+          // the PDF renderer to dispatch special-render kinds (long_division,
+          // vertical_arithmetic, choice_circle); plain rendering otherwise.
+          renderSpec:
+            q.renderSpec === undefined
+              ? undefined
+              : (q.renderSpec as Prisma.InputJsonValue),
         })),
       });
 

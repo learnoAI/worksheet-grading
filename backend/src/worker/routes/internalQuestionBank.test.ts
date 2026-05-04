@@ -86,6 +86,27 @@ describe('POST /internal/question-bank/store', () => {
     expect(call.data[1].instruction).toBe('Solve.');
   });
 
+  it('persists renderSpec when present (matches Express + question-generator wire format)', async () => {
+    const createMany = vi.fn().mockResolvedValue({ count: 2 });
+    const app = mountApp({ questionBank: { createMany } });
+    const renderSpec = {
+      kind: 'long_division',
+      divisor: '3',
+      dividend: '24',
+    };
+    const res = await authed(app, '/internal/question-bank/store', {
+      mathSkillId: 's1',
+      questions: [
+        { question: '3 ) 24', answer: '8', instruction: 'Solve.', renderSpec },
+        { question: '5 + 5', answer: '10', instruction: 'Add.' }, // no renderSpec
+      ],
+    });
+    expect(res.status).toBe(200);
+    const call = createMany.mock.calls[0][0];
+    expect(call.data[0].renderSpec).toEqual(renderSpec);
+    expect(call.data[1].renderSpec).toBeUndefined();
+  });
+
   it('increments batch completedSkills when batchId is provided', async () => {
     const createMany = vi.fn().mockResolvedValue({ count: 1 });
     // Mock for incrementBatchCompletedSkills:
