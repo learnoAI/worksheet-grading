@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { UserRole, Prisma } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
+import { isUniqueConstraintError, isRecordNotFoundError } from '../lib/prismaErrors';
 import type { AppBindings } from '../types';
 
 /**
@@ -572,17 +573,6 @@ analytics.post('/students/:studentId/classes/:classId', async (c) => {
   }
 });
 
-function isUniqueConstraintError(error: unknown): boolean {
-  // Prisma's known-error code for a unique constraint failure. Matched by
-  // string instead of importing PrismaClientKnownRequestError directly to
-  // avoid pulling the runtime types into the worker bundle.
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code: unknown }).code === 'P2002'
-  );
-}
 
 analytics.delete('/students/:studentId/classes/:classId', async (c) => {
   const prisma = c.get('prisma');
@@ -608,13 +598,5 @@ analytics.delete('/students/:studentId/classes/:classId', async (c) => {
   }
 });
 
-function isRecordNotFoundError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code: unknown }).code === 'P2025'
-  );
-}
 
 export default analytics;

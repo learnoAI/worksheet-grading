@@ -235,12 +235,11 @@ describe('POST /api/classes', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns 400 when class with same name+year exists for school', async () => {
+  it('returns 400 when class.create hits a unique constraint (same name+year+school)', async () => {
     const app = mountApp({
       school: { findUnique: vi.fn().mockResolvedValue({ id: 's1' }) },
       class: {
-        findFirst: vi.fn().mockResolvedValue({ id: 'c-existing' }),
-        create: vi.fn(),
+        create: vi.fn().mockRejectedValue({ code: 'P2002', message: 'unique' }),
       },
     });
     const res = await postJson(app, '/api/classes', {
@@ -407,15 +406,14 @@ describe('POST /api/classes/:id/teachers/:teacherId', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns 400 when teacher already in class', async () => {
+  it('returns 400 when teacherClass.create hits a unique constraint (already in class)', async () => {
     const app = mountApp({
       class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1', schoolId: 's1' }) },
       user: { findUnique: vi.fn().mockResolvedValue({ id: 't1' }) },
       teacherClass: {
-        findUnique: vi.fn().mockResolvedValue({ teacherId: 't1' }),
-        create: vi.fn(),
+        create: vi.fn().mockRejectedValue({ code: 'P2002', message: 'unique' }),
       },
-      teacherSchool: { findUnique: vi.fn(), create: vi.fn() },
+      teacherSchool: { create: vi.fn() },
     });
     const res = await postJson(app, '/api/classes/c1/teachers/t1', {});
     expect(res.status).toBe(400);
@@ -427,22 +425,37 @@ describe('POST /api/classes/:id/teachers/:teacherId', () => {
     const app = mountApp({
       class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1', schoolId: 's1' }) },
       user: { findUnique: vi.fn().mockResolvedValue({ id: 't1' }) },
-      teacherClass: { findUnique: vi.fn().mockResolvedValue(null), create: tcCreate },
-      teacherSchool: { findUnique: vi.fn().mockResolvedValue(null), create: tsCreate },
+      teacherClass: { create: tcCreate },
+      teacherSchool: { create: tsCreate },
     });
     const res = await postJson(app, '/api/classes/c1/teachers/t1', {});
     expect(res.status).toBe(201);
     expect(tcCreate).toHaveBeenCalledWith({ data: { teacherId: 't1', classId: 'c1' } });
     expect(tsCreate).toHaveBeenCalledWith({ data: { teacherId: 't1', schoolId: 's1' } });
   });
+
+  it('swallows P2002 from teacherSchool.create when teacher already in school', async () => {
+    const app = mountApp({
+      class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1', schoolId: 's1' }) },
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 't1' }) },
+      teacherClass: { create: vi.fn().mockResolvedValue({}) },
+      teacherSchool: {
+        create: vi.fn().mockRejectedValue({ code: 'P2002', message: 'unique' }),
+      },
+    });
+    const res = await postJson(app, '/api/classes/c1/teachers/t1', {});
+    expect(res.status).toBe(201);
+  });
 });
 
 describe('DELETE /api/classes/:id/teachers/:teacherId', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns 404 when not assigned', async () => {
+  it('returns 404 when delete reports P2025 (not assigned)', async () => {
     const app = mountApp({
-      teacherClass: { findUnique: vi.fn().mockResolvedValue(null), delete: vi.fn() },
+      teacherClass: {
+        delete: vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' }),
+      },
     });
     const res = await delAuth(app, '/api/classes/c1/teachers/t1');
     expect(res.status).toBe(404);
@@ -451,10 +464,7 @@ describe('DELETE /api/classes/:id/teachers/:teacherId', () => {
   it('removes the assignment', async () => {
     const del = vi.fn().mockResolvedValue({});
     const app = mountApp({
-      teacherClass: {
-        findUnique: vi.fn().mockResolvedValue({ teacherId: 't1', classId: 'c1' }),
-        delete: del,
-      },
+      teacherClass: { delete: del },
     });
     const res = await delAuth(app, '/api/classes/c1/teachers/t1');
     expect(res.status).toBe(200);
@@ -467,15 +477,14 @@ describe('DELETE /api/classes/:id/teachers/:teacherId', () => {
 describe('POST + DELETE /api/classes/:id/students/:studentId', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('add: returns 400 when already in class', async () => {
+  it('add: returns 400 when studentClass.create hits unique constraint', async () => {
     const app = mountApp({
       class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1', schoolId: 's1' }) },
       user: { findUnique: vi.fn().mockResolvedValue({ id: 'st1' }) },
       studentClass: {
-        findUnique: vi.fn().mockResolvedValue({ studentId: 'st1' }),
-        create: vi.fn(),
+        create: vi.fn().mockRejectedValue({ code: 'P2002', message: 'unique' }),
       },
-      studentSchool: { findUnique: vi.fn(), create: vi.fn() },
+      studentSchool: { create: vi.fn() },
     });
     const res = await postJson(app, '/api/classes/c1/students/st1', {});
     expect(res.status).toBe(400);
@@ -487,8 +496,8 @@ describe('POST + DELETE /api/classes/:id/students/:studentId', () => {
     const app = mountApp({
       class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1', schoolId: 's1' }) },
       user: { findUnique: vi.fn().mockResolvedValue({ id: 'st1' }) },
-      studentClass: { findUnique: vi.fn().mockResolvedValue(null), create: scCreate },
-      studentSchool: { findUnique: vi.fn().mockResolvedValue(null), create: ssCreate },
+      studentClass: { create: scCreate },
+      studentSchool: { create: ssCreate },
     });
     const res = await postJson(app, '/api/classes/c1/students/st1', {});
     expect(res.status).toBe(201);
@@ -496,9 +505,11 @@ describe('POST + DELETE /api/classes/:id/students/:studentId', () => {
     expect(ssCreate).toHaveBeenCalled();
   });
 
-  it('remove: returns 404 when not assigned', async () => {
+  it('remove: returns 404 when delete reports P2025', async () => {
     const app = mountApp({
-      studentClass: { findUnique: vi.fn().mockResolvedValue(null), delete: vi.fn() },
+      studentClass: {
+        delete: vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' }),
+      },
     });
     const res = await delAuth(app, '/api/classes/c1/students/st1');
     expect(res.status).toBe(404);

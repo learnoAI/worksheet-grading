@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
 import { UserRole, type Prisma } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
+import { isUniqueConstraintError, isRecordNotFoundError } from '../lib/prismaErrors';
 import { validateJson } from '../validation';
 import {
   createClassSchema,
@@ -555,23 +556,27 @@ classes.post('/', validateJson(createClassSchema), async (c) => {
     const school = await prisma.school.findUnique({ where: { id: schoolId } });
     if (!school) return c.json({ message: 'School not found' }, 404);
 
-    const duplicate = await prisma.class.findFirst({
-      where: { name: trimmedName, schoolId, academicYear: trimmedYear },
-    });
-    if (duplicate) {
-      return c.json(
-        {
-          message:
-            'A class with this name already exists in this school for this academic year',
-        },
-        400
-      );
+    // The DB has @@unique([name, schoolId, academicYear]), so a `findFirst`
+    // pre-check is redundant and Hyperdrive-cache-fragile. Let create surface
+    // P2002 instead — it's authoritative and never stale.
+    let created;
+    try {
+      created = await prisma.class.create({
+        data: { name: trimmedName, schoolId, academicYear: trimmedYear },
+        include: CLASS_DETAIL_INCLUDE,
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return c.json(
+          {
+            message:
+              'A class with this name already exists in this school for this academic year',
+          },
+          400
+        );
+      }
+      throw error;
     }
-
-    const created = await prisma.class.create({
-      data: { name: trimmedName, schoolId, academicYear: trimmedYear },
-      include: CLASS_DETAIL_INCLUDE,
-    });
     return c.json(created, 201);
   } catch (error) {
     console.error('Error creating class:', error);
@@ -688,24 +693,27 @@ classes.post('/:id/teachers/:teacherId', async (c) => {
     });
     if (!teacher) return c.json({ message: 'Teacher not found' }, 404);
 
-    const existing = await prisma.teacherClass.findUnique({
-      where: { teacherId_classId: { teacherId, classId } },
-    });
-    if (existing) {
-      return c.json({ message: 'Teacher is already assigned to this class' }, 400);
+    // Skip the existence pre-check on TeacherClass; let the composite unique
+    // surface P2002 (Hyperdrive-cache-safe).
+    let created;
+    try {
+      created = await prisma.teacherClass.create({
+        data: { teacherId, classId },
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return c.json({ message: 'Teacher is already assigned to this class' }, 400);
+      }
+      throw error;
     }
 
-    const created = await prisma.teacherClass.create({
-      data: { teacherId, classId },
-    });
-
-    const existingTs = await prisma.teacherSchool.findUnique({
-      where: { teacherId_schoolId: { teacherId, schoolId: cls.schoolId } },
-    });
-    if (!existingTs) {
+    // Same pattern for TeacherSchool — try-create, swallow uniqueness conflicts.
+    try {
       await prisma.teacherSchool.create({
         data: { teacherId, schoolId: cls.schoolId },
       });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
     }
 
     return c.json(created, 201);
@@ -723,17 +731,14 @@ classes.delete('/:id/teachers/:teacherId', async (c) => {
   const teacherId = c.req.param('teacherId');
 
   try {
-    const existing = await prisma.teacherClass.findUnique({
-      where: { teacherId_classId: { teacherId, classId } },
-    });
-    if (!existing) {
-      return c.json({ message: 'Teacher is not assigned to this class' }, 404);
-    }
     await prisma.teacherClass.delete({
       where: { teacherId_classId: { teacherId, classId } },
     });
     return c.json({ message: 'Teacher removed from class successfully' }, 200);
   } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return c.json({ message: 'Teacher is not assigned to this class' }, 404);
+    }
     console.error('Error removing teacher from class:', error);
     return c.json({ message: 'Server error while removing teacher from class' }, 500);
   }
@@ -755,24 +760,27 @@ classes.post('/:id/students/:studentId', async (c) => {
     });
     if (!student) return c.json({ message: 'Student not found' }, 404);
 
-    const existing = await prisma.studentClass.findUnique({
-      where: { studentId_classId: { studentId, classId } },
-    });
-    if (existing) {
-      return c.json({ message: 'Student is already assigned to this class' }, 400);
+    // Skip the existence pre-check on StudentClass; let the composite unique
+    // surface P2002 (Hyperdrive-cache-safe).
+    let created;
+    try {
+      created = await prisma.studentClass.create({
+        data: { studentId, classId },
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return c.json({ message: 'Student is already assigned to this class' }, 400);
+      }
+      throw error;
     }
 
-    const created = await prisma.studentClass.create({
-      data: { studentId, classId },
-    });
-
-    const existingSs = await prisma.studentSchool.findUnique({
-      where: { studentId_schoolId: { studentId, schoolId: cls.schoolId } },
-    });
-    if (!existingSs) {
+    // Same pattern for StudentSchool — try-create, swallow uniqueness conflicts.
+    try {
       await prisma.studentSchool.create({
         data: { studentId, schoolId: cls.schoolId },
       });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
     }
 
     return c.json(created, 201);
@@ -790,17 +798,14 @@ classes.delete('/:id/students/:studentId', async (c) => {
   const studentId = c.req.param('studentId');
 
   try {
-    const existing = await prisma.studentClass.findUnique({
-      where: { studentId_classId: { studentId, classId } },
-    });
-    if (!existing) {
-      return c.json({ message: 'Student is not assigned to this class' }, 404);
-    }
     await prisma.studentClass.delete({
       where: { studentId_classId: { studentId, classId } },
     });
     return c.json({ message: 'Student removed from class successfully' }, 200);
   } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return c.json({ message: 'Student is not assigned to this class' }, 404);
+    }
     console.error('Error removing student from class:', error);
     return c.json({ message: 'Server error while removing student from class' }, 500);
   }
