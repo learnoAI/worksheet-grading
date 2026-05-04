@@ -11,6 +11,13 @@ client). Any file outside `src/worker/` that is *only* reachable from
 graph is a deletion candidate. Scripts under `src/scripts/` are treated
 as standalone tools kept runnable against local Postgres for ops tasks.
 
+**Re-verified 2026-05-04** after Phases 5.17–5.25 (smoke iteration,
+staging environment, Hyperdrive cache audit, external-worker contract
+fixes). No new imports from outside `src/worker/` were introduced; the
+deletion list below is unchanged. Phase 5.22 also confirmed every
+Express HTTP route is now mirrored on Hono — `EXPRESS_FALLBACK_URL`
+becomes vestigial post-cutover and can be unset rather than wired up.
+
 ---
 
 ## Bundle size snapshot (post-P0)

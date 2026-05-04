@@ -5,10 +5,11 @@ Express backend + ad-hoc Next.js host to a Hono-on-Cloudflare-Workers
 backend + OpenNext-on-Workers frontend.
 
 **Branch:** `refac/express_to_hono`
-**Commit range:** 88 commits, `1661ad6` → `HEAD`
+**Commit range:** 113+ commits, `1661ad6` → `HEAD`
 **Started:** 2026-04-13
 **Code-side complete:** 2026-04-22
 **Tooling complete:** 2026-04-24
+**Staging validation complete:** 2026-05-04
 
 > This document is a **changelog** — "what was done, in what order, with
 > what outcome." For the **plan** (what to do, what concerns are open,
@@ -22,15 +23,17 @@ backend + OpenNext-on-Workers frontend.
 
 | Metric | Value |
 |---|---|
-| Total commits on the branch | **88** |
-| Backend unit tests | **565 passing** (40 test files) |
-| HTTP routes ported to Hono | **106 / 106** (100%) |
+| Total commits on the branch | **113+** |
+| Backend unit tests | **613 passing** (46 test files) |
+| HTTP routes ported to Hono | **110 / 110** (100%) — every Express route, including `/api/mastery/backfill` and `/api/analytics/students/:studentId/classes/:classId` (POST + DELETE) |
 | Cron handlers on Hono Worker | **1** (grading dispatch loop) |
 | New adapters built | **16** |
 | Express code still in use | **0** (cutover-ready) |
-| Worker bundle size | **3.75 MB / 1.15 MB gzipped** (Workers limit: 10 MB compressed) |
-| Concerns open (C1–C9.1) | **5 open, 4 resolved/deferred** |
-| Blockers to decommissioning Express | Operational only (C5 secrets, Hyperdrive creation, smoke test) |
+| Worker bundle size | **3.78 MB / 1.15 MB gzipped** (Workers limit: 10 MB compressed) |
+| Staging deployments | **3** — backend, frontend, grading-consumer (all isolated from prod) |
+| End-to-end staging pipeline validated | ✅ Real upload → queue → consumer → Gemini → callback → DB → UI |
+| Concerns open (C1–C9.1) | **2 open, 7 resolved/deferred** |
+| Blockers to decommissioning Express | Operational only (prod Hyperdrive creation, prod secrets, parallel-run smoke) |
 
 ---
 
@@ -55,6 +58,15 @@ backend + OpenNext-on-Workers frontend.
 | **5.14** | Dispatch loop as Cron handler | 3 | ✅ |
 | **5.15** | Final route parity — `/api/grading-jobs/*` + `/api/worksheet-generation/*` | 4 | ✅ |
 | **5.16** | Pre-cutover tooling — cleanup audit + parity smoke script | 3 | ✅ |
+| **5.17** | Local smoke iteration — error-shape parity, hang detection, write-parity tests | 5 | ✅ |
+| **5.18** | Staging environment provisioned — DO Postgres staging DB, Hyperdrive, R2, queue, secrets | 4 | ✅ |
+| **5.19** | Workers + pg adapter fix — fresh-per-request prisma client | 2 | ✅ |
+| **5.20** | Staging frontend deploy + frontend-driven bug iteration (CORS Cache-Control/Pragma/Expires, studentSummaries undefined) | 4 | ✅ |
+| **5.21** | Sync with main — pulled in renderSpec, Workers AI Gemma, fallback-when-AI-Gateway, single-student worksheet generation | 1 (merge) | ✅ |
+| **5.22** | Final 3 deferred routes — `/api/mastery/backfill`, `POST` + `DELETE /api/analytics/students/:studentId/classes/:classId` | 4 | ✅ |
+| **5.23** | External-worker HTTP-contract audit (grading-consumer, pdf-renderer, question-generator) — 3 fixes: `batchId: null` accepted, `renderSpec` persisted, queue payload `v: 1` (not `version: 1`) | 3 | ✅ |
+| **5.24** | Hyperdrive read-cache safety audit — 22 HIGH findings hardened across 6 route files via P2002/P2025 translation; shared `lib/prismaErrors.ts` helper extracted | 6 | ✅ |
+| **5.25** | End-to-end grading pipeline validation — staging grading-consumer deployed, real Gemini grading round-trip succeeded against staging Hono | 1 | ✅ |
 | **—** | **Remaining for decommissioning Express** | — | Operational (see bottom) |
 
 ---
@@ -344,7 +356,178 @@ Express is off) or a reusable parity-check script.
 
 ---
 
-## Route inventory (106 HTTP + 1 Cron)
+### Phase 5.17 — Local smoke iteration
+
+Expanded the parity smoke-test matrix and added a write-parity counterpart
+once `wrangler dev` was usable end-to-end against a local Postgres. Caught
+two real parity drifts: Hono's 500 response shape diverged from Express's
+generic `{message: ...}`, and the parity script aborted on `diff` non-zero
+exit. Both fixed.
+
+| Commit | Description |
+|---|---|
+| `57c91fc` | chore: align web-app node engine to 22.x to match backend |
+| `84c2ef9` | fix(smoke): curl timeout + tolerate diff non-zero exit |
+| `00bd16b` | fix(worker): match express 500 error response shape for parity |
+| `e822fd4` | feat(smoke): expanded read-parity matrix + hang detection with retry |
+| `832d376` | feat(smoke): add write-parity test for schools/users/notifications |
+
+---
+
+### Phase 5.18 — Staging environment provisioned
+
+Provisioned a fully isolated staging environment so the worker could be
+tested against real CF infrastructure (Hyperdrive, R2 binding, Queues,
+secrets) without touching prod. Includes: a separate `worksheet_grading_hono_test`
+database on the existing DO Postgres cluster, an idempotent migration that
+restores `Worksheet.worksheetNumber` on fresh DBs (previously missing on
+non-prod after a 2025 historical hotfix), a deterministic-fixture seed
+script, and the `[env.staging]` block in `wrangler.toml`.
+
+| Commit | Description |
+|---|---|
+| `a379155` | fix(prisma): add idempotent worksheetNumber column for fresh databases |
+| `7290cad` | feat(prisma): add staging seed script with deterministic IDs |
+| `0d44628` | feat(wrangler): add staging environment block |
+| `89b8a5f` | chore(wrangler): re-enable staging cron after pg-pool fix |
+
+---
+
+### Phase 5.19 — Workers + pg adapter fix
+
+Cached `PrismaClient` + `pg.Pool` at module scope across requests caused
+~50% of deployed-staging requests to fail with "Workers runtime canceled
+this request" (wallTime 1-3 ms). Workers freezes idle isolates and
+Hyperdrive silently drops idle TCP sockets, so cached pools handed out
+dead connections on the next wake. Switched to fresh-per-request with
+`ctx.waitUntil(prisma.$disconnect())`. Verified Hyperdrive caps DB
+connections at ~10 even at 1000-req/50-concurrent load.
+
+| Commit | Description |
+|---|---|
+| `3b47c15` | fix(worker): build a fresh prisma client per request to avoid stale pools |
+
+---
+
+### Phase 5.20 — Staging frontend + UI-driven bug fixes
+
+Deployed `worksheet-grading-web-staging` (separate from prod CF frontend
+worker) pointing at the staging Hono backend. Real-frontend testing
+surfaced bugs the curl smoke had missed: the web-app's `fetchAPI` helper
+sends `Cache-Control`/`Pragma`/`Expires` cache-busters that weren't on the
+worker's CORS allow-list, and `studentSummaries[id]` returned undefined
+for students with same-day worksheets, crashing the upload page.
+
+| Commit | Description |
+|---|---|
+| `5ad5f06` | chore(web-app): add staging environment to wrangler config |
+| `5678a77` | fix(worker): allow Cache-Control and other browser headers in CORS |
+| `2a7b087` | fix(worker): add Expires to CORS allowlist |
+| `34d6f9a` | fix(worker): always populate studentSummaries for class-date |
+| `625bfe1` | fix(seed-staging): reset isArchived on every fixture |
+
+---
+
+### Phase 5.21 — Sync with main
+
+Pulled in 5 commits from main that landed during the porting window:
+structured worksheet question rendering (`renderSpec`), Workers AI Gemma 4
+question generator, AI Gateway fallback, single-student worksheet
+generation. Merge resolution preserved every branch contribution and
+adopted main's versions for the 8 prod files main had updated. 0 conflict
+markers; 609 → 612 tests still green.
+
+| Commit | Description |
+|---|---|
+| `0582132` | Merge remote-tracking branch 'origin/main' into refac/express_to_hono |
+
+---
+
+### Phase 5.22 — Final 3 deferred routes
+
+A proper full-URL diff (mount prefix + relative path) showed only 3
+routes were genuinely deferred, not the "~20" the fallback comment had
+estimated. All three ported: mastery backfill (with the FSRS state
+machine as a worker adapter), and the analytics-side
+student-class assignment POST/DELETE pair. **110 / 110 routes**.
+
+| Commit | Description |
+|---|---|
+| `1a005e4` | feat(worker): port mastery backfill route from express |
+| `1374888` | feat(worker): port analytics student-class assignment routes |
+| `ac47650` | fix(worker): make analytics student-class handlers Hyperdrive-cache safe |
+| `2f27582` | chore(worker): update fallback comment now that all routes are ported |
+
+---
+
+### Phase 5.23 — External-worker HTTP-contract audit
+
+Compared every `fetch()` call in `cloudflare/grading-consumer/`,
+`cloudflare/pdf-renderer/`, and `cloudflare/question-generator/` against
+the corresponding Hono `/internal/*` route's input schema and response
+shape. **3 real contract drifts found:**
+
+1. `pdf-renderer` types `batchId: string | null` and serializes JSON
+   `null` for non-batch renders; Hono used `z.string().optional()` (≠
+   nullable) → 400 on every single-worksheet render.
+2. `question-generator` sends `renderSpec` for layout dispatch (long
+   division, vertical arithmetic, MCQ); Hono's schema didn't declare it,
+   so `c.req.valid('json')` stripped it and `createMany` persisted it as
+   NULL — would have broken every special-render question post-cutover.
+3. `dispatch.ts` and `worksheetProcessing.ts` published queue messages
+   with `version: 1`; consumer reads `normalized.v` (matches Express's
+   `GradingQueueMessageV1`). Consumer rejected every staging message with
+   `Unsupported message version: undefined`.
+
+| Commit | Description |
+|---|---|
+| `e156f6a` | fix(worker): accept batchId: null in worksheet-generation complete/fail |
+| `8d61854` | fix(worker): persist renderSpec on /internal/question-bank/store |
+| `aaae052` | fix(worker): publish queue messages with v:1 (not version:1) |
+
+---
+
+### Phase 5.24 — Hyperdrive read-cache safety audit
+
+Cataloged every `findUnique → check → mutate` pattern across the worker
+routes — they're vulnerable to Hyperdrive's read-cache returning stale
+rows for a few seconds after a write, producing false-positive 400s
+("already exists") or 404s ("not found") right after delete-then-recreate
+or fresh-create flows. **22 HIGH findings** hardened via Prisma error
+translation: drop the pre-check, let `create` surface P2002 → 400 and
+`update`/`delete` surface P2025 → 404. Extracted reusable helpers into
+`backend/src/worker/lib/prismaErrors.ts`.
+
+| Commit | Description |
+|---|---|
+| `dbbca7e` | fix(worker): make classes.ts handlers Hyperdrive-cache safe (5 routes + shared lib/prismaErrors.ts) |
+| `164d038` | fix(worker): make users.ts handlers Hyperdrive-cache safe (6 routes + getUniqueConstraintTarget helper) |
+| `32de8bb` | fix(worker): make schools.ts handlers Hyperdrive-cache safe (4 routes; 2 advisory checks left documented) |
+| `66a09f6` | fix(worker): make worksheetTemplates.ts handlers Hyperdrive-cache safe (6 routes) |
+| `c1ed0c7` | fix(worker): make worksheets.ts mutation handlers Hyperdrive-cache safe (3 routes) |
+| `cf297eb` | fix(worker): defend notifications mark-read update with P2025 catch |
+
+---
+
+### Phase 5.25 — End-to-end grading pipeline validation
+
+Replicated the prod `cloudflare/grading-consumer/` Worker as a staging
+copy via a single `[env.staging]` block (no code changes). Wired it to
+the staging queue (`grading-fast-staging`), staging Hono backend, and
+real Gemini API. End-to-end run succeeded: image upload through the
+staging UI → cron dispatch → CF Queue → consumer → Gemini OCR + grading
+→ `/internal/grading-worker/jobs/.../{acquire,heartbeat,complete}` → DB
+worksheet + mastery write → graded result rendered in UI. ~21 s of
+Gemini time per worksheet; staging stays fully isolated from prod queue,
+prod consumer, prod DB.
+
+| Commit | Description |
+|---|---|
+| `3c9815c` | chore(grading-consumer): add staging environment block |
+
+---
+
+## Route inventory (110 HTTP + 1 Cron)
 
 ### Public API (under `/api`)
 
@@ -358,8 +541,8 @@ Express is off) or a reusable parity-check script.
 | Worksheet templates | `GET /worksheet-templates`, `GET /:id`, `POST /`, `PUT /:id`, `DELETE /:id`, `POST /:id/images`, `DELETE /images/:id`, `POST /:id/questions`, `PUT /questions/:id`, `DELETE /questions/:id` | `routes/worksheetTemplates.ts` |
 | Math skills | `GET /math-skills`, `POST /math-skills` | `routes/worksheetTemplates.ts` |
 | Curriculum | `GET /worksheet-curriculum` | `routes/worksheetTemplates.ts` |
-| Mastery | `GET /mastery/student/:id`, `GET /:id/by-topic`, `GET /:id/recommendations`, `GET /mastery/class/:id` | `routes/mastery.ts` |
-| Analytics | `GET /analytics/schools`, `/schools/:id/classes`, `/overall`, `/students`, `/students/download` | `routes/analytics.ts` |
+| Mastery | `GET /mastery/student/:id`, `GET /:id/by-topic`, `GET /:id/recommendations`, `GET /mastery/class/:id`, `POST /mastery/backfill` | `routes/mastery.ts` |
+| Analytics | `GET /analytics/schools`, `/schools/:id/classes`, `/overall`, `/students`, `/students/download`, `POST /students/:studentId/classes/:classId`, `DELETE /students/:studentId/classes/:classId` | `routes/analytics.ts` |
 | Worksheets | 23 routes — reads, grade CRUD, admin mod, check-repeated, batch-save, Python utilities, multipart upload, class-date summary, incorrect-grading feed, recommend-next | `routes/worksheets.ts` |
 | Worksheet processing | `POST /upload-session`, `GET /:batchId`, `POST /:batchId/finalize`, `POST /process` | `routes/worksheetProcessing.ts` |
 | Grading jobs | `GET /grading-jobs/teacher/today`, `GET /class/:classId`, `GET /:jobId`, `POST /batch-status` | `routes/gradingJobs.ts` |
@@ -457,15 +640,18 @@ From `CLOUDFLARE_MIGRATION_PLAN.md`:
 
 | ID | Concern | Status |
 |---|---|---|
-| **C1** | Worker bundle size inflated by Prisma (3.6 MB; monitor) | 🟡 Open — monitor |
+| **C1** | Worker bundle size inflated by Prisma (3.6 MB; monitor) | 🟡 Open — monitor (3.78 MB now / 1.15 MB gzipped, well under the 10 MB compressed limit) |
 | **C2** | Pre-existing Express test flake (`internalGradingWorkerController`) | ✅ Resolved (was a stale generated Prisma client) |
-| **C3** | Node engine mismatch in local dev (22.x declared, 25 running) | 🟡 Open — opportunistic |
-| **C4** | Dispatch loop migration | ✅ **Resolved in Phase 5.14** |
-| **C5** | Production secrets in `backend/.env` | 🔴 Open — **blocker for deploy** |
-| **C6** | Multer routes deferred past 5.8 | ✅ Resolved in Phase 5.13 (both Multer routes ported) |
+| **C3** | Node engine mismatch in local dev (22.x declared, 25 running) | ✅ Resolved in 5.17 (`web-app/package.json` engines pinned to 22.x) |
+| **C4** | Dispatch loop migration | ✅ Resolved in Phase 5.14 |
+| **C5** | Production secrets in `backend/.env` | 🔴 Open — **operational blocker for prod deploy** (resolved for staging in 5.18) |
+| **C6** | Multer routes deferred past 5.8 | ✅ Resolved in Phase 5.13 |
 | **C7** | Direct-upload session routes pending | ✅ Resolved in Phase 5.13 |
 | **C8** | Internal grading-worker + question-bank deferred | ✅ Resolved in Phase 5.13 |
 | **C9 / C9.1** | Complex/stateful routes deferred past 5.11 | ✅ Resolved in Phase 5.13 |
+| **C10** | Workers + pg adapter pool staleness (50% staging-fail rate) | ✅ Resolved in Phase 5.19 (fresh-per-request) |
+| **C11** | Hyperdrive read-cache staleness on `findUnique → check → mutate` | ✅ Resolved in Phase 5.24 (P2002/P2025 translation across 22 routes) |
+| **C12** | External-worker contract drift (queue payload `v` vs `version`, `batchId: null` rejected, `renderSpec` dropped) | ✅ Resolved in Phase 5.23 |
 
 ---
 
@@ -473,20 +659,30 @@ From `CLOUDFLARE_MIGRATION_PLAN.md`:
 
 All **code-side** work is complete. Remaining items are operational.
 
+### Already done for staging (a working reference)
+
+Phases 5.18 + 5.25 walked through the full deploy + validate sequence
+against an isolated staging environment. The same recipe is what gets
+applied to prod for parallel-run, just with `--env production` and
+prod-pointing values.
+
+### Remaining for prod
+
 | Step | Type | Who | Effort | Blocker type |
 |---|---|---|---|---|
-| 1. Create Hyperdrive for prod Postgres | Ops | operator | 15 min | Required |
-| 2. Populate `[[r2_buckets]]` block in `wrangler.toml` | Ops | operator | 1 min | Required |
-| 3. Run `wrangler secret put` for all secrets (`JWT_SECRET`, `GRADING_WORKER_TOKEN`, `WORKSHEET_CREATION_WORKER_TOKEN`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_QUEUE_ID`, `PDF_RENDERING_QUEUE_ID`, R2 creds, `POSTHOG_API_KEY`) | Ops | operator | 15 min | Required (C5) |
-| 4. Set `[vars]` block (`NODE_ENV`, `CORS_ORIGINS`, `EXPRESS_FALLBACK_URL` initially, `PROGRESSION_THRESHOLD`, etc.) | Config | operator | 5 min | Required |
-| 5. **Level 1 smoke test** — `wrangler dev` against local Postgres; curl login/me/schools flow | Validation | engineer | 30 min | Strongly recommended |
-| 6. **Level 2 smoke test** — deploy to a staging Worker name, run the `DEPLOYMENT.md` curl checklist | Validation | engineer | 30 min | Strongly recommended |
-| 7. Verify Cron trigger fires via `wrangler tail` (expect `dispatch_loop_tick` every 1 min) | Validation | engineer | 5 min | Required |
-| 8. Flip frontend `NEXT_PUBLIC_API_URL` to the new worker URL | Cutover | operator | 5 min | Required |
-| 9. Monitor PostHog + `wrangler tail` for 24 h | Observability | engineer | — | Recommended |
-| 10. **Unset `EXPRESS_FALLBACK_URL`** once the 24 h window is clean | Cutover | operator | 1 min | Required to retire Express |
-| 11. Scale DigitalOcean App Platform to zero | Ops | operator | 2 min | Final step |
-| 12. Delete Express-only code (`src/index.ts`, `routes/`, `controllers/`, stale services) + drop deps | Cleanup | engineer | ~5 commits | Post-cutover |
+| 1. **Phase 0 — migration alignment**: run `prisma migrate status` against prod DB; apply any branch-introduced migrations (`20260214122800_ensure_worksheet_number_on_worksheet`, etc.) if missing | Ops + DBA | engineer + DBA | 5 min check, 15-30 min apply | Required |
+| 2. Create prod Hyperdrive: `wrangler hyperdrive create worksheet-grading-pg-prod` | Ops | operator | 15 min | Required |
+| 3. Add `[env.production]` block in `wrangler.toml` (Hyperdrive id, R2 binding, vars; cron initially disabled) | Config | operator | 5 min | Required |
+| 4. `wrangler secret put --env production` for all secrets (`JWT_SECRET` — must match Express's value to keep existing tokens valid; `GRADING_WORKER_TOKEN`, `WORKSHEET_CREATION_WORKER_TOKEN`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_QUEUE_ID`, `PDF_RENDERING_QUEUE_ID`, R2 creds, `POSTHOG_API_KEY`) | Ops | operator | 15 min | Required (C5) |
+| 5. `wrangler deploy --env production` — produces a `*.workers.dev` URL with **no DNS / route attached** | Deploy | engineer | 1 min | Required |
+| 6. **Parallel-run smoke** — run `smoke-parity.sh` with WORKER_URL pointing at the new prod-deployed Hono worker and EXPRESS_URL pointing at live DO Express. Compare every read endpoint against real prod data. Triage any drifts. | Validation | engineer | ~1 hr | Required |
+| 7. (Optional) **Write-path validation** — restore a prod DB snapshot to a clone, deploy a third env (`--env production-clone`), run `smoke-writes.mjs` against the clone | Validation | engineer | ~1 hr | Recommended |
+| 8. Re-enable cron triggers for prod env (or have them on from step 3); verify via `wrangler tail --env production` | Validation | engineer | 5 min | Required pre-cutover |
+| 9. **Cutover** — flip frontend `NEXT_PUBLIC_API_URL` to the new worker URL, redeploy frontend (or rotate DNS to the new worker for whichever surface routes traffic). The grading-consumer's `BACKEND_BASE_URL`, pdf-renderer's `WORKSHEET_CREATION_BACKEND_BASE_URL`, and question-generator's `WORKSHEET_CREATION_BACKEND_BASE_URL` also all need to point at the prod Hono URL — those are 3 separate `wrangler secret put` calls on the existing prod consumer/renderer/generator workers | Cutover | operator | 15 min | Required |
+| 10. Monitor PostHog + `wrangler tail --env production` for 24-72 h | Observability | engineer | — | Recommended |
+| 11. **Unset `EXPRESS_FALLBACK_URL`** once the soak window is clean (or just don't set it — every route is ported, so the fallback is vestigial) | Cutover | operator | 1 min | Required to retire Express |
+| 12. Scale DigitalOcean App Platform to zero | Ops | operator | 2 min | Final step |
+| 13. Delete Express-only code (`src/index.ts`, `routes/`, `controllers/`, stale services) + drop deps per `EXPRESS_CLEANUP_AUDIT.md` | Cleanup | engineer | ~5 commits | Post-cutover |
 
 ---
 
@@ -538,11 +734,13 @@ cloudflare/                             # Unchanged — existing workers
 
 ## Testing snapshot at cutover-ready
 
-- **538 unit tests passing** across 42 test files
-- **0 integration tests** against a real DB (by design; see smoke test plan)
-- Test framework: Vitest with mocked Prisma + mocked `fetch`
-- `npm test` runs the full suite in ~2 seconds
-- `wrangler deploy --dry-run` succeeds (3.75 MB upload / 1.15 MB gzip, no bindings)
+- **613 unit tests passing** across 46 test files (worker side)
+- **565+ unit tests** in `cloudflare/grading-consumer/` (separate suite)
+- **End-to-end staging pipeline validated** in Phase 5.25 — image upload → cron → CF Queue → real grading-consumer → real Gemini → DB persistence → UI render
+- `smoke-parity.sh` and `smoke-writes.mjs` compare Hono vs Express response shapes against the same database
+- Test framework: Vitest with mocked Prisma + mocked `fetch` for unit tests
+- `npm test` from `backend/` runs the full suite in ~2 seconds
+- `wrangler deploy --dry-run --env staging` succeeds (3.78 MB upload / 1.15 MB gzip)
 
 ---
 
@@ -550,7 +748,12 @@ cloudflare/                             # Unchanged — existing workers
 
 - **Migration plan (active document):** `CLOUDFLARE_MIGRATION_PLAN.md`
 - **Deploy runbook:** `backend/DEPLOYMENT.md`
+- **Post-cutover Express removal plan:** `EXPRESS_CLEANUP_AUDIT.md`
 - **Branch:** `refac/express_to_hono`
 - **First commit:** `1661ad6` (2026-04-13)
-- **Last commit:** `1fc5b96` (2026-04-16)
+- **Latest commit:** `aaae052` (2026-05-04)
+- **Staging URLs (CF account `2ffbc97...`):**
+  - Backend: `worksheet-grading-api-staging.madhav-2ff.workers.dev`
+  - Frontend: `worksheet-grading-web-staging.madhav-2ff.workers.dev`
+  - Grading consumer: `worksheet-grading-consumer-staging.madhav-2ff.workers.dev`
 - **Cutover-blocking work remaining:** ops only — see "What's left" above.
