@@ -630,11 +630,11 @@ describe('POST /api/worksheets/upload', () => {
   });
 
   it('returns 500 when R2_PUBLIC_BASE_URL is unset so image URLs are unresolvable', async () => {
-    const { bucket } = makeR2Bucket();
+    const { bucket, puts } = makeR2Bucket();
     const worksheetCreate = vi.fn().mockResolvedValue({ id: 'w', status: 'PENDING' });
     const app = mountApp({
       class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1' }) },
-      worksheet: { create: worksheetCreate },
+      worksheet: { create: worksheetCreate, delete: vi.fn() },
       worksheetImage: { create: vi.fn() },
     });
     const token = await tokenAs('TEACHER');
@@ -648,6 +648,75 @@ describe('POST /api/worksheets/upload', () => {
       { JWT_SECRET: SECRET, WORKSHEET_FILES: bucket as never }
     );
     expect(res.status).toBe(500);
+    // Misconfigured deploy must fail before any side effects: no R2 PUT,
+    // no worksheet row, so we don't strand orphans.
+    expect(puts.length).toBe(0);
+    expect(worksheetCreate).not.toHaveBeenCalled();
+    expect(bucket.delete).not.toHaveBeenCalled();
+  });
+
+  it('cleans up uploaded R2 keys and the PENDING worksheet when an upload fails mid-loop', async () => {
+    // First R2 PUT succeeds; second one throws. We must observe that the
+    // previously-uploaded key is deleted AND the PENDING worksheet row is
+    // removed, so no orphans accumulate.
+    const puts: Array<{ key: string; size: number }> = [];
+    const deletes: string[] = [];
+    let putCallCount = 0;
+    const bucket = {
+      put: vi.fn(async (key: string, body: ArrayBufferView | ArrayBuffer) => {
+        putCallCount += 1;
+        if (putCallCount === 2) {
+          throw new Error('simulated R2 outage');
+        }
+        const size = body instanceof Uint8Array ? body.byteLength : (body as ArrayBuffer).byteLength;
+        puts.push({ key, size });
+        return {};
+      }),
+      get: vi.fn(async () => null),
+      delete: vi.fn(async (key: string | string[]) => {
+        if (Array.isArray(key)) deletes.push(...key);
+        else deletes.push(key);
+      }),
+      head: vi.fn(async () => null),
+    };
+
+    const worksheetCreate = vi
+      .fn()
+      .mockResolvedValue({ id: 'w-orphan', status: 'PENDING' });
+    const worksheetDelete = vi.fn().mockResolvedValue({ id: 'w-orphan' });
+    const imageCreate = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'img-1', pageNumber: 1 });
+
+    const app = mountApp({
+      class: { findUnique: vi.fn().mockResolvedValue({ id: 'c1' }) },
+      worksheet: { create: worksheetCreate, delete: worksheetDelete },
+      worksheetImage: { create: imageCreate },
+    });
+    const token = await tokenAs('TEACHER');
+    const init = makeFormDataRequest(
+      { classId: 'c1' },
+      [
+        { name: 'page1.png', type: 'image/png', size: 1024 },
+        { name: 'page2.png', type: 'image/png', size: 1024 },
+      ]
+    );
+    const res = await app.request(
+      '/api/worksheets/upload',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      {
+        JWT_SECRET: SECRET,
+        WORKSHEET_FILES: bucket as never,
+        R2_PUBLIC_BASE_URL: 'https://cdn.example.com',
+      }
+    );
+    expect(res.status).toBe(500);
+    // The single key that R2 accepted before the failure must be deleted.
+    expect(puts.length).toBe(1);
+    expect(deletes).toEqual([puts[0].key]);
+    // The PENDING worksheet row must be removed so the route doesn't
+    // accumulate orphans.
+    expect(worksheetDelete).toHaveBeenCalledWith({ where: { id: 'w-orphan' } });
   });
 });
 

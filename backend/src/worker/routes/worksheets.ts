@@ -4,7 +4,7 @@ import { authenticate, authorize } from '../middleware/auth';
 import { isRecordNotFoundError } from '../lib/prismaErrors';
 import { validateQuery, validateJson } from '../validation';
 import { callPython } from '../adapters/pythonApi';
-import { uploadObject, StorageError } from '../adapters/storage';
+import { uploadObject, deleteObject, publicObjectUrl, StorageError } from '../adapters/storage';
 import { parseMultipartFiles, imageOnlyFilter, UploadError } from '../uploads';
 import {
   buildWorksheetRecommendationFromHistory,
@@ -1267,6 +1267,32 @@ worksheets.post('/upload', requireAuthoringRole, async (c) => {
     return c.json({ message: 'Class ID is required' }, 400);
   }
 
+  // Fail fast on misconfigured deploys: if R2_PUBLIC_BASE_URL is missing
+  // we can't resolve image URLs anyway. Check BEFORE any bucket.put so we
+  // don't leave orphan R2 objects when the URL secret hasn't been set.
+  // `publicObjectUrl` returns null (not throws) when the base URL is unset,
+  // so we test it explicitly.
+  if (!publicObjectUrl(c.env ?? {}, 'sentinel')) {
+    console.error(
+      'Worksheet upload error: R2_PUBLIC_BASE_URL is not configured'
+    );
+    return c.json(
+      {
+        message:
+          'Server error during worksheet upload: R2_PUBLIC_BASE_URL is required to resolve worksheet image URLs',
+      },
+      500
+    );
+  }
+
+  // Track every R2 key we successfully PUT so we can compensating-delete
+  // them if a later step (DB write or another upload) fails. We avoid
+  // wrapping multi-second uploads in `prisma.$transaction(async tx => ...)`
+  // because that would pin a Hyperdrive connection through the whole loop;
+  // best-effort compensating cleanup is the right tradeoff for this route.
+  const uploadedKeys: string[] = [];
+  let createdWorksheetId: string | null = null;
+
   try {
     const classExists = await prisma.class.findUnique({ where: { id: classId } });
     if (!classExists) return c.json({ message: 'Class not found' }, 404);
@@ -1293,6 +1319,7 @@ worksheets.post('/upload', requireAuthoringRole, async (c) => {
         studentId,
       },
     });
+    createdWorksheetId = worksheet.id;
 
     // Upload each file to R2 + create a WorksheetImage row for it.
     // pageNumbers may arrive as a string[] on the form; fall back to 1-based
@@ -1322,7 +1349,13 @@ worksheets.post('/upload', requireAuthoringRole, async (c) => {
         file.buffer,
         file.mimetype
       );
+      // Track the key the moment R2 accepts the bytes so a subsequent
+      // failure can still clean it up.
+      uploadedKeys.push(key);
       if (!publicUrl) {
+        // Defensive: we already validated R2_PUBLIC_BASE_URL upfront, but
+        // if the base URL was somehow stripped between then and now, fall
+        // back to the same StorageError the older code threw.
         throw new StorageError(
           'CONFIG_MISSING',
           'R2_PUBLIC_BASE_URL is required to resolve worksheet image URLs'
@@ -1356,6 +1389,35 @@ worksheets.post('/upload', requireAuthoringRole, async (c) => {
     );
   } catch (error) {
     console.error('Worksheet upload error:', error);
+
+    // Best-effort compensating cleanup. We swallow cleanup failures so they
+    // don't mask the original error — operators see the real failure in
+    // logs and the response, not a misleading delete-failed message.
+    if (uploadedKeys.length > 0) {
+      const results = await Promise.allSettled(
+        uploadedKeys.map((key) => deleteObject(c.env ?? {}, key))
+      );
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.status === 'rejected') {
+          console.error(
+            `Worksheet upload cleanup: failed to delete R2 key ${uploadedKeys[i]}:`,
+            result.reason
+          );
+        }
+      }
+    }
+    if (createdWorksheetId) {
+      try {
+        await prisma.worksheet.delete({ where: { id: createdWorksheetId } });
+      } catch (cleanupError) {
+        console.error(
+          `Worksheet upload cleanup: failed to delete worksheet ${createdWorksheetId}:`,
+          cleanupError
+        );
+      }
+    }
+
     if (error instanceof StorageError) {
       return c.json(
         { message: `Server error during worksheet upload: ${error.message}` },
