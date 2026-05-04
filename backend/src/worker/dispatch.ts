@@ -126,8 +126,14 @@ export async function dispatchPendingJobs(
       startedAt: null,
       lastHeartbeatAt: null,
       completedAt: null,
-      dispatchError: 'Requeued by dispatch loop after stale heartbeat',
-      lastErrorAt: new Date(),
+      // A stale-requeue is a clean retry, not an error retry — clear the
+      // dispatch-error fields so `shouldRetryDispatch` won't apply
+      // exponential backoff on the next tick (which would skip the very
+      // job we just rescued). The "real error → backoff" path below still
+      // stamps lastErrorAt + increments attemptCount as before.
+      dispatchError: null,
+      lastErrorAt: null,
+      attemptCount: 0,
     },
   });
   result.staleRequeued = staleRequeued.count;

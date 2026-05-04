@@ -88,6 +88,63 @@ describe('dispatchPendingJobs — stale requeue', () => {
     expect(call.where.status).toBe('PROCESSING');
     expect(call.data.status).toBe('QUEUED');
     expect(call.data.leaseId).toBeNull();
+    // Stale-requeue is a clean retry, NOT an error retry — these fields
+    // must be cleared so the next tick's `shouldRetryDispatch` doesn't
+    // skip the rescued job by applying backoff to a fake "error".
+    expect(call.data.lastErrorAt).toBeNull();
+    expect(call.data.dispatchError).toBeNull();
+    expect(call.data.attemptCount).toBe(0);
+  });
+
+  it('clears lastErrorAt/attemptCount so the rescued job dispatches on the very next tick', async () => {
+    // Simulates two consecutive ticks with the same in-memory prisma
+    // mock. Tick 1 reclaims a stale PROCESSING job. Tick 2 reads the
+    // QUEUED row and must NOT skip it via backoff.
+    const dbRow: {
+      id: string;
+      attemptCount: number;
+      lastErrorAt: Date | null;
+    } = { id: 'rescued-1', attemptCount: 4, lastErrorAt: new Date(Date.now() - 1000) };
+    const updateMany = vi.fn(async (args: any) => {
+      // Tick 1's stale-requeue should null these out (the bug we're fixing).
+      Object.assign(dbRow, {
+        attemptCount: args.data.attemptCount,
+        lastErrorAt: args.data.lastErrorAt,
+      });
+      return { count: 1 };
+    });
+    // First tick: findMany returns nothing (job was just moved from PROCESSING
+    // to QUEUED but we model the dispatch loop's two-step read).
+    // Second tick: findMany returns the rescued row with whatever
+    // updateMany wrote into it.
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockImplementation(async () => [
+        {
+          id: dbRow.id,
+          attemptCount: dbRow.attemptCount,
+          lastErrorAt: dbRow.lastErrorAt,
+        },
+      ]);
+    const update = vi.fn().mockResolvedValue({});
+    const prisma = {
+      gradingJob: { updateMany, findMany, update },
+    } as unknown as PrismaClient;
+    const fetchMock = mockSuccessfulPublish();
+
+    const tick1 = await dispatchPendingJobs(prisma, ENV);
+    expect(tick1.staleRequeued).toBe(1);
+
+    // Now the second tick — the rescued job MUST be dispatched, not
+    // skipped by backoff.
+    // Make the second updateMany a no-op (no fresh stale rows).
+    updateMany.mockResolvedValueOnce({ count: 0 });
+    const tick2 = await dispatchPendingJobs(prisma, ENV);
+    expect(tick2.skippedByBackoff).toBe(0);
+    expect(tick2.dispatched).toBe(1);
+    expect(tick2.attempted).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('uses GRADING_STALE_PROCESSING_MS override when set', async () => {
