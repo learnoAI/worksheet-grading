@@ -23,40 +23,32 @@ describe('requestContext middleware', () => {
     expect(body.requestId).toBe(headerId);
   });
 
-  it('prefixes a sane inbound X-Request-Id from an untrusted (external) caller', async () => {
+  it('prefixes every sane inbound X-Request-Id (no caller is trusted to skip)', async () => {
     const app = buildApp();
     const res = await app.request('/ping', {
       headers: { 'X-Request-Id': 'abc-123_XYZ' },
     });
-    // External callers are namespaced so their IDs cannot be confused with
-    // internally generated UUIDs in log searches.
+    // All inbound IDs are namespaced so they cannot be confused with
+    // internally generated UUIDs in log searches. There is no exemption
+    // for headers like X-Grading-Worker-Token — those are only validated
+    // by the per-route auth middleware, not here.
     expect(res.headers.get('X-Request-Id')).toBe('ext:abc-123_XYZ');
     expect(((await res.json()) as { requestId: string }).requestId).toBe('ext:abc-123_XYZ');
   });
 
-  it('honors a sane inbound X-Request-Id from a trusted internal caller (grading worker)', async () => {
+  it('still prefixes when an attacker-spoofed worker-token header is present', async () => {
+    // Regression: an earlier version skipped the prefix when an
+    // X-Grading-Worker-Token header was present, which was a bypassable
+    // header-presence check. The token's *value* is only validated at
+    // protected routes, so this middleware must not branch on it.
     const app = buildApp();
     const res = await app.request('/ping', {
       headers: {
         'X-Request-Id': 'abc-123_XYZ',
-        'X-Grading-Worker-Token': 'whatever-the-secret-is',
+        'X-Grading-Worker-Token': 'not-a-real-secret',
       },
     });
-    // Presence of the worker-token header is enough to mark the caller as
-    // internal for ID purposes — the actual secret check happens in
-    // `workerTokens.ts` per-route. The middleware here is not the gate.
-    expect(res.headers.get('X-Request-Id')).toBe('abc-123_XYZ');
-  });
-
-  it('honors a sane inbound X-Request-Id from a trusted internal caller (worksheet creation)', async () => {
-    const app = buildApp();
-    const res = await app.request('/ping', {
-      headers: {
-        'X-Request-Id': 'abc-123_XYZ',
-        'X-Worksheet-Creation-Token': 'whatever-the-secret-is',
-      },
-    });
-    expect(res.headers.get('X-Request-Id')).toBe('abc-123_XYZ');
+    expect(res.headers.get('X-Request-Id')).toBe('ext:abc-123_XYZ');
   });
 
   it('does not double-prefix an already-namespaced inbound id (e.g. on fallback re-entry)', async () => {
