@@ -1735,7 +1735,11 @@ worksheets.post(
         const isRepeated = Boolean(ws.isRepeated);
         const isIncorrectGrade = Boolean(ws.isIncorrectGrade);
         const gradingDetails = ws.gradingDetails;
-        const wrongQuestionNumbers = ws.wrongQuestionNumbers as number[] | null | undefined;
+        // String to match the Prisma `Worksheet.wrongQuestionNumbers String?`
+        // column and the gradeWorksheetSchema wire format. Earlier this was
+        // cast as `number[]` which mismatched both the DB and the frontend's
+        // comma-separated wire format (`web-app/.../upload/page.tsx`).
+        const wrongQuestionNumbers = ws.wrongQuestionNumbers as string | null | undefined;
 
         try {
           if (action === 'delete') {

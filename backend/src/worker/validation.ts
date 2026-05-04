@@ -35,10 +35,16 @@ function issuesToErrors(
  *     ...
  *   });
  */
-export function validate<T extends keyof ValidationTargets>(
-  target: T,
-  schema: ZodSchema
-) {
+export function validate<
+  T extends keyof ValidationTargets,
+  S extends ZodSchema
+>(target: T, schema: S) {
+  // The `S extends ZodSchema` generic is load-bearing: zValidator's return
+  // type embeds the schema's inferred output, which is what makes
+  // `c.req.valid('json')` return the parsed payload type rather than
+  // `unknown` at the route handlers' call sites. Earlier versions used
+  // `schema: ZodSchema` here (no generic), which collapsed every validated
+  // payload to `unknown` and forced ~200 TS errors on every field access.
   return zValidator(target, schema, (result, c) => {
     if (!result.success) {
       const errors = issuesToErrors(result.error.issues, target);

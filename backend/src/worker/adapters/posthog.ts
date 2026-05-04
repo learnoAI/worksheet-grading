@@ -17,7 +17,13 @@ export interface PosthogEnv {
   NODE_ENV?: string;
   GIT_SHA?: string;
   RELEASE?: string;
-  [k: string]: unknown;
+  // Note: previously had `[k: string]: unknown;` to allow any superset env
+  // shape (like WorkerEnv) to be passed in. That signature blocked
+  // structural assignment from WorkerEnv (which doesn't have an index
+  // signature) and forced ~30 TS errors across adapters and routes. The
+  // adapter only reads the named fields above, so dropping the index
+  // signature is sound — any caller passing a richer env is still
+  // structurally compatible because the named fields overlap.
 }
 
 export interface PosthogCaptureOptions {
