@@ -255,9 +255,10 @@ describe('POST /api/schools', () => {
 describe('PUT /api/schools/:id', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns 404 when not found', async () => {
-    const findUnique = vi.fn().mockResolvedValue(null);
-    const app = mountApp({ school: { findUnique, findFirst: vi.fn(), update: vi.fn() } });
+  it('returns 404 when update reports P2025', async () => {
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const update = vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' });
+    const app = mountApp({ school: { findFirst, update } });
     const token = await superadminToken();
     const res = await putJson(app, '/api/schools/missing', { name: 'X' }, token);
     expect(res.status).toBe(404);
@@ -302,9 +303,16 @@ describe('PUT /api/schools/:id', () => {
 describe('POST /api/schools/:id/archive', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns 404 when not found', async () => {
-    const findUnique = vi.fn().mockResolvedValue(null);
-    const app = mountApp({ school: { findUnique } });
+  it('returns 404 when the school.update inside the transaction reports P2025', async () => {
+    const txOps = {
+      school: { update: vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' }) },
+      class: { updateMany: vi.fn() },
+      studentSchool: { findMany: vi.fn(), count: vi.fn() },
+      user: { update: vi.fn() },
+    };
+    const app = mountApp({
+      $transaction: vi.fn(async (cb: (tx: typeof txOps) => Promise<unknown>) => cb(txOps)),
+    });
     const token = await superadminToken();
     const res = await postJson(app, '/api/schools/missing/archive', {}, token);
     expect(res.status).toBe(404);
@@ -351,9 +359,9 @@ describe('POST /api/schools/:id/archive', () => {
 describe('POST /api/schools/:id/unarchive', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns 404 when not found', async () => {
-    const findUnique = vi.fn().mockResolvedValue(null);
-    const app = mountApp({ school: { findUnique } });
+  it('returns 404 when update reports P2025', async () => {
+    const update = vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' });
+    const app = mountApp({ school: { update } });
     const token = await superadminToken();
     const res = await postJson(app, '/api/schools/missing/unarchive', {}, token);
     expect(res.status).toBe(404);

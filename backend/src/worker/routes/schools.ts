@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { UserRole } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
+import { isRecordNotFoundError } from '../lib/prismaErrors';
 import { validateJson } from '../validation';
 import { createSchoolSchema, updateSchoolSchema } from '../schemas/schools';
 import type { AppBindings } from '../types';
@@ -127,6 +128,11 @@ schools.post('/', validateJson(createSchoolSchema), async (c) => {
   const trimmed = name.trim();
 
   try {
+    // Note: School.name has no DB unique constraint, so this pre-check is the
+    // only enforcement layer. Hyperdrive's read cache may briefly return a
+    // stale "exists" hit after a delete, producing a transient false-positive
+    // 400; converting to DB-enforced uniqueness would require a case-
+    // insensitive expression index migration.
     const existing = await prisma.school.findFirst({
       where: { name: { equals: trimmed, mode: 'insensitive' } },
     });
@@ -149,26 +155,34 @@ schools.put('/:id', validateJson(updateSchoolSchema), async (c) => {
   const { name } = c.req.valid('json');
 
   try {
-    const existing = await prisma.school.findUnique({ where: { id } });
-    if (!existing) return c.json({ message: 'School not found' }, 404);
-
     if (name) {
       const trimmed = name.trim();
+      // Same advisory soft-uniqueness as POST — no DB constraint.
       const duplicate = await prisma.school.findFirst({
         where: { name: { equals: trimmed, mode: 'insensitive' }, id: { not: id } },
       });
       if (duplicate) {
         return c.json({ message: 'A school with this name already exists' }, 400);
       }
-      const updated = await prisma.school.update({
-        where: { id },
-        data: { name: trimmed },
-      });
-      return c.json(updated, 200);
+      try {
+        const updated = await prisma.school.update({
+          where: { id },
+          data: { name: trimmed },
+        });
+        return c.json(updated, 200);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return c.json({ message: 'School not found' }, 404);
+        }
+        throw error;
+      }
     }
 
-    // No-op update preserves Express behavior of returning the row even when
-    // the body has no updatable fields.
+    // No-op update path: still need to return the row for Express parity. Use
+    // findUnique here (read-only; staleness only changes the snapshot
+    // returned, not correctness of any mutation).
+    const existing = await prisma.school.findUnique({ where: { id } });
+    if (!existing) return c.json({ message: 'School not found' }, 404);
     return c.json(existing, 200);
   } catch (error) {
     console.error('Error updating school:', error);
@@ -187,9 +201,6 @@ schools.post('/:id/archive', async (c) => {
 
   const id = c.req.param('id');
   try {
-    const existing = await prisma.school.findUnique({ where: { id } });
-    if (!existing) return c.json({ message: 'School not found' }, 404);
-
     await prisma.$transaction(async (tx) => {
       await tx.school.update({ where: { id }, data: { isArchived: true } });
       await tx.class.updateMany({
@@ -224,6 +235,9 @@ schools.post('/:id/archive', async (c) => {
       200
     );
   } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return c.json({ message: 'School not found' }, 404);
+    }
     console.error('Archive school error:', error);
     return c.json({ message: 'Server error during school archiving' }, 500);
   }
@@ -235,11 +249,12 @@ schools.post('/:id/unarchive', async (c) => {
 
   const id = c.req.param('id');
   try {
-    const existing = await prisma.school.findUnique({ where: { id } });
-    if (!existing) return c.json({ message: 'School not found' }, 404);
     await prisma.school.update({ where: { id }, data: { isArchived: false } });
     return c.json({ message: 'School unarchived successfully' }, 200);
   } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return c.json({ message: 'School not found' }, 404);
+    }
     console.error('Unarchive school error:', error);
     return c.json({ message: 'Server error during school unarchiving' }, 500);
   }
@@ -287,7 +302,16 @@ schools.delete('/:id', async (c) => {
       );
     }
 
-    await prisma.school.delete({ where: { id } });
+    try {
+      await prisma.school.delete({ where: { id } });
+    } catch (error) {
+      // School disappeared between our _count snapshot and the delete (rare,
+      // but Hyperdrive read-cache can also defer the visibility of a delete).
+      if (isRecordNotFoundError(error)) {
+        return c.json({ message: 'School not found' }, 404);
+      }
+      throw error;
+    }
     return c.json({ message: 'School deleted successfully' }, 200);
   } catch (error) {
     console.error('Delete school error:', error);
