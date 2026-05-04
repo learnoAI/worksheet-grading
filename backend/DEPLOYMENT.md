@@ -57,9 +57,8 @@ npx wrangler secret put JWT_SECRET
 npx wrangler secret put GRADING_WORKER_TOKEN
 npx wrangler secret put WORKSHEET_CREATION_WORKER_TOKEN
 
-# Grading queue publisher (only if the Hono worker needs to enqueue;
-# currently only the direct-upload finalize endpoint would, and that
-# ships in Phase 5.13).
+# Grading queue publisher — used by the cron dispatch loop and by
+# `/api/worksheet-processing/process` / direct-upload-session finalize.
 npx wrangler secret put CF_ACCOUNT_ID
 npx wrangler secret put CF_API_TOKEN
 npx wrangler secret put CF_QUEUE_ID
@@ -67,7 +66,8 @@ npx wrangler secret put CF_QUEUE_ID
 # PostHog analytics (leave unset to disable in prod initially).
 # npx wrangler secret put POSTHOG_API_KEY
 
-# R2 S3-compatible credentials for presigned URLs (Phase 5.13).
+# R2 S3-compatible credentials — used by `adapters/storage.ts` for
+# presigned URLs on the direct-upload-session flow.
 # npx wrangler secret put R2_ACCOUNT_ID
 # npx wrangler secret put R2_ACCESS_KEY_ID
 # npx wrangler secret put R2_SECRET_ACCESS_KEY
@@ -104,9 +104,14 @@ secrets land, subsequent fires pick up automatically.
 ## 4. Set non-secret vars
 
 Uncomment the `[vars]` block in `wrangler.toml` and fill in for your
-environment. The key one for parallel-run is `EXPRESS_FALLBACK_URL` —
-point it at the current DigitalOcean App Platform backend so unported
-routes keep working.
+environment. `EXPRESS_FALLBACK_URL` is **optional** post-cutover — every
+route is now a native Hono handler (see `EXPRESS_CLEANUP_AUDIT.md`), so
+the fallback proxy never serves real traffic in the steady state.
+Setting it during the parallel-run window is a belt-and-suspenders
+choice: any URL the worker doesn't match (typos, deprecated paths) gets
+proxied to Express instead of returning a 404. Once you've soaked for
+24-72 hours with zero proxy hits in `wrangler tail`, unset this var and
+unmatched paths will return a clear 404 from the worker itself.
 
 ```toml
 [vars]
@@ -114,6 +119,7 @@ NODE_ENV = "production"
 CORS_ORIGINS = "https://worksheet-grading-web.madhav-2ff.workers.dev,https://app.saarthi.ai"
 CF_API_BASE_URL = "https://api.cloudflare.com/client/v4"
 POSTHOG_HOST = "https://us.i.posthog.com"
+# Optional during parallel-run; remove when comfortable with cutover:
 EXPRESS_FALLBACK_URL = "https://king-prawn-app-k2urh.ondigitalocean.app/worksheet-grading-backend"
 ```
 
@@ -173,12 +179,31 @@ curl -sf -X POST $URL/api/auth/login \
 export TOKEN="<token from login>"
 curl -sf $URL/api/auth/me -H "Authorization: Bearer $TOKEN" | jq .
 
-# Fallback: hit a Phase 5.13 route and confirm it reaches Express
+# Worker route confirmation: /api/worksheets/upload is now a native
+# Hono route (not a fallback to Express). It is upload-only and does
+# not auto-grade; the wire response reflects that.
 curl -sfi $URL/api/worksheets/upload -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: multipart/form-data'
-# Expect: Express's multer error (not Hono's 404).
+  -H "Authorization: Bearer $TOKEN"
+# Expect: a Hono 400 from the multipart parser
+#   `{"message":"Expected Content-Type to be multipart/form-data"}`
+# (or 401 if the token is missing/expired). NOT Express's multer
+# error and NOT a 404 — if you see either, the deploy is wrong.
+
+# Fallback proxy sanity (only meaningful before the EXPRESS_FALLBACK_URL
+# is unset). Hit a path the worker does not match and confirm it 404s
+# with the no-match message:
+curl -si $URL/api/this-route-does-not-exist | head -1
+# Expect: HTTP/2 404, body `{"error":"EXPRESS_FALLBACK_URL is not
+# configured. No matching route on the worker."}` once the fallback
+# secret is unset post-cutover; or whatever Express returns while the
+# fallback is still wired during the soak window.
 ```
+
+> Phase 5.13 deferred routes used to be the canonical fallback smoke
+> target — those routes are all native Hono now (every Express route
+> has been ported, see `EXPRESS_CLEANUP_AUDIT.md`). The fallback proxy
+> stays in the bundle as a safety net for typos / future drift but
+> should never serve real traffic post-cutover.
 
 ---
 
@@ -227,11 +252,11 @@ but receives no traffic.
 | Secret | Source | Used by |
 |---|---|---|
 | `JWT_SECRET` | `backend/.env#JWT_SECRET` | `middleware/auth.ts`, login/me |
-| `GRADING_WORKER_TOKEN` | `backend/.env#GRADING_WORKER_TOKEN` | `middleware/workerTokens.ts` (internal grading-worker routes — Phase 5.13) |
+| `GRADING_WORKER_TOKEN` | `backend/.env#GRADING_WORKER_TOKEN` | `middleware/workerTokens.ts` (internal grading-worker routes) |
 | `WORKSHEET_CREATION_WORKER_TOKEN` | `backend/.env#WORKSHEET_CREATION_WORKER_TOKEN` | `routes/internalWorksheetGeneration.ts` |
-| `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_QUEUE_ID` | `backend/.env` | `adapters/queues.ts` (Phase 5.13) |
+| `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_QUEUE_ID` | `backend/.env` | `adapters/queues.ts` (cron dispatch + grading queue publish) |
 | `POSTHOG_API_KEY` | `backend/.env#NEXT_PUBLIC_POSTHOG_KEY` | `adapters/posthog.ts` |
-| `R2_*` | `backend/.env` | `adapters/storage.ts` (presigned URLs — Phase 5.13) |
+| `R2_*` | `backend/.env` | `adapters/storage.ts` (presigned URLs for direct-upload-session) |
 
 **Do not copy production secrets into `.dev.vars`** — dev should point
 at a local Postgres and use a dev-only JWT.
