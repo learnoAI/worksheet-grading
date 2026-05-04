@@ -78,19 +78,25 @@ internalQuestionBank.post(
 
     try {
       const created = await prisma.questionBank.createMany({
-        data: questions.map((q) => ({
-          mathSkillId,
-          question: q.question,
-          answer: q.answer,
-          instruction: q.instruction,
-          // Persist `renderSpec` as opaque JSON when present. Required by
-          // the PDF renderer to dispatch special-render kinds (long_division,
-          // vertical_arithmetic, choice_circle); plain rendering otherwise.
-          renderSpec:
-            q.renderSpec === undefined
-              ? undefined
-              : (q.renderSpec as Prisma.InputJsonValue),
-        })),
+        data: questions.map((q) => {
+          // Build the row imperatively so optional fields stay unset rather
+          // than `undefined` — Prisma's `QuestionBankCreateManyInput` rejects
+          // explicit `undefined` for the required `instruction` column under
+          // strict types. Mirrors Express's `buildQuestionBankRow` shape:
+          // `instruction` always present (defaults to '' when caller omits
+          // it; question-generator's own schema makes it required), and
+          // `renderSpec` conditionally spread.
+          const row: Prisma.QuestionBankCreateManyInput = {
+            mathSkillId,
+            question: q.question,
+            answer: q.answer,
+            instruction: q.instruction ?? '',
+          };
+          if (q.renderSpec !== undefined) {
+            row.renderSpec = q.renderSpec as Prisma.InputJsonValue;
+          }
+          return row;
+        }),
       });
 
       if (batchId) {
@@ -196,11 +202,14 @@ internalQuestionBank.post(
 
       if (result.success && Array.isArray(result.questions)) {
         const created = await prisma.questionBank.createMany({
-          data: result.questions.map((q) => ({
+          data: result.questions.map((q): Prisma.QuestionBankCreateManyInput => ({
             mathSkillId,
             question: q.question,
             answer: q.answer,
-            instruction: q.instruction,
+            // Default '' on missing instruction — same rationale as the
+            // /store handler above. Prisma's input type rejects explicit
+            // `undefined` for the required column under strict types.
+            instruction: q.instruction ?? '',
           })),
         });
         return c.json({ success: true, stored: created.count }, 200);

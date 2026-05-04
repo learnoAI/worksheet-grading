@@ -154,7 +154,7 @@ describe('POST /internal/question-bank/store', () => {
     const questionBankUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
     const mathSkillFindUnique = vi.fn().mockResolvedValue({ name: 'S' });
 
-    globalThis.fetch = vi.fn(async () =>
+    globalThis.fetch = vi.fn(async (..._args: Parameters<typeof fetch>) =>
       new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
     ) as unknown as typeof fetch;
 
@@ -258,7 +258,7 @@ describe('POST /internal/question-bank/generate', () => {
       questionBank: { createMany },
     });
 
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (..._args: Parameters<typeof fetch>) =>
       new Response(
         JSON.stringify({
           success: true,
@@ -303,7 +303,7 @@ describe('POST /internal/question-bank/generate', () => {
       },
       questionBank: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
     });
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (..._args: Parameters<typeof fetch>) =>
       new Response(
         JSON.stringify({
           success: true,
@@ -336,7 +336,7 @@ describe('POST /internal/question-bank/generate', () => {
       },
       questionBank: { createMany: vi.fn() },
     });
-    globalThis.fetch = vi.fn(async () =>
+    globalThis.fetch = vi.fn(async (..._args: Parameters<typeof fetch>) =>
       new Response('nope', { status: 502 })
     ) as unknown as typeof fetch;
     const res = await authed(
@@ -359,7 +359,7 @@ describe('POST /internal/question-bank/generate', () => {
       },
       questionBank: { createMany: vi.fn() },
     });
-    globalThis.fetch = vi.fn(async () =>
+    globalThis.fetch = vi.fn(async (..._args: Parameters<typeof fetch>) =>
       new Response(JSON.stringify({ success: false, error: 'model refused' }), {
         status: 200,
       })

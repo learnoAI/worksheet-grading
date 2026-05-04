@@ -14,8 +14,8 @@ const ENV = {
   CF_QUEUE_ID: 'queue-123',
 };
 
-function mockOkResponse(result: unknown = {}): () => Promise<Response> {
-  return () =>
+function mockOkResponse(result: unknown = {}): (...args: Parameters<typeof fetch>) => Promise<Response> {
+  return (..._args) =>
     Promise.resolve(
       new Response(JSON.stringify({ success: true, result }), {
         status: 200,
@@ -70,7 +70,7 @@ describe('publishToQueue', () => {
   });
 
   it('throws API_REQUEST_FAILED on non-2xx', async () => {
-    globalThis.fetch = vi.fn(async () =>
+    globalThis.fetch = vi.fn(async (..._args: Parameters<typeof fetch>) =>
       new Response('bad', { status: 502 })
     ) as unknown as typeof fetch;
     await expect(
@@ -79,7 +79,7 @@ describe('publishToQueue', () => {
   });
 
   it('throws API_REJECTED when CF returns success=false', async () => {
-    globalThis.fetch = vi.fn(async () =>
+    globalThis.fetch = vi.fn(async (..._args: Parameters<typeof fetch>) =>
       new Response(
         JSON.stringify({ success: false, errors: [{ code: 10006, message: 'no such queue' }] }),
         { status: 200 }
@@ -91,7 +91,7 @@ describe('publishToQueue', () => {
   });
 
   it('throws INVALID_RESPONSE when body is not JSON', async () => {
-    globalThis.fetch = vi.fn(async () =>
+    globalThis.fetch = vi.fn(async (..._args: Parameters<typeof fetch>) =>
       new Response('<html>bad gateway</html>', { status: 200 })
     ) as unknown as typeof fetch;
     await expect(
@@ -100,7 +100,7 @@ describe('publishToQueue', () => {
   });
 
   it('wraps a network error as API_REQUEST_FAILED', async () => {
-    globalThis.fetch = vi.fn(async () => {
+    globalThis.fetch = vi.fn(async (..._args: Parameters<typeof fetch>) => {
       throw new TypeError('network down');
     }) as unknown as typeof fetch;
     await expect(

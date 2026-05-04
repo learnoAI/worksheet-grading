@@ -10,7 +10,7 @@ afterEach(() => {
 
 function mockFetchSequence(responses: Array<() => Promise<Response>>): ReturnType<typeof vi.fn> {
   let i = 0;
-  const fn = vi.fn(async () => {
+  const fn = vi.fn(async (..._args: Parameters<typeof fetch>) => {
     const maker = responses[Math.min(i, responses.length - 1)];
     i++;
     return maker();

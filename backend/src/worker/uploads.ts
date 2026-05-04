@@ -105,10 +105,18 @@ export async function parseMultipartFiles(
   return { files, fields };
 }
 
-function isFileLike(value: FormDataEntryValue): value is Blob {
-  // In the Workers runtime, files come back as `File` (extends `Blob`).
-  // Older Node/undici may surface them as plain `Blob`.
-  return typeof value === 'object' && value !== null && typeof (value as Blob).arrayBuffer === 'function';
+function isFileLike(value: FormDataEntryValue): value is File {
+  // FormDataEntryValue is `string | File` so the predicate narrows to File.
+  // In Workers + modern Node, `File extends Blob`, so the runtime check is
+  // structural: anything object-like with an `arrayBuffer()` method gets
+  // treated as a File-shaped Blob. Older Node/undici surface plain `Blob`
+  // here too — they're still structurally compatible at runtime, only the
+  // type assertion narrows to `File`.
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Blob).arrayBuffer === 'function'
+  );
 }
 
 async function toUploadedFile(fieldname: string, blob: Blob): Promise<UploadedFile> {

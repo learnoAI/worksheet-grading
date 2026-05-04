@@ -67,6 +67,18 @@ export interface WorkerEnv {
   R2_BUCKET_NAME?: string;
   R2_ENDPOINT?: string;
   R2_PUBLIC_BASE_URL?: string;
+
+  // Dispatch-loop tunables (read by `dispatch.ts`; both stringly-typed
+  // because wrangler `[vars]` always serializes to string).
+  GRADING_STALE_PROCESSING_MS?: string;
+  GRADING_QUEUE_POLL_BATCH_SIZE?: string;
+
+  // Index signature so `WorkerEnv` is structurally assignable to adapter
+  // env contracts that read dynamic keys (e.g. `QueuePublishEnv` does
+  // `env[queueIdEnvKey]` to look up `CF_QUEUE_ID` /
+  // `QUESTION_GENERATION_QUEUE_ID` / `PDF_RENDERING_QUEUE_ID` by name).
+  // Named fields above remain typed; dynamic accesses return `unknown`.
+  [k: string]: unknown;
 }
 
 /**

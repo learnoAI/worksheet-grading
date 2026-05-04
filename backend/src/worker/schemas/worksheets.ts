@@ -40,7 +40,11 @@ export const gradeWorksheetSchema = z.object({
   isRepeated: z.boolean().optional(),
   isIncorrectGrade: z.boolean().optional(),
   gradingDetails: z.unknown().optional(),
-  wrongQuestionNumbers: z.array(z.number()).nullable().optional(),
+  // Wire format is a comma-separated string ("1, 7") to match the
+  // existing Express schema and the Prisma `String?` column. The frontend
+  // sends + parses it as a string (web-app uses `parseWrongQuestionNumbers`
+  // to split on commas). Express controllers pass it through unchanged.
+  wrongQuestionNumbers: z.string().nullable().optional(),
 });
 
 export const updateAdminCommentsSchema = z.object({

@@ -865,7 +865,7 @@ describe('GET /api/worksheets/incorrect-grading', () => {
           createdAt: new Date('2026-04-10T09:00:00Z'),
           updatedAt: new Date('2026-04-10T09:00:00Z'),
           gradingDetails: null,
-          wrongQuestionNumbers: [1, 2],
+          wrongQuestionNumbers: '1, 2',
           adminComments: null,
           worksheetNumber: 5,
           student: { id: 'st1', name: 'Alice', tokenNumber: 'A1' },

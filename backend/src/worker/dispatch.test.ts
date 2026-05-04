@@ -57,7 +57,7 @@ const ENV = {
 };
 
 function mockSuccessfulPublish() {
-  const fn = vi.fn(async () =>
+  const fn = vi.fn(async (..._args: Parameters<typeof fetch>) =>
     new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
   );
   globalThis.fetch = fn as unknown as typeof fetch;
@@ -65,7 +65,7 @@ function mockSuccessfulPublish() {
 }
 
 function mockFailedPublish(status = 500, body = 'nope') {
-  const fn = vi.fn(async () => new Response(body, { status }));
+  const fn = vi.fn(async (..._args: Parameters<typeof fetch>) => new Response(body, { status }));
   globalThis.fetch = fn as unknown as typeof fetch;
   return fn;
 }
@@ -242,7 +242,7 @@ describe('dispatchPendingJobs — publish loop', () => {
 
     // First publish succeeds, second fails
     let call = 0;
-    globalThis.fetch = vi.fn(async () => {
+    globalThis.fetch = vi.fn(async (..._args: Parameters<typeof fetch>) => {
       call++;
       if (call === 1) {
         return new Response(JSON.stringify({ success: true, result: {} }), {

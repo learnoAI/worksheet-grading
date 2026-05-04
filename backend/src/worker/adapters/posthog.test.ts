@@ -10,7 +10,9 @@ afterEach(() => {
 
 function mockFetch(responder: (call: number) => Promise<Response> | Response) {
   let i = 0;
-  const fn = vi.fn(async () => {
+  // Typing the inner fn against `Parameters<typeof fetch>` is what makes
+  // `fn.mock.calls[N]` come back as `[input, init?]` rather than `[]`.
+  const fn = vi.fn(async (..._args: Parameters<typeof fetch>) => {
     const out = await responder(i);
     i++;
     return out;

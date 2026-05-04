@@ -149,7 +149,7 @@ describe('assembleAndEnqueuePdfs', () => {
   }
 
   it('assembles sections and publishes one PDF message per worksheet', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (..._args: Parameters<typeof fetch>) =>
       new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
     );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -191,7 +191,7 @@ describe('assembleAndEnqueuePdfs', () => {
   });
 
   it('records queue publish failures in errors without throwing', async () => {
-    globalThis.fetch = vi.fn(async () =>
+    globalThis.fetch = vi.fn(async (..._args: Parameters<typeof fetch>) =>
       new Response('oops', { status: 500 })
     ) as unknown as typeof fetch;
 
