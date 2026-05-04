@@ -1,12 +1,20 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import { expressFallback } from './fallback';
+import { requestContext } from './middleware/requestContext';
 import type { AppBindings } from './types';
 
 function buildApp(fetchImpl: typeof fetch) {
   const app = new Hono<AppBindings>();
   app.get('/api/known', (c) => c.json({ handledByHono: true }));
   // Catch-all must be the LAST mount — matches how index.ts will wire it.
+  app.all('*', expressFallback({ fetchImpl }));
+  return app;
+}
+
+function buildAppWithRequestContext(fetchImpl: typeof fetch) {
+  const app = new Hono<AppBindings>();
+  app.use('*', requestContext);
   app.all('*', expressFallback({ fetchImpl }));
   return app;
 }
@@ -197,6 +205,34 @@ describe('expressFallback — response passthrough', () => {
     const res = await app.request('/api/unknown', {}, ENV);
     expect(res.status).toBe(200);
     expect(res.headers.get('set-cookie')).toBeNull();
+  });
+});
+
+describe('expressFallback — request id propagation', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('forwards the worker-chosen (prefixed) X-Request-Id, not the raw external one', async () => {
+    const upstream = mockUpstream(200);
+    const app = buildAppWithRequestContext(upstream as unknown as typeof fetch);
+    await app.request(
+      '/api/unknown',
+      { headers: { 'X-Request-Id': 'attacker-supplied' } },
+      ENV
+    );
+    const init = upstream.mock.calls[0][1] as RequestInit;
+    const h = init.headers as Headers;
+    expect(h.get('x-request-id')).toBe('ext:attacker-supplied');
+  });
+
+  it('forwards an internally-generated id when no inbound X-Request-Id is present', async () => {
+    const upstream = mockUpstream(200);
+    const app = buildAppWithRequestContext(upstream as unknown as typeof fetch);
+    await app.request('/api/unknown', {}, ENV);
+    const h = (upstream.mock.calls[0][1] as RequestInit).headers as Headers;
+    const id = h.get('x-request-id');
+    expect(id).toBeTruthy();
+    expect(id).not.toMatch(/^ext:/); // server-generated, not external
+    expect(id).toMatch(/^[A-Za-z0-9_-]+$/);
   });
 });
 
