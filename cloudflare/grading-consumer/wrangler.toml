@@ -82,7 +82,7 @@ new_sqlite_classes = ["GeminiRateLimiter"]
 
 [[queues.consumers]]
 queue = "grading-fast"
-max_batch_size = 3
+max_batch_size = 20
 max_batch_timeout = 1
 max_concurrency = 250
 max_retries = 5
