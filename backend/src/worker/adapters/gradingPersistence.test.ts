@@ -32,21 +32,30 @@ function makeTx({
   createResult,
 }: {
   existing?: { id: string } | null;
-  upsertResult?: { id: string };
+  upsertResult?: { id: string; grade?: number | null; outOf?: number };
   upsertError?: Error & { code?: string };
-  updateResult?: { id: string };
-  createResult?: { id: string };
+  updateResult?: { id: string; grade?: number | null; outOf?: number };
+  createResult?: { id: string; grade?: number | null; outOf?: number };
 } = {}) {
+  // Mocks default to grade=32/outOf=40 (matching GOOD_RESPONSE) so the
+  // common test path produces a row whose persisted values agree with
+  // the AI response. Tests that exercise the SR-override scenario (where
+  // the row's grade differs from gradingResponse.grade) override these.
+  const defaultRow = { grade: 32, outOf: 40 };
   const templateFindFirst = vi.fn().mockResolvedValue({ id: 'tpl-1' });
   const worksheetFindFirst = vi
     .fn()
     .mockResolvedValueOnce(existing === undefined ? null : existing)
     .mockResolvedValue(existing ?? null);
   const worksheetUpsert = vi.fn();
-  const worksheetUpdate = vi.fn().mockResolvedValue(updateResult ?? { id: 'ws-updated' });
-  const worksheetCreate = vi.fn().mockResolvedValue(createResult ?? { id: 'ws-created' });
+  const worksheetUpdate = vi
+    .fn()
+    .mockResolvedValue({ ...defaultRow, id: 'ws-updated', ...updateResult });
+  const worksheetCreate = vi
+    .fn()
+    .mockResolvedValue({ ...defaultRow, id: 'ws-created', ...createResult });
   if (upsertError) worksheetUpsert.mockRejectedValue(upsertError);
-  else worksheetUpsert.mockResolvedValue(upsertResult ?? { id: 'ws-1' });
+  else worksheetUpsert.mockResolvedValue({ ...defaultRow, id: 'ws-1', ...upsertResult });
 
   const tx = {
     worksheetTemplate: { findFirst: templateFindFirst },
@@ -87,12 +96,36 @@ describe('persistWorksheetForGradingJob', () => {
       worksheetId: 'ws-new',
       action: 'CREATED',
       grade: 32,
+      outOf: 40,
     });
     expect(spies.worksheetUpsert).toHaveBeenCalled();
     const call = spies.worksheetUpsert.mock.calls[0][0];
     expect(call.create.grade).toBe(32);
     expect(call.create.outOf).toBe(40);
     expect(call.create.wrongQuestionNumbers).toBe('1, 7');
+  });
+
+  it('returns the persisted grade/outOf, not gradingResponse, so SR overrides reach mastery', async () => {
+    // The upsert preserved an existing user-owned grade of 35 even though
+    // the AI's gradingResponse said 32 (see bd5d748). Mastery + telemetry
+    // must trust the row, not the raw AI value.
+    const { tx } = makeTx({
+      existing: { id: 'ws-override' },
+      upsertResult: { id: 'ws-override', grade: 35, outOf: 40 },
+    });
+    const result = await persistWorksheetForGradingJob(tx, {}, JOB, GOOD_RESPONSE);
+    expect(result.action).toBe('UPDATED');
+    expect(result.grade).toBe(35);
+    expect(result.outOf).toBe(40);
+  });
+
+  it('falls back to gradingResponse.total_possible when row has no outOf', async () => {
+    const { tx } = makeTx({
+      existing: null,
+      upsertResult: { id: 'ws-x', grade: null, outOf: undefined },
+    });
+    const result = await persistWorksheetForGradingJob(tx, {}, JOB, GOOD_RESPONSE);
+    expect(result.outOf).toBe(40); // from GOOD_RESPONSE.total_possible
   });
 
   it('marks action=UPDATED when an existing row is found', async () => {

@@ -377,6 +377,10 @@ internalGradingWorker.post(
           return {
             worksheetId: current.worksheetId,
             action: 'ALREADY_COMPLETED' as const,
+            // Duplicate delivery — the transaction skipped persistence so we
+            // have no row data. Mastery falls back to gradingResponse below.
+            grade: null as number | null,
+            outOf: null as number | null,
           };
         }
 
@@ -421,6 +425,8 @@ internalGradingWorker.post(
         return {
           worksheetId: persistedWorksheet.worksheetId,
           action: persistedWorksheet.action as 'CREATED' | 'UPDATED' | 'ALREADY_COMPLETED',
+          grade: persistedWorksheet.grade,
+          outOf: persistedWorksheet.outOf as number | null,
         };
       });
 
@@ -443,8 +449,13 @@ internalGradingWorker.post(
             worksheetId: persisted.worksheetId,
             studentId: job.studentId,
             worksheetNumber: job.worksheetNumber,
-            grade: gradingResponse.grade ?? 0,
-            outOf: gradingResponse.total_possible ?? 40,
+            // Prefer the persisted grade so mastery reflects an SR's manual
+            // override rather than the raw AI response when the upsert
+            // preserved an existing row's value (see bd5d748). Fallback
+            // covers ALREADY_COMPLETED duplicate deliveries where the
+            // transaction skipped persistence and so has no row data.
+            grade: persisted.grade ?? gradingResponse.grade ?? 0,
+            outOf: persisted.outOf ?? gradingResponse.total_possible ?? 40,
             submittedOn: job.submittedOn ?? new Date(),
           });
         }

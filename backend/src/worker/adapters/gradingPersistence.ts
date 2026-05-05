@@ -33,7 +33,14 @@ import type { WorkerEnv } from '../types';
 export interface PersistWorksheetResult {
   worksheetId: string;
   action: 'CREATED' | 'UPDATED';
+  // Reflects the row that's actually in the DB after the upsert. On the
+  // UPDATE path this can differ from gradingResponse.grade — an SR may
+  // have saved a manual override before this worker finished, and the
+  // upsert intentionally preserves that (see the user-owned-fields
+  // comment on the upsert.update branch). Downstream consumers (mastery,
+  // telemetry) should trust these values, not the raw AI response.
   grade: number | null;
+  outOf: number;
 }
 
 // Threshold for the "slow persistence" PostHog event. Matches the default
@@ -323,7 +330,8 @@ export async function persistWorksheetForGradingJob(
   return {
     worksheetId: worksheet.id,
     action: wasCreated ? 'CREATED' : 'UPDATED',
-    grade: gradingResponse.grade ?? null,
+    grade: worksheet.grade ?? null,
+    outOf: worksheet.outOf ?? gradingResponse.total_possible ?? 40,
   };
 }
 
