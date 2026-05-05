@@ -223,6 +223,45 @@ function getLlmErrorStatus(error: unknown): number | undefined {
   return error instanceof LlmHttpError ? error.status : undefined;
 }
 
+const ERROR_STACK_MAX_BYTES = 2000;
+const ERROR_RESPONSE_TEXT_MAX_BYTES = 500;
+
+// Capture name/stack/structured-context off thrown errors so the backend can
+// log them to app_logs with full fidelity. Without this the worker only sends
+// `errorMessage`, and the actual exception class + frames are lost the moment
+// `wrangler tail` rotates.
+function serializeWorkerError(error: unknown): {
+  errorName?: string;
+  errorStack?: string;
+  errorContext?: Record<string, unknown>;
+} {
+  if (!(error instanceof Error)) {
+    return {};
+  }
+  const out: { errorName: string; errorStack?: string; errorContext?: Record<string, unknown> } = {
+    errorName: error.name,
+  };
+  if (error.stack) {
+    out.errorStack = error.stack.length > ERROR_STACK_MAX_BYTES
+      ? error.stack.slice(0, ERROR_STACK_MAX_BYTES)
+      : error.stack;
+  }
+  const ctx: Record<string, unknown> = {};
+  const errorAsRecord = error as unknown as Record<string, unknown>;
+  for (const key of ['status', 'provider', 'model'] as const) {
+    const v = errorAsRecord[key];
+    if (v !== undefined) ctx[key] = v;
+  }
+  const responseText = errorAsRecord.responseText;
+  if (typeof responseText === 'string' && responseText.length > 0) {
+    ctx.responseText = responseText.length > ERROR_RESPONSE_TEXT_MAX_BYTES
+      ? responseText.slice(0, ERROR_RESPONSE_TEXT_MAX_BYTES)
+      : responseText;
+  }
+  if (Object.keys(ctx).length > 0) out.errorContext = ctx;
+  return out;
+}
+
 function normalizeReasoningEffort(value: string | undefined): LlmReasoningEffort | undefined {
   switch (value?.trim().toLowerCase()) {
     case 'low':
@@ -1011,7 +1050,8 @@ export default {
           const currentJobId = jobId;
           const currentLeaseId = leaseId;
           let failedMarked = true;
-          await backend.fail(currentJobId, currentLeaseId, reason).catch((failErr) => {
+          const errorDetails = serializeWorkerError(error);
+          await backend.fail(currentJobId, currentLeaseId, reason, errorDetails).catch((failErr) => {
             failedMarked = false;
             console.error('Failed to mark job failed', {
               jobId: currentJobId,
@@ -1033,6 +1073,8 @@ export default {
               messageId: message?.id,
               attempts,
               reason,
+              errorName: errorDetails.errorName,
+              errorContext: errorDetails.errorContext,
             });
           }
         }
