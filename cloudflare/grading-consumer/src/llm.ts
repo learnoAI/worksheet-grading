@@ -125,6 +125,26 @@ function buildGatewayModelName(config: LlmModelConfig): string {
   return `${provider}/${model}`;
 }
 
+function buildRequestTarget(
+  accountId: string,
+  gatewayId: string,
+  config: LlmModelConfig
+): { url: string; model: string } {
+  const provider = config.provider.trim().toLowerCase();
+
+  if (provider === 'openrouter') {
+    return {
+      url: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/openrouter/v1/chat/completions`,
+      model: config.model.trim(),
+    };
+  }
+
+  return {
+    url: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/compat/chat/completions`,
+    model: buildGatewayModelName(config),
+  };
+}
+
 function buildMessages(
   parts: LlmGenerateOptions['parts']
 ): Array<{ role: 'user'; content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> }> {
@@ -215,8 +235,7 @@ export async function llmGenerateJson<T>(options: LlmGenerateOptions): Promise<{
   }
 
   const gatewayId = options.gatewayId?.trim() || 'default';
-  const model = buildGatewayModelName(options.providerConfig);
-  const url = `https://gateway.ai.cloudflare.com/v1/${gatewayAccountId}/${gatewayId}/compat/chat/completions`;
+  const { url, model } = buildRequestTarget(gatewayAccountId, gatewayId, options.providerConfig);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
