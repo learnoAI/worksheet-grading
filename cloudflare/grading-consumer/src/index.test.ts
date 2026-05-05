@@ -675,7 +675,7 @@ describe('cloudflare grading consumer queue semantics', () => {
     });
   });
 
-  it('falls back to Google AI Studio on retryable Workers AI timeouts before queue retry', async () => {
+  it('tries primary twice before falling back on retryable Workers AI timeouts', async () => {
     const backendBase = 'https://backend.example';
 
     (globalThis.fetch as any).mockImplementation(async (url: any, init?: any) => {
@@ -715,6 +715,7 @@ describe('cloudflare grading consumer queue semantics', () => {
 
     (llmGenerateJson as any)
       .mockRejectedValueOnce(new LlmHttpError(408, 'request timeout', 'workers-ai', '@cf/google/gemma-4-26b-a4b-it'))
+      .mockRejectedValueOnce(new LlmHttpError(408, 'request timeout again', 'workers-ai', '@cf/google/gemma-4-26b-a4b-it'))
       .mockResolvedValueOnce({
         parsed: { questions: [{ question_number: 1, question: '1+1', student_answer: '2' }] },
         rawText: '{}',
@@ -787,23 +788,27 @@ describe('cloudflare grading consumer queue semantics', () => {
     expect(fetchCalls.some((c) => c.url.endsWith('/fail'))).toBe(false);
 
     const calls = (llmGenerateJson as any).mock.calls;
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(4);
     expect(calls[0][0].providerConfig).toMatchObject({
       provider: 'workers-ai',
       model: '@cf/google/gemma-4-26b-a4b-it',
     });
     expect(calls[1][0].providerConfig).toMatchObject({
+      provider: 'workers-ai',
+      model: '@cf/google/gemma-4-26b-a4b-it',
+    });
+    expect(calls[2][0].providerConfig).toMatchObject({
       provider: 'google-ai-studio',
       model: 'gemini-3.1-flash-lite-preview',
       apiKey: 'gemini-key',
     });
-    expect(calls[2][0].providerConfig).toMatchObject({
+    expect(calls[3][0].providerConfig).toMatchObject({
       provider: 'workers-ai',
       model: '@cf/google/gemma-4-26b-a4b-it',
     });
   });
 
-  it('requeues when both primary and fallback LLM calls fail retryably', async () => {
+  it('requeues after primary twice and OpenRouter twice fail retryably', async () => {
     const backendBase = 'https://backend.example';
 
     (globalThis.fetch as any).mockImplementation(async (url: any, init?: any) => {
@@ -843,7 +848,9 @@ describe('cloudflare grading consumer queue semantics', () => {
 
     (llmGenerateJson as any)
       .mockRejectedValueOnce(new LlmHttpError(408, 'primary timeout', 'workers-ai', '@cf/google/gemma-4-26b-a4b-it'))
-      .mockRejectedValueOnce(new LlmHttpError(503, 'fallback unavailable', 'google-ai-studio', 'gemini-3.1-flash-lite-preview'));
+      .mockRejectedValueOnce(new LlmHttpError(408, 'primary timeout again', 'workers-ai', '@cf/google/gemma-4-26b-a4b-it'))
+      .mockRejectedValueOnce(new LlmHttpError(503, 'fallback unavailable', 'openrouter', 'google/gemma-4-26b-a4b-it'))
+      .mockRejectedValueOnce(new LlmHttpError(503, 'fallback unavailable again', 'openrouter', 'google/gemma-4-26b-a4b-it'));
 
     const ack = vi.fn();
     const retry = vi.fn();
@@ -851,9 +858,9 @@ describe('cloudflare grading consumer queue semantics', () => {
     const env: any = {
       BACKEND_BASE_URL: backendBase,
       BACKEND_WORKER_TOKEN: 'token',
-      LLM_FALLBACK_PROVIDER: 'google-ai-studio',
-      LLM_FALLBACK_MODEL: 'gemini-3.1-flash-lite-preview',
-      GEMINI_API_KEY: 'gemini-key',
+      LLM_FALLBACK_PROVIDER: 'openrouter',
+      LLM_FALLBACK_MODEL: 'google/gemma-4-26b-a4b-it',
+      OPENROUTER_API_KEY: 'openrouter-key',
       IMAGES_BUCKET: makeR2Bucket({
         'img-1': { bytes: new Uint8Array([1, 2, 3]) },
       }),
@@ -882,7 +889,14 @@ describe('cloudflare grading consumer queue semantics', () => {
     expect(ack).not.toHaveBeenCalled();
     expect(fetchCalls.some((c) => c.url.endsWith('/requeue'))).toBe(true);
     expect(fetchCalls.some((c) => c.url.endsWith('/fail'))).toBe(false);
-    expect((llmGenerateJson as any).mock.calls).toHaveLength(2);
+    const calls = (llmGenerateJson as any).mock.calls;
+    expect(calls).toHaveLength(4);
+    expect(calls.map((call: any[]) => call[0].providerConfig.provider)).toEqual([
+      'workers-ai',
+      'workers-ai',
+      'openrouter',
+      'openrouter',
+    ]);
   });
 
   it('uses OPENROUTER_API_KEY for OpenRouter fallback config', async () => {
@@ -925,6 +939,7 @@ describe('cloudflare grading consumer queue semantics', () => {
 
     (llmGenerateJson as any)
       .mockRejectedValueOnce(new LlmHttpError(408, 'request timeout', 'workers-ai', '@cf/google/gemma-4-26b-a4b-it'))
+      .mockRejectedValueOnce(new LlmHttpError(408, 'request timeout again', 'workers-ai', '@cf/google/gemma-4-26b-a4b-it'))
       .mockResolvedValueOnce({
         parsed: { questions: [{ question_number: 1, question: '1+1', student_answer: '2' }] },
         rawText: '{}',
@@ -986,7 +1001,7 @@ describe('cloudflare grading consumer queue semantics', () => {
     );
 
     const calls = (llmGenerateJson as any).mock.calls;
-    expect(calls[1][0].providerConfig).toMatchObject({
+    expect(calls[2][0].providerConfig).toMatchObject({
       provider: 'openrouter',
       model: 'google/gemma-4-26b-a4b-it',
       apiKey: 'openrouter-key',
