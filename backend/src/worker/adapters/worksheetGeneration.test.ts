@@ -4,6 +4,7 @@ import {
   buildSections,
   generateWorksheets,
   createClassBatch,
+  createStudentBatch,
 } from './worksheetGeneration';
 import type { WorkerEnv } from '../types';
 
@@ -338,6 +339,7 @@ describe('createClassBatch', () => {
     );
     expect(res.batchId).toBe('');
     expect(res.errors).toContain('No students in class');
+    expect(res.worksheetIds).toEqual([]);
   });
 
   it('creates batch, enqueues question generation when skills are sparse', async () => {
@@ -375,6 +377,7 @@ describe('createClassBatch', () => {
     );
     expect(res.batchId).toBe('batch-1');
     expect(res.skillsToGenerate).toBeGreaterThan(0);
+    expect(res.worksheetIds).toEqual(['ws-1']);
 
     const qgenCalls = fetchMock.mock.calls.filter((c) =>
       String(c[0]).includes('qgen-q')
@@ -431,10 +434,142 @@ describe('createClassBatch', () => {
       new Date('2026-04-20')
     );
     expect(res.skillsToGenerate).toBe(0);
+    expect(res.worksheetIds).toEqual(['ws-1']);
 
     const pdfCalls = fetchMock.mock.calls.filter((c) =>
       String(c[0]).includes('pdf-q')
     );
     expect(pdfCalls.length).toBe(1);
+  });
+});
+
+describe('createStudentBatch', () => {
+  it('returns an error when the student is not assigned to a class', async () => {
+    const prisma = {
+      studentClass: { findFirst: vi.fn().mockResolvedValue(null) },
+    } as unknown as PrismaClient;
+
+    const res = await createStudentBatch(
+      prisma,
+      makeEnv(),
+      's-orphan',
+      2,
+      new Date('2026-04-20')
+    );
+    expect(res.batchId).toBe('');
+    expect(res.totalWorksheets).toBe(0);
+    expect(res.skillsToGenerate).toBe(0);
+    expect(res.worksheetIds).toEqual([]);
+    expect(res.errors).toContain('Student is not assigned to a class');
+  });
+
+  it('creates a batch for one student and enqueues question generation when sparse', async () => {
+    const prisma = {
+      studentClass: {
+        findFirst: vi.fn().mockResolvedValue({ classId: 'class-1' }),
+      },
+      worksheetBatch: {
+        create: vi.fn().mockResolvedValue({ id: 'batch-9' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      worksheetSkillMap: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([{ worksheetNumber: 1, mathSkillId: 'A' }]),
+      },
+      skillPracticeLog: { findFirst: vi.fn().mockResolvedValue(null) },
+      studentSkillMastery: { findMany: vi.fn().mockResolvedValue([]) },
+      generatedWorksheet: { create: vi.fn().mockResolvedValue({ id: 'ws-9' }) },
+      questionBank: { count: vi.fn().mockResolvedValue(0) }, // sparse → enqueue qgen
+      mathSkill: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ id: 'A', name: 'Sk', mainTopic: { name: 'Topic' } }),
+      },
+    } as unknown as PrismaClient;
+
+    fetchMock.mockResolvedValue(okCfApiResponse());
+    const res = await createStudentBatch(
+      prisma,
+      makeEnv(),
+      's1',
+      1,
+      new Date('2026-04-20')
+    );
+    expect(res.batchId).toBe('batch-9');
+    expect(res.totalWorksheets).toBe(1);
+    expect(res.worksheetIds).toEqual(['ws-9']);
+    expect(res.skillsToGenerate).toBeGreaterThan(0);
+
+    // Batch row created with the lookup classId, not a hand-rolled one.
+    const createCall = (
+      prisma.worksheetBatch.create as ReturnType<typeof vi.fn>
+    ).mock.calls[0][0];
+    expect(createCall.data.classId).toBe('class-1');
+
+    // Question-gen queue publish carries the new batchId.
+    const qgenCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('qgen-q')
+    );
+    expect(qgenCalls.length).toBeGreaterThan(0);
+    const body = JSON.parse(qgenCalls[0][1]!.body as string);
+    expect(body.body.batchId).toBe('batch-9');
+  });
+
+  it('enqueues PDF rendering directly when the question bank is already stocked', async () => {
+    const prisma = {
+      studentClass: {
+        findFirst: vi.fn().mockResolvedValue({ classId: 'class-1' }),
+      },
+      worksheetBatch: {
+        create: vi.fn().mockResolvedValue({ id: 'batch-9' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      worksheetSkillMap: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([{ worksheetNumber: 1, mathSkillId: 'A' }]),
+      },
+      skillPracticeLog: { findFirst: vi.fn().mockResolvedValue(null) },
+      studentSkillMastery: { findMany: vi.fn().mockResolvedValue([]) },
+      generatedWorksheet: {
+        create: vi.fn().mockResolvedValue({ id: 'ws-9' }),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'ws-9',
+            studentId: 's1',
+            newSkillId: 'A',
+            reviewSkill1Id: 'A',
+            reviewSkill2Id: 'A',
+          },
+        ]),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      questionBank: {
+        count: vi.fn().mockResolvedValue(100), // stocked
+        findMany: vi.fn().mockResolvedValue([]),
+        updateMany: vi.fn(),
+      },
+      mathSkill: { findUnique: vi.fn().mockResolvedValue({ name: 'Sk' }) },
+    } as unknown as PrismaClient;
+
+    fetchMock.mockResolvedValue(okCfApiResponse());
+    const res = await createStudentBatch(
+      prisma,
+      makeEnv(),
+      's1',
+      1,
+      new Date('2026-04-20')
+    );
+    expect(res.skillsToGenerate).toBe(0);
+    expect(res.worksheetIds).toEqual(['ws-9']);
+
+    const pdfCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('pdf-q')
+    );
+    expect(pdfCalls.length).toBe(1);
+    const pdfBody = JSON.parse(pdfCalls[0][1]!.body as string);
+    expect(pdfBody.body.batchId).toBe('batch-9');
+    expect(pdfBody.body.worksheetId).toBe('ws-9');
   });
 });

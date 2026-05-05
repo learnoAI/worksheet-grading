@@ -3,8 +3,8 @@ import { UserRole } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
 import { capturePosthogException } from '../adapters/posthog';
 import {
-  generateWorksheets,
   createClassBatch,
+  createStudentBatch,
 } from '../adapters/worksheetGeneration';
 import type { AppBindings } from '../types';
 
@@ -72,7 +72,7 @@ worksheetGeneration.post('/generate', async (c) => {
       return c.json({ success: false, error: 'Student not found' }, 404);
     }
 
-    const result = await generateWorksheets(
+    const result = await createStudentBatch(
       prisma,
       c.env ?? {},
       studentId,
@@ -83,8 +83,14 @@ worksheetGeneration.post('/generate', async (c) => {
     return c.json({
       success: true,
       data: {
+        batchId: result.batchId,
         worksheetIds: result.worksheetIds,
-        status: result.status,
+        status:
+          result.skillsToGenerate > 0
+            ? 'GENERATING_QUESTIONS'
+            : 'RENDERING_PDFS',
+        totalWorksheets: result.totalWorksheets,
+        skillsToGenerate: result.skillsToGenerate,
         errors: result.errors,
       },
     });

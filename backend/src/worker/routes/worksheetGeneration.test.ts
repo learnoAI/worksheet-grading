@@ -139,21 +139,40 @@ describe('POST /api/worksheet-generation/generate', () => {
     expect(await res.json()).toEqual({ success: false, error: 'Student not found' });
   });
 
-  it('generates a worksheet and returns worksheetIds', async () => {
+  it('queues a single-student batch and returns the batch wire shape', async () => {
     const prisma = {
       user: { findUnique: vi.fn().mockResolvedValue({ id: 's1' }) },
+      studentClass: {
+        findFirst: vi.fn().mockResolvedValue({ classId: 'class-1' }),
+      },
+      worksheetBatch: {
+        create: vi.fn().mockResolvedValue({ id: 'batch-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
       worksheetSkillMap: {
         findMany: vi.fn().mockResolvedValue([{ worksheetNumber: 1, mathSkillId: 'A' }]),
       },
       skillPracticeLog: { findFirst: vi.fn().mockResolvedValue(null) },
       studentSkillMastery: { findMany: vi.fn().mockResolvedValue([]) },
       questionBank: {
-        count: vi.fn().mockResolvedValue(100),
+        count: vi.fn().mockResolvedValue(100), // stocked → RENDERING_PDFS path
         findMany: vi.fn().mockResolvedValue([]),
         updateMany: vi.fn(),
       },
       mathSkill: { findUnique: vi.fn().mockResolvedValue({ name: 'Math' }) },
-      generatedWorksheet: { create: vi.fn().mockResolvedValue({ id: 'ws-1' }) },
+      generatedWorksheet: {
+        create: vi.fn().mockResolvedValue({ id: 'ws-1' }),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'ws-1',
+            studentId: 's1',
+            newSkillId: 'A',
+            reviewSkill1Id: 'A',
+            reviewSkill2Id: 'A',
+          },
+        ]),
+        update: vi.fn().mockResolvedValue({}),
+      },
     };
     const { app, env } = mountApp(prisma);
     const token = await teacherToken();
@@ -169,11 +188,65 @@ describe('POST /api/worksheet-generation/generate', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       success: boolean;
-      data: { worksheetIds: string[]; status: string };
+      data: {
+        batchId: string;
+        worksheetIds: string[];
+        status: string;
+        totalWorksheets: number;
+        skillsToGenerate: number;
+        errors: string[];
+      };
     };
     expect(body.success).toBe(true);
+    expect(body.data.batchId).toBe('batch-1');
     expect(body.data.worksheetIds).toEqual(['ws-1']);
-    expect(body.data.status).toBe('COMPLETED');
+    expect(body.data.totalWorksheets).toBe(1);
+    expect(body.data.skillsToGenerate).toBe(0);
+    expect(body.data.status).toBe('RENDERING_PDFS');
+    expect(body.data.errors).toEqual([]);
+  });
+
+  it('returns GENERATING_QUESTIONS status when skills need generation', async () => {
+    const prisma = {
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 's1' }) },
+      studentClass: {
+        findFirst: vi.fn().mockResolvedValue({ classId: 'class-1' }),
+      },
+      worksheetBatch: {
+        create: vi.fn().mockResolvedValue({ id: 'batch-2' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      worksheetSkillMap: {
+        findMany: vi.fn().mockResolvedValue([{ worksheetNumber: 1, mathSkillId: 'A' }]),
+      },
+      skillPracticeLog: { findFirst: vi.fn().mockResolvedValue(null) },
+      studentSkillMastery: { findMany: vi.fn().mockResolvedValue([]) },
+      questionBank: { count: vi.fn().mockResolvedValue(0) }, // sparse
+      mathSkill: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ id: 'A', name: 'Sk', mainTopic: { name: 'Topic' } }),
+      },
+      generatedWorksheet: { create: vi.fn().mockResolvedValue({ id: 'ws-2' }) },
+    };
+    const { app, env } = mountApp(prisma);
+    const token = await teacherToken();
+    const res = await app.request(
+      '/api/worksheet-generation/generate',
+      {
+        method: 'POST',
+        headers: { ...authHeader(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: 's1', days: 1, startDate: '2026-04-20' }),
+      },
+      env
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { status: string; skillsToGenerate: number; batchId: string };
+    };
+    expect(body.data.status).toBe('GENERATING_QUESTIONS');
+    expect(body.data.skillsToGenerate).toBeGreaterThan(0);
+    expect(body.data.batchId).toBe('batch-2');
   });
 });
 
