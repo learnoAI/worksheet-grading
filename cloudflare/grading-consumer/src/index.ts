@@ -24,18 +24,31 @@ interface Env {
   OCR_PROVIDER?: string;
   OCR_MODEL?: string;
   OCR_API_KEY?: string;
+  OCR_FALLBACK_PROVIDER?: string;
+  OCR_FALLBACK_MODEL?: string;
+  OCR_FALLBACK_API_KEY?: string;
   OCR_REASONING_EFFORT?: string;
   OCR_REQUEST_TIMEOUT_MS?: string;
   AI_GRADING_PROVIDER?: string;
   AI_GRADING_MODEL?: string;
   AI_GRADING_API_KEY?: string;
+  AI_GRADING_FALLBACK_PROVIDER?: string;
+  AI_GRADING_FALLBACK_MODEL?: string;
+  AI_GRADING_FALLBACK_API_KEY?: string;
   AI_GRADING_REASONING_EFFORT?: string;
   AI_GRADING_REQUEST_TIMEOUT_MS?: string;
   BOOK_GRADING_PROVIDER?: string;
   BOOK_GRADING_MODEL?: string;
   BOOK_GRADING_API_KEY?: string;
+  BOOK_GRADING_FALLBACK_PROVIDER?: string;
+  BOOK_GRADING_FALLBACK_MODEL?: string;
+  BOOK_GRADING_FALLBACK_API_KEY?: string;
   BOOK_GRADING_REASONING_EFFORT?: string;
   BOOK_GRADING_REQUEST_TIMEOUT_MS?: string;
+  LLM_FALLBACK_PROVIDER?: string;
+  LLM_FALLBACK_MODEL?: string;
+  LLM_FALLBACK_API_KEY?: string;
+  GEMINI_API_KEY?: string;
   GEMINI_RATE_LIMITER?: DurableObjectNamespace;
   GEMINI_LIMITER_MIN_RPS?: string;
   GEMINI_LIMITER_INITIAL_RPS?: string;
@@ -91,10 +104,24 @@ class NonRetryableError extends Error {
 
 const DEFAULT_LLM_PROVIDER = 'workers-ai';
 const DEFAULT_LLM_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+const DEFAULT_FALLBACK_LLM_PROVIDER = 'google-ai-studio';
+const DEFAULT_FALLBACK_LLM_MODEL = 'gemini-2.5-flash';
 const DEFAULT_OCR_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_GRADING_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_OCR_REQUEST_TIMEOUT_MS = 500_000;
 const DEFAULT_GRADING_REQUEST_TIMEOUT_MS = 500_000;
+
+class LlmFallbackError extends Error {
+  constructor(
+    readonly primaryError: unknown,
+    readonly fallbackError: unknown,
+    readonly primaryModel: string,
+    readonly fallbackModel: string
+  ) {
+    super(`Primary LLM failed (${primaryModel}): ${formatErrorMessage(primaryError)}; fallback LLM failed (${fallbackModel}): ${formatErrorMessage(fallbackError)}`);
+    this.name = 'LlmFallbackError';
+  }
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -164,6 +191,14 @@ function formatLlmModelLabel(config: LlmModelConfig): string {
   return `${config.provider}/${config.model}`;
 }
 
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function getLlmErrorStatus(error: unknown): number | undefined {
+  return error instanceof LlmHttpError ? error.status : undefined;
+}
+
 function normalizeReasoningEffort(value: string | undefined): LlmReasoningEffort | undefined {
   switch (value?.trim().toLowerCase()) {
     case 'low':
@@ -201,6 +236,46 @@ function getStageLlmConfig(env: Env, stage: 'ocr' | 'ai-grading' | 'book-grading
   );
 
   return { provider, model, ...(apiKey ? { apiKey } : {}) };
+}
+
+function getStageFallbackLlmConfig(env: Env, stage: 'ocr' | 'ai-grading' | 'book-grading'): LlmModelConfig | null {
+  const provider = normalizeOptionalString(
+    stage === 'ocr'
+      ? env.OCR_FALLBACK_PROVIDER
+      : stage === 'ai-grading'
+        ? env.AI_GRADING_FALLBACK_PROVIDER
+        : env.BOOK_GRADING_FALLBACK_PROVIDER
+  ) || normalizeOptionalString(env.LLM_FALLBACK_PROVIDER);
+
+  const model = normalizeOptionalString(
+    stage === 'ocr'
+      ? env.OCR_FALLBACK_MODEL
+      : stage === 'ai-grading'
+        ? env.AI_GRADING_FALLBACK_MODEL
+        : env.BOOK_GRADING_FALLBACK_MODEL
+  ) || normalizeOptionalString(env.LLM_FALLBACK_MODEL);
+
+  const apiKey = normalizeOptionalString(
+    stage === 'ocr'
+      ? env.OCR_FALLBACK_API_KEY
+      : stage === 'ai-grading'
+        ? env.AI_GRADING_FALLBACK_API_KEY
+        : env.BOOK_GRADING_FALLBACK_API_KEY
+  ) || normalizeOptionalString(env.LLM_FALLBACK_API_KEY) || normalizeOptionalString(env.GEMINI_API_KEY);
+
+  if (!provider && !model) {
+    return null;
+  }
+
+  return {
+    provider: provider || DEFAULT_FALLBACK_LLM_PROVIDER,
+    model: model || DEFAULT_FALLBACK_LLM_MODEL,
+    ...(apiKey ? { apiKey } : {}),
+  };
+}
+
+function isSameLlmConfig(a: LlmModelConfig, b: LlmModelConfig): boolean {
+  return a.provider === b.provider && a.model === b.model && (a.apiKey || '') === (b.apiKey || '');
 }
 
 function getStageReasoningEffort(env: Env, stage: 'ocr' | 'ai-grading' | 'book-grading'): LlmReasoningEffort | undefined {
@@ -296,7 +371,24 @@ async function reportGeminiFeedback(env: Env, feedback: GeminiLimiterFeedback): 
   });
 }
 
-async function limitedLlmGenerateJson<T>(
+function isFallbackEligibleLlmError(error: unknown): boolean {
+  if (error instanceof LlmHttpError) {
+    return error.status === 408 || error.status === 429 || error.status >= 500;
+  }
+
+  if (error instanceof Error) {
+    const msg = error.message || '';
+    if (msg.includes('Failed to parse LLM JSON payload')) return true;
+    if (msg.includes('LLM response did not include text content')) return true;
+    if (msg.includes('LLM response was not valid JSON')) return true;
+    if (msg.includes('fetch failed')) return true;
+    if (msg.toLowerCase().includes('timeout')) return true;
+  }
+
+  return false;
+}
+
+async function runLimitedLlmGenerateJson<T>(
   env: Env,
   tracker: PosthogTracker,
   request: { jobId: string; stage: LlmStage },
@@ -322,14 +414,69 @@ async function limitedLlmGenerateJson<T>(
   } catch (error) {
     await reportGeminiFeedback(env, {
       ok: false,
-      status: error instanceof LlmHttpError ? error.status : undefined,
+      status: getLlmErrorStatus(error),
       jobId: request.jobId,
       stage: request.stage,
       model: formatLlmModelLabel(options.providerConfig),
     }).catch(() => {
-      // The original Gemini error is the important one.
+      // The original LLM error is the important one.
     });
     throw error;
+  }
+}
+
+async function limitedLlmGenerateJson<T>(
+  env: Env,
+  tracker: PosthogTracker,
+  request: { jobId: string; stage: LlmStage },
+  options: Parameters<typeof llmGenerateJson<T>>[0],
+  fallbackOptions?: Parameters<typeof llmGenerateJson<T>>[0] | null
+): Promise<{ parsed: T; rawText: string }> {
+  try {
+    return await runLimitedLlmGenerateJson<T>(env, tracker, request, options);
+  } catch (primaryError) {
+    const primaryModel = formatLlmModelLabel(options.providerConfig);
+
+    if (
+      !fallbackOptions ||
+      isSameLlmConfig(options.providerConfig, fallbackOptions.providerConfig) ||
+      !isFallbackEligibleLlmError(primaryError)
+    ) {
+      throw primaryError;
+    }
+
+    const fallbackModel = formatLlmModelLabel(fallbackOptions.providerConfig);
+    tracker.capturePipeline('llm_fallback_started', request.jobId, {
+      jobId: request.jobId,
+      stage: request.stage,
+      primaryModel,
+      fallbackModel,
+      primaryStatus: getLlmErrorStatus(primaryError) ?? null,
+      reason: formatErrorMessage(primaryError),
+    });
+
+    try {
+      const fallbackResult = await runLimitedLlmGenerateJson<T>(env, tracker, request, fallbackOptions);
+      tracker.capturePipeline('llm_fallback_succeeded', request.jobId, {
+        jobId: request.jobId,
+        stage: request.stage,
+        primaryModel,
+        fallbackModel,
+      });
+      return fallbackResult;
+    } catch (fallbackError) {
+      tracker.capturePipeline('llm_fallback_failed', request.jobId, {
+        jobId: request.jobId,
+        stage: request.stage,
+        primaryModel,
+        fallbackModel,
+        primaryStatus: getLlmErrorStatus(primaryError) ?? null,
+        fallbackStatus: getLlmErrorStatus(fallbackError) ?? null,
+        primaryError: formatErrorMessage(primaryError),
+        fallbackError: formatErrorMessage(fallbackError),
+      });
+      throw new LlmFallbackError(primaryError, fallbackError, primaryModel, fallbackModel);
+    }
   }
 }
 
@@ -341,6 +488,10 @@ function isRetryableHttpStatus(status: number): boolean {
 
 function isRetryableError(error: unknown): boolean {
   if (error instanceof NonRetryableError) return false;
+
+  if (error instanceof LlmFallbackError) {
+    return isRetryableError(error.fallbackError) || isRetryableError(error.primaryError);
+  }
 
   if (error instanceof Error && error.name === 'ZodError') {
     return true;
@@ -390,6 +541,10 @@ function parseRetryDelayFromLlmError(error: LlmHttpError): number | null {
 }
 
 function getRetryDelaySeconds(error: unknown, attempts: number, env: Env): number | undefined {
+  if (error instanceof LlmFallbackError) {
+    return getRetryDelaySeconds(error.fallbackError, attempts, env);
+  }
+
   if (!(error instanceof LlmHttpError) || error.status !== 429) {
     return undefined;
   }
@@ -525,12 +680,14 @@ async function processJob(
     const customPrompt = await loadCustomPrompt(env.ASSETS_BUCKET, job.worksheetNumber);
     const ocrPrompt = buildOcrPrompt(customPrompt);
     const ocrConfig = getStageLlmConfig(env, 'ocr');
+    const ocrFallbackConfig = getStageFallbackLlmConfig(env, 'ocr');
     const ocrModelLabel = formatLlmModelLabel(ocrConfig);
 
     tracker.capturePipeline('worker_ocr_started', jobId, {
       jobId,
       leaseId,
       model: ocrModelLabel,
+      fallbackModel: ocrFallbackConfig ? formatLlmModelLabel(ocrFallbackConfig) : null,
     });
     const extracted = await limitedLlmGenerateJson<ExtractedQuestions>(env, tracker, {
       jobId,
@@ -546,7 +703,18 @@ async function processJob(
       responseJsonSchema: ExtractedQuestionsJsonSchema,
       temperature: 0.1,
       parts: [{ text: ocrPrompt }, ...imageParts],
-    });
+    }, ocrFallbackConfig ? {
+      gatewayAccountId: env.CF_AI_GATEWAY_ACCOUNT_ID,
+      gatewayId: env.CF_AI_GATEWAY_ID,
+      gatewayToken: env.CF_AI_GATEWAY_TOKEN,
+      providerConfig: ocrFallbackConfig,
+      reasoningEffort: getStageReasoningEffort(env, 'ocr'),
+      requestTimeoutMs: getStageRequestTimeoutMs(env, 'ocr'),
+      responseMimeType: 'application/json',
+      responseJsonSchema: ExtractedQuestionsJsonSchema,
+      temperature: 0.1,
+      parts: [{ text: ocrPrompt }, ...imageParts],
+    } : null);
 
     const extractedQuestions = ExtractedQuestionsSchema.parse(extracted.parsed);
     tracker.capturePipeline('worker_ocr_succeeded', jobId, {
@@ -562,15 +730,16 @@ async function processJob(
       ? buildBookGradingPrompt(extractedQuestions, answers)
       : buildAiGradingPrompt(extractedQuestions);
 
-    const gradingConfig = Array.isArray(answers) && answers.length > 0
-      ? getStageLlmConfig(env, 'book-grading')
-      : getStageLlmConfig(env, 'ai-grading');
+    const gradingStage = Array.isArray(answers) && answers.length > 0 ? 'book-grading' : 'ai-grading';
+    const gradingConfig = getStageLlmConfig(env, gradingStage);
+    const gradingFallbackConfig = getStageFallbackLlmConfig(env, gradingStage);
     const gradingModelLabel = formatLlmModelLabel(gradingConfig);
     tracker.capturePipeline('worker_grading_started', jobId, {
       jobId,
       leaseId,
       model: gradingModelLabel,
-      answerKeyMode: Array.isArray(answers) && answers.length > 0 ? 'book' : 'ai',
+      fallbackModel: gradingFallbackConfig ? formatLlmModelLabel(gradingFallbackConfig) : null,
+      answerKeyMode: gradingStage === 'book-grading' ? 'book' : 'ai',
     });
     const grading = await limitedLlmGenerateJson<GradingResult>(env, tracker, {
       jobId,
@@ -580,13 +749,24 @@ async function processJob(
       gatewayId: env.CF_AI_GATEWAY_ID,
       gatewayToken: env.CF_AI_GATEWAY_TOKEN,
       providerConfig: gradingConfig,
-      reasoningEffort: getStageReasoningEffort(env, Array.isArray(answers) && answers.length > 0 ? 'book-grading' : 'ai-grading'),
-      requestTimeoutMs: getStageRequestTimeoutMs(env, Array.isArray(answers) && answers.length > 0 ? 'book-grading' : 'ai-grading'),
+      reasoningEffort: getStageReasoningEffort(env, gradingStage),
+      requestTimeoutMs: getStageRequestTimeoutMs(env, gradingStage),
       responseMimeType: 'application/json',
       responseJsonSchema: GradingResultJsonSchema,
       temperature: 0.1,
       parts: [{ text: gradingPrompt }],
-    });
+    }, gradingFallbackConfig ? {
+      gatewayAccountId: env.CF_AI_GATEWAY_ACCOUNT_ID,
+      gatewayId: env.CF_AI_GATEWAY_ID,
+      gatewayToken: env.CF_AI_GATEWAY_TOKEN,
+      providerConfig: gradingFallbackConfig,
+      reasoningEffort: getStageReasoningEffort(env, gradingStage),
+      requestTimeoutMs: getStageRequestTimeoutMs(env, gradingStage),
+      responseMimeType: 'application/json',
+      responseJsonSchema: GradingResultJsonSchema,
+      temperature: 0.1,
+      parts: [{ text: gradingPrompt }],
+    } : null);
 
     const gradingResult = GradingResultSchema.parse(grading.parsed);
     const backendResponse = toBackendGradingResponse(gradingResult, {
