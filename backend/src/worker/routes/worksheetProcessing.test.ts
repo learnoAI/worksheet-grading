@@ -691,10 +691,20 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
       new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
     ) as unknown as typeof fetch;
 
+    // The finalize handler now scopes to affected items via findMany
+    // (loadUploadItems) instead of re-reading the entire batch.
+    const itemFindMany = vi.fn().mockImplementation(async () =>
+      mutableBatch.items.map((it) => ({ ...it }))
+    );
+
     const prisma = {
       worksheetUploadBatch: { findUnique: batchFindUnique, update: batchUpdate },
       worksheetUploadImage: { updateMany: imageUpdateMany },
-      worksheetUploadItem: { count: itemCount, update: vi.fn() },
+      worksheetUploadItem: {
+        count: itemCount,
+        update: vi.fn(),
+        findMany: itemFindMany,
+      },
       gradingJob: { update: gradingJobUpdate },
       $transaction: transaction,
     };
@@ -728,7 +738,112 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('reports pending items when images have not been uploaded yet', async () => {
+  it('reports pending when an affected item still has missing images on a partial upload', async () => {
+    // An item with two images: the client just uploaded img-2 but img-1
+    // is still pending. The new affected-only semantic still picks this
+    // item up (img-2 is in the uploaded set) and surfaces it as pending.
+    const itemImages = [
+      {
+        id: 'img-1',
+        pageNumber: 1,
+        mimeType: 'image/png',
+        fileSize: null,
+        originalName: null,
+        s3Key: 'k1',
+        imageUrl: 'u1',
+        uploadedAt: null as Date | null,
+      },
+      {
+        id: 'img-2',
+        pageNumber: 2,
+        mimeType: 'image/png',
+        fileSize: null,
+        originalName: null,
+        s3Key: 'k2',
+        imageUrl: 'u2',
+        uploadedAt: null as Date | null,
+      },
+    ];
+    let mutableBatch = {
+      id: 'b1',
+      classId: 'c1',
+      submittedOn: new Date(),
+      status: 'UPLOADING',
+      finalizedAt: null,
+      teacherId: 't1',
+      items: [
+        {
+          id: 'item-1',
+          studentId: 'st1',
+          studentName: 'Alice',
+          tokenNo: null,
+          worksheetNumber: 5,
+          worksheetName: '5',
+          isRepeated: false,
+          status: 'PENDING',
+          jobId: null,
+          errorMessage: null,
+          images: itemImages,
+        },
+      ],
+    };
+    const imageUpdateMany = vi.fn(async () => {
+      // Only img-2 is in uploadedImageIds, so only img-2 gets uploadedAt.
+      mutableBatch = {
+        ...mutableBatch,
+        items: mutableBatch.items.map((it) => ({
+          ...it,
+          images: it.images.map((img) =>
+            img.id === 'img-2' ? { ...img, uploadedAt: new Date() } : img
+          ),
+        })),
+      };
+      return { count: 1 };
+    });
+    const batchFindUnique = vi.fn().mockImplementation(async () => mutableBatch);
+    const itemFindMany = vi.fn().mockImplementation(async () =>
+      mutableBatch.items.map((it) => ({ ...it }))
+    );
+    const prisma = {
+      worksheetUploadBatch: { findUnique: batchFindUnique, update: vi.fn() },
+      worksheetUploadImage: { updateMany: imageUpdateMany },
+      worksheetUploadItem: {
+        count: vi.fn().mockResolvedValue(1),
+        findMany: itemFindMany,
+      },
+    };
+    const app = mountApp(prisma);
+    const token = await tokenAs('TEACHER', 't1');
+    const res = await app.request(
+      '/api/worksheet-processing/upload-session/b1/finalize',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ uploadedImageIds: ['img-2'] }),
+      },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      queued: unknown[];
+      pending: Array<{ missingImageIds: string[] }>;
+      failed: unknown[];
+      status: string;
+    };
+    expect(body.queued.length).toBe(0);
+    expect(body.pending.length).toBe(1);
+    expect(body.pending[0].missingImageIds).toEqual(['img-1']);
+    expect(body.status).toBe('UPLOADING');
+  });
+
+  it('is a no-op when uploadedImageIds is empty (affected-only scoping)', async () => {
+    // The pre-codex behavior would walk every item in the batch on an
+    // empty payload. The new semantic says: finalize only commits items
+    // whose images the client just uploaded — an empty payload commits
+    // nothing. This locks that contract in.
     const batchFindUnique = vi.fn().mockResolvedValue({
       id: 'b1',
       classId: 'c1',
@@ -748,25 +863,18 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
           status: 'PENDING',
           jobId: null,
           errorMessage: null,
-          images: [
-            {
-              id: 'img-1',
-              pageNumber: 1,
-              mimeType: 'image/png',
-              fileSize: null,
-              originalName: null,
-              s3Key: 'k',
-              imageUrl: 'u',
-              uploadedAt: null,
-            },
-          ],
+          images: [{ id: 'img-1', uploadedAt: null }],
         },
       ],
     });
+    const itemFindMany = vi.fn();
     const prisma = {
       worksheetUploadBatch: { findUnique: batchFindUnique, update: vi.fn() },
       worksheetUploadImage: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
-      worksheetUploadItem: { count: vi.fn().mockResolvedValue(1) },
+      worksheetUploadItem: {
+        count: vi.fn().mockResolvedValue(1),
+        findMany: itemFindMany,
+      },
     };
     const app = mountApp(prisma);
     const token = await tokenAs('TEACHER', 't1');
@@ -785,14 +893,15 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       queued: unknown[];
-      pending: Array<{ missingImageIds: string[] }>;
+      pending: unknown[];
       failed: unknown[];
-      status: string;
     };
     expect(body.queued.length).toBe(0);
-    expect(body.pending.length).toBe(1);
-    expect(body.pending[0].missingImageIds).toEqual(['img-1']);
-    expect(body.status).toBe('UPLOADING');
+    expect(body.pending.length).toBe(0);
+    expect(body.failed.length).toBe(0);
+    // Cheap-path proof: with no uploaded image IDs, we shouldn't bother
+    // hitting findMany at all. loadUploadItems short-circuits on empty.
+    expect(itemFindMany).not.toHaveBeenCalled();
   });
 
   it('returns 404 when batch does not exist', async () => {

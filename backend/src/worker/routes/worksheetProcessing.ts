@@ -153,6 +153,30 @@ async function loadUploadBatchForUser(
   return batch as unknown as LoadedBatch;
 }
 
+/**
+ * Cheaper variant of `loadUploadBatchForUser` used by the finalize handler:
+ * fetches only the items whose images the client just uploaded, instead of
+ * re-reading the entire batch. The full-batch refetch is wasteful when a
+ * teacher uploads page-by-page across many students — every PUT triggers a
+ * finalize that walks every item and decides what to do based on its status.
+ *
+ * Caller is responsible for the access check (already done via
+ * `loadUploadBatchForUser` at the top of the handler).
+ */
+async function loadUploadItems(
+  prisma: PrismaClient,
+  batchId: string,
+  itemIds: string[]
+): Promise<LoadedBatch['items']> {
+  if (itemIds.length === 0) return [];
+  const items = await prisma.worksheetUploadItem.findMany({
+    where: { batchId, id: { in: itemIds } },
+    orderBy: { createdAt: 'asc' },
+    include: { images: { orderBy: { pageNumber: 'asc' } } },
+  });
+  return items as unknown as LoadedBatch['items'];
+}
+
 async function serializeUploadBatch(env: WorkerEnv, batch: LoadedBatch) {
   return {
     batchId: batch.id,
@@ -637,10 +661,19 @@ worksheetProcessing.post(
         });
       }
 
-      const refreshedBatch = await loadUploadBatchForUser(prisma, user, batch.id);
-      if (!refreshedBatch) {
-        return c.json({ success: false, error: 'Upload session not found' }, 404);
-      }
+      // Scope to the items the client *just* uploaded images for, instead
+      // of re-walking the entire batch. Teachers upload page-by-page and
+      // every PUT triggers a finalize; the old full-batch refetch made
+      // each finalize O(N items) even when only one item changed.
+      const uploadedImageIdSet = new Set(uploadedImageIds);
+      const affectedItemIds = Array.from(
+        new Set(
+          batch.items
+            .filter((item) => item.images.some((image) => uploadedImageIdSet.has(image.id)))
+            .map((item) => item.id)
+        )
+      );
+      const affectedItems = await loadUploadItems(prisma, batch.id, affectedItemIds);
 
       const queued: Array<{
         itemId: string;
@@ -662,8 +695,9 @@ worksheetProcessing.post(
         worksheetNumber: number;
         error: string;
       }> = [];
+      const readyItems: typeof affectedItems = [];
 
-      for (const item of refreshedBatch.items) {
+      for (const item of affectedItems) {
         if (item.status === WorksheetUploadItemStatus.QUEUED && item.jobId) {
           queued.push({
             itemId: item.id,
@@ -685,6 +719,13 @@ worksheetProcessing.post(
           continue;
         }
 
+        // Only PENDING items get progressed to job creation. A status we
+        // don't recognize (or a freshly-introduced new state) should fall
+        // through silently rather than be treated as ready.
+        if (item.status !== WorksheetUploadItemStatus.PENDING) {
+          continue;
+        }
+
         const missingImageIds = item.images
           .filter((image) => !image.uploadedAt)
           .map((image) => image.id);
@@ -698,48 +739,80 @@ worksheetProcessing.post(
           continue;
         }
 
-        try {
-          const jobResult = await createGradingJobFromUploadItem(prisma, item.id);
-          if (!jobResult.jobId) {
-            failed.push({
+        readyItems.push(item);
+      }
+
+      // Job creation involves a Prisma write + dispatchJob (which can
+      // publish to CF Queues with its own network round-trip), and the
+      // results are independent per item. Run them concurrently with
+      // allSettled so a single failure doesn't drag the others down.
+      const readyResults = await Promise.allSettled(
+        readyItems.map(async (item) => {
+          try {
+            const jobResult = await createGradingJobFromUploadItem(prisma, item.id);
+            if (!jobResult.jobId) {
+              return {
+                kind: 'failed' as const,
+                itemId: item.id,
+                studentId: item.studentId,
+                worksheetNumber: item.worksheetNumber,
+                error: jobResult.error || 'Unable to create grading job',
+              };
+            }
+            const dispatchResult = jobResult.created
+              ? await dispatchJob(prisma, c.env ?? {}, jobResult.jobId)
+              : { dispatchState: 'DISPATCHED' as const };
+            return {
+              kind: 'queued' as const,
               itemId: item.id,
               studentId: item.studentId,
               worksheetNumber: item.worksheetNumber,
-              error: jobResult.error || 'Unable to create grading job',
-            });
-            continue;
+              jobId: jobResult.jobId,
+              dispatchState: dispatchResult.dispatchState,
+              queuedAt:
+                'queuedAt' in dispatchResult ? dispatchResult.queuedAt : undefined,
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to create grading job';
+            await prisma.worksheetUploadItem
+              .update({
+                where: { id: item.id },
+                data: {
+                  status: WorksheetUploadItemStatus.FAILED,
+                  errorMessage: message,
+                },
+              })
+              .catch(() => {
+                /* best effort */
+              });
+            return {
+              kind: 'failed' as const,
+              itemId: item.id,
+              studentId: item.studentId,
+              worksheetNumber: item.worksheetNumber,
+              error: message,
+            };
           }
-          const dispatchResult = jobResult.created
-            ? await dispatchJob(prisma, c.env ?? {}, jobResult.jobId)
-            : { dispatchState: 'DISPATCHED' as const };
-          queued.push({
-            itemId: item.id,
-            studentId: item.studentId,
-            worksheetNumber: item.worksheetNumber,
-            jobId: jobResult.jobId,
-            dispatchState: dispatchResult.dispatchState,
-            queuedAt:
-              'queuedAt' in dispatchResult ? dispatchResult.queuedAt : undefined,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Failed to create grading job';
+        })
+      );
+
+      for (const result of readyResults) {
+        if (result.status === 'rejected') {
           failed.push({
-            itemId: item.id,
-            studentId: item.studentId,
-            worksheetNumber: item.worksheetNumber,
-            error: message,
+            itemId: 'unknown',
+            studentId: 'unknown',
+            worksheetNumber: 0,
+            error:
+              result.reason instanceof Error
+                ? result.reason.message
+                : 'Failed to finalize upload item',
           });
-          await prisma.worksheetUploadItem
-            .update({
-              where: { id: item.id },
-              data: {
-                status: WorksheetUploadItemStatus.FAILED,
-                errorMessage: message,
-              },
-            })
-            .catch(() => {
-              /* best effort */
-            });
+          continue;
+        }
+        if (result.value.kind === 'queued') {
+          queued.push(result.value);
+        } else {
+          failed.push(result.value);
         }
       }
 
