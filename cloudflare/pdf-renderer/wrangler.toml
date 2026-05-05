@@ -25,3 +25,39 @@ dead_letter_queue = "pdf-rendering-dlq"
 [observability.logs]
 enabled = true
 invocation_logs = true
+
+# ─── Staging environment ─────────────────────────────────────────────────
+# Deploy with: wrangler deploy --env staging
+#
+# Wrangler 4 does NOT inherit `[[r2_buckets]]` or `[[queues.consumers]]`
+# from the top-level into env blocks, so each env must list its bindings
+# in full. Top-level config above continues to apply when running
+# `wrangler deploy` with no `--env` flag, i.e. prod deploys are unchanged.
+#
+# Staging differences from prod:
+#   - queue:      pdf-rendering-staging         (separate; no prod overlap)
+#   - PDF_BUCKET: worksheet-grading-files-staging
+#   - no DLQ      (failures retry max_retries times then drop; keeps
+#                  staging traffic out of the prod pdf-rendering-dlq)
+#   - lower concurrency caps to keep test pipelines predictable
+[env.staging]
+name = "pdf-renderer-staging"
+
+[env.staging.browser]
+binding = "BROWSER"
+
+[[env.staging.r2_buckets]]
+binding = "PDF_BUCKET"
+bucket_name = "worksheet-grading-files-staging"
+
+[[env.staging.queues.consumers]]
+queue = "pdf-rendering-staging"
+max_batch_size = 1
+max_batch_timeout = 10
+max_concurrency = 5
+max_retries = 3
+
+[env.staging.observability]
+[env.staging.observability.logs]
+enabled = true
+invocation_logs = true
