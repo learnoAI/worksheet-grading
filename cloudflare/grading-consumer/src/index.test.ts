@@ -885,6 +885,114 @@ describe('cloudflare grading consumer queue semantics', () => {
     expect((llmGenerateJson as any).mock.calls).toHaveLength(2);
   });
 
+  it('uses OPENROUTER_API_KEY for OpenRouter fallback config', async () => {
+    const backendBase = 'https://backend.example';
+
+    (globalThis.fetch as any).mockImplementation(async (url: any, init?: any) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-openrouter-fallback/acquire`)) {
+        return jsonResponse({
+          success: true,
+          acquired: true,
+          leaseId: 'lease-openrouter-fallback',
+          job: {
+            id: 'job-openrouter-fallback',
+            status: 'QUEUED',
+            tokenNo: '123',
+            worksheetName: '15',
+            worksheetNumber: 15,
+            submittedOn: new Date().toISOString(),
+            isRepeated: false,
+            studentId: 's',
+            classId: 'c',
+            teacherId: 't',
+            images: [{ s3Key: 'img-1', storageProvider: 'R2', pageNumber: 1, mimeType: 'image/jpeg' }],
+          },
+        });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-openrouter-fallback/heartbeat`)) {
+        return jsonResponse({ success: true });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-openrouter-fallback/complete`)) {
+        return jsonResponse({ success: true });
+      }
+
+      throw new Error(`Unexpected fetch: ${String(url)}`);
+    });
+
+    (llmGenerateJson as any)
+      .mockRejectedValueOnce(new LlmHttpError(408, 'request timeout', 'workers-ai', '@cf/google/gemma-4-26b-a4b-it'))
+      .mockResolvedValueOnce({
+        parsed: { questions: [{ question_number: 1, question: '1+1', student_answer: '2' }] },
+        rawText: '{}',
+      })
+      .mockResolvedValueOnce({
+        parsed: {
+          total_questions: 1,
+          overall_score: 40,
+          grade_percentage: 100,
+          question_scores: [
+            {
+              question_number: 1,
+              question: '1+1',
+              student_answer: '2',
+              correct_answer: '2',
+              points_earned: 40,
+              max_points: 40,
+              is_correct: true,
+              feedback: 'good',
+            },
+          ],
+          correct_answers: 1,
+          wrong_answers: 0,
+          unanswered: 0,
+          overall_feedback: 'great',
+        },
+        rawText: '{}',
+      });
+
+    const env: any = {
+      BACKEND_BASE_URL: backendBase,
+      BACKEND_WORKER_TOKEN: 'token',
+      LLM_FALLBACK_PROVIDER: 'openrouter',
+      LLM_FALLBACK_MODEL: 'google/gemma-4-26b-a4b-it',
+      OPENROUTER_API_KEY: 'openrouter-key',
+      GEMINI_API_KEY: 'gemini-key',
+      IMAGES_BUCKET: makeR2Bucket({
+        'img-1': { bytes: new Uint8Array([1, 2, 3]) },
+      }),
+      ASSETS_BUCKET: makeR2Bucket({
+        'answers_by_worksheet.json': { text: JSON.stringify({ '15': [] }) },
+      }),
+    };
+
+    await worker.queue(
+      {
+        messages: [
+          {
+            id: 'm-openrouter-fallback',
+            attempts: 1,
+            body: { v: 1, jobId: 'job-openrouter-fallback', enqueuedAt: new Date().toISOString() },
+            ack: vi.fn(),
+            retry: vi.fn(),
+          },
+        ],
+      },
+      env,
+      {} as any
+    );
+
+    const calls = (llmGenerateJson as any).mock.calls;
+    expect(calls[1][0].providerConfig).toMatchObject({
+      provider: 'openrouter',
+      model: 'google/gemma-4-26b-a4b-it',
+      apiKey: 'openrouter-key',
+    });
+  });
+
   it('paces Gemini calls through the shared limiter and reports success feedback', async () => {
     const backendBase = 'https://backend.example';
     const limiterRequests: Array<{ path: string; body: any }> = [];

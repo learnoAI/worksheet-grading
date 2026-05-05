@@ -235,6 +235,51 @@ describe('llmGenerateJson', () => {
     expect(body.reasoning_effort).toBeUndefined();
   });
 
+  it('routes OpenRouter requests through the provider-native AI Gateway endpoint', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: '{"ok":true}',
+          },
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock as any);
+
+    await llmGenerateJson<{ ok: boolean }>({
+      gatewayAccountId: 'acct-123',
+      gatewayId: 'grading',
+      gatewayToken: 'cf-token',
+      providerConfig: {
+        provider: 'openrouter',
+        model: 'google/gemma-4-26b-a4b-it',
+        apiKey: 'openrouter-key',
+      },
+      responseMimeType: 'application/json',
+      responseJsonSchema: { type: 'object' },
+      parts: [{ text: 'Return json.' }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit | undefined];
+    const url = firstCall[0];
+    const init = firstCall[1]!;
+    expect(String(url)).toBe('https://gateway.ai.cloudflare.com/v1/acct-123/grading/openrouter/v1/chat/completions');
+    expect(init.headers).toMatchObject({
+      'Content-Type': 'application/json',
+      'cf-aig-authorization': 'Bearer cf-token',
+      Authorization: 'Bearer openrouter-key',
+    });
+
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe('google/gemma-4-26b-a4b-it');
+    expect(body.response_format).toBeUndefined();
+  });
+
   it('treats Cloudflare provider error payloads as retryable LLM errors even when the HTTP wrapper is 200', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       success: false,

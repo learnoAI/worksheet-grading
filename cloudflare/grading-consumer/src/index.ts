@@ -49,6 +49,7 @@ interface Env {
   LLM_FALLBACK_MODEL?: string;
   LLM_FALLBACK_API_KEY?: string;
   GEMINI_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
   GEMINI_RATE_LIMITER?: DurableObjectNamespace;
   GEMINI_LIMITER_MIN_RPS?: string;
   GEMINI_LIMITER_INITIAL_RPS?: string;
@@ -191,6 +192,18 @@ function formatLlmModelLabel(config: LlmModelConfig): string {
   return `${config.provider}/${config.model}`;
 }
 
+function getProviderDefaultApiKey(env: Env, provider: string | undefined): string | undefined {
+  switch (provider?.trim().toLowerCase()) {
+    case 'google-ai-studio':
+    case 'google':
+      return normalizeOptionalString(env.GEMINI_API_KEY);
+    case 'openrouter':
+      return normalizeOptionalString(env.OPENROUTER_API_KEY);
+    default:
+      return undefined;
+  }
+}
+
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -233,7 +246,7 @@ function getStageLlmConfig(env: Env, stage: 'ocr' | 'ai-grading' | 'book-grading
       : stage === 'ai-grading'
         ? env.AI_GRADING_API_KEY
         : env.BOOK_GRADING_API_KEY
-  );
+  ) || getProviderDefaultApiKey(env, provider);
 
   return { provider, model, ...(apiKey ? { apiKey } : {}) };
 }
@@ -255,20 +268,21 @@ function getStageFallbackLlmConfig(env: Env, stage: 'ocr' | 'ai-grading' | 'book
         : env.BOOK_GRADING_FALLBACK_MODEL
   ) || normalizeOptionalString(env.LLM_FALLBACK_MODEL);
 
+  const effectiveProvider = provider || DEFAULT_FALLBACK_LLM_PROVIDER;
   const apiKey = normalizeOptionalString(
     stage === 'ocr'
       ? env.OCR_FALLBACK_API_KEY
       : stage === 'ai-grading'
         ? env.AI_GRADING_FALLBACK_API_KEY
         : env.BOOK_GRADING_FALLBACK_API_KEY
-  ) || normalizeOptionalString(env.LLM_FALLBACK_API_KEY) || normalizeOptionalString(env.GEMINI_API_KEY);
+  ) || normalizeOptionalString(env.LLM_FALLBACK_API_KEY) || getProviderDefaultApiKey(env, effectiveProvider);
 
   if (!provider && !model) {
     return null;
   }
 
   return {
-    provider: provider || DEFAULT_FALLBACK_LLM_PROVIDER,
+    provider: effectiveProvider,
     model: model || DEFAULT_FALLBACK_LLM_MODEL,
     ...(apiKey ? { apiKey } : {}),
   };

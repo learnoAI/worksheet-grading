@@ -28,6 +28,7 @@ compatibility_date = "2026-02-14"
 # - BOOK_GRADING_REQUEST_TIMEOUT_MS (default: 500000)
 # - LLM_FALLBACK_PROVIDER / LLM_FALLBACK_MODEL / LLM_FALLBACK_API_KEY (optional; shared fallback)
 # - GEMINI_API_KEY (optional; used for Google AI Studio fallback when a fallback API key is not set)
+# - OPENROUTER_API_KEY (optional; used for OpenRouter provider/fallback when a provider API key is not set)
 # - GEMINI_LIMITER_MIN_RPS (default: 5)
 # - GEMINI_LIMITER_INITIAL_RPS (default: 30)
 # - GEMINI_LIMITER_MAX_RPS (default: 120)
