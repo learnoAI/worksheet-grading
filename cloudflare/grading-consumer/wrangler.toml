@@ -11,18 +11,23 @@ compatibility_date = "2026-02-14"
 # - OCR_PROVIDER (default: workers-ai)
 # - OCR_MODEL (default: @cf/google/gemma-4-26b-a4b-it)
 # - OCR_API_KEY (optional; for workers-ai, defaults to CF_AI_GATEWAY_TOKEN if unset)
+# - OCR_FALLBACK_PROVIDER / OCR_FALLBACK_MODEL / OCR_FALLBACK_API_KEY (optional; stage-specific fallback)
 # - OCR_REASONING_EFFORT (default: low)
 # - OCR_REQUEST_TIMEOUT_MS (default: 500000)
 # - AI_GRADING_PROVIDER (default: workers-ai)
 # - AI_GRADING_MODEL (default: @cf/google/gemma-4-26b-a4b-it)
 # - AI_GRADING_API_KEY (optional; for workers-ai, defaults to CF_AI_GATEWAY_TOKEN if unset)
+# - AI_GRADING_FALLBACK_PROVIDER / AI_GRADING_FALLBACK_MODEL / AI_GRADING_FALLBACK_API_KEY (optional; stage-specific fallback)
 # - AI_GRADING_REASONING_EFFORT (default: low)
 # - AI_GRADING_REQUEST_TIMEOUT_MS (default: 500000)
 # - BOOK_GRADING_PROVIDER (default: workers-ai)
 # - BOOK_GRADING_MODEL (default: @cf/google/gemma-4-26b-a4b-it)
 # - BOOK_GRADING_API_KEY (optional; for workers-ai, defaults to CF_AI_GATEWAY_TOKEN if unset)
+# - BOOK_GRADING_FALLBACK_PROVIDER / BOOK_GRADING_FALLBACK_MODEL / BOOK_GRADING_FALLBACK_API_KEY (optional; stage-specific fallback)
 # - BOOK_GRADING_REASONING_EFFORT (default: low)
 # - BOOK_GRADING_REQUEST_TIMEOUT_MS (default: 500000)
+# - LLM_FALLBACK_PROVIDER / LLM_FALLBACK_MODEL / LLM_FALLBACK_API_KEY (optional; shared fallback)
+# - GEMINI_API_KEY (optional; used for Google AI Studio fallback when a fallback API key is not set)
 # - GEMINI_LIMITER_MIN_RPS (default: 5)
 # - GEMINI_LIMITER_INITIAL_RPS (default: 30)
 # - GEMINI_LIMITER_MAX_RPS (default: 120)
@@ -48,6 +53,8 @@ BOOK_GRADING_PROVIDER = "workers-ai"
 BOOK_GRADING_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 BOOK_GRADING_REASONING_EFFORT = "low"
 BOOK_GRADING_REQUEST_TIMEOUT_MS = "500000"
+LLM_FALLBACK_PROVIDER = "google-ai-studio"
+LLM_FALLBACK_MODEL = "gemini-2.5-flash"
 GEMINI_LIMITER_INITIAL_RPS = "60"
 GEMINI_LIMITER_MAX_RPS = "240"
 GEMINI_LIMITER_RAMP_UP_SUCCESS_COUNT = "10"

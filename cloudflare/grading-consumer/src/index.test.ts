@@ -675,6 +675,216 @@ describe('cloudflare grading consumer queue semantics', () => {
     });
   });
 
+  it('falls back to Google AI Studio on retryable Workers AI timeouts before queue retry', async () => {
+    const backendBase = 'https://backend.example';
+
+    (globalThis.fetch as any).mockImplementation(async (url: any, init?: any) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-fallback/acquire`)) {
+        return jsonResponse({
+          success: true,
+          acquired: true,
+          leaseId: 'lease-fallback',
+          job: {
+            id: 'job-fallback',
+            status: 'QUEUED',
+            tokenNo: '123',
+            worksheetName: '15',
+            worksheetNumber: 15,
+            submittedOn: new Date().toISOString(),
+            isRepeated: false,
+            studentId: 's',
+            classId: 'c',
+            teacherId: 't',
+            images: [{ s3Key: 'img-1', storageProvider: 'R2', pageNumber: 1, mimeType: 'image/jpeg' }],
+          },
+        });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-fallback/heartbeat`)) {
+        return jsonResponse({ success: true });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-fallback/complete`)) {
+        return jsonResponse({ success: true });
+      }
+
+      throw new Error(`Unexpected fetch: ${String(url)}`);
+    });
+
+    (llmGenerateJson as any)
+      .mockRejectedValueOnce(new LlmHttpError(408, 'request timeout', 'workers-ai', '@cf/google/gemma-4-26b-a4b-it'))
+      .mockResolvedValueOnce({
+        parsed: { questions: [{ question_number: 1, question: '1+1', student_answer: '2' }] },
+        rawText: '{}',
+      })
+      .mockResolvedValueOnce({
+        parsed: {
+          total_questions: 1,
+          overall_score: 40,
+          grade_percentage: 100,
+          question_scores: [
+            {
+              question_number: 1,
+              question: '1+1',
+              student_answer: '2',
+              correct_answer: '2',
+              points_earned: 40,
+              max_points: 40,
+              is_correct: true,
+              feedback: 'good',
+            },
+          ],
+          correct_answers: 1,
+          wrong_answers: 0,
+          unanswered: 0,
+          overall_feedback: 'great',
+        },
+        rawText: '{}',
+      });
+
+    const ack = vi.fn();
+    const retry = vi.fn();
+
+    const env: any = {
+      BACKEND_BASE_URL: backendBase,
+      BACKEND_WORKER_TOKEN: 'token',
+      CF_AI_GATEWAY_ACCOUNT_ID: 'acct-123',
+      CF_AI_GATEWAY_TOKEN: 'cf-gateway-token',
+      CF_AI_GATEWAY_ID: 'grading',
+      LLM_FALLBACK_PROVIDER: 'google-ai-studio',
+      LLM_FALLBACK_MODEL: 'gemini-2.5-flash',
+      GEMINI_API_KEY: 'gemini-key',
+      IMAGES_BUCKET: makeR2Bucket({
+        'img-1': { bytes: new Uint8Array([1, 2, 3]) },
+      }),
+      ASSETS_BUCKET: makeR2Bucket({
+        'answers_by_worksheet.json': { text: JSON.stringify({ '15': [] }) },
+      }),
+    };
+
+    await worker.queue(
+      {
+        messages: [
+          {
+            id: 'm-fallback',
+            attempts: 1,
+            body: { v: 1, jobId: 'job-fallback', enqueuedAt: new Date().toISOString() },
+            ack,
+            retry,
+          },
+        ],
+      },
+      env,
+      {} as any
+    );
+
+    expect(retry).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(fetchCalls.some((c) => c.url.endsWith('/complete'))).toBe(true);
+    expect(fetchCalls.some((c) => c.url.endsWith('/requeue'))).toBe(false);
+    expect(fetchCalls.some((c) => c.url.endsWith('/fail'))).toBe(false);
+
+    const calls = (llmGenerateJson as any).mock.calls;
+    expect(calls).toHaveLength(3);
+    expect(calls[0][0].providerConfig).toMatchObject({
+      provider: 'workers-ai',
+      model: '@cf/google/gemma-4-26b-a4b-it',
+    });
+    expect(calls[1][0].providerConfig).toMatchObject({
+      provider: 'google-ai-studio',
+      model: 'gemini-2.5-flash',
+      apiKey: 'gemini-key',
+    });
+    expect(calls[2][0].providerConfig).toMatchObject({
+      provider: 'workers-ai',
+      model: '@cf/google/gemma-4-26b-a4b-it',
+    });
+  });
+
+  it('requeues when both primary and fallback LLM calls fail retryably', async () => {
+    const backendBase = 'https://backend.example';
+
+    (globalThis.fetch as any).mockImplementation(async (url: any, init?: any) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-fallback-fails/acquire`)) {
+        return jsonResponse({
+          success: true,
+          acquired: true,
+          leaseId: 'lease-fallback-fails',
+          job: {
+            id: 'job-fallback-fails',
+            status: 'QUEUED',
+            tokenNo: '123',
+            worksheetName: '15',
+            worksheetNumber: 15,
+            submittedOn: new Date().toISOString(),
+            isRepeated: false,
+            studentId: 's',
+            classId: 'c',
+            teacherId: 't',
+            images: [{ s3Key: 'img-1', storageProvider: 'R2', pageNumber: 1, mimeType: 'image/jpeg' }],
+          },
+        });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-fallback-fails/heartbeat`)) {
+        return jsonResponse({ success: true });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-fallback-fails/requeue`)) {
+        return jsonResponse({ success: true });
+      }
+
+      throw new Error(`Unexpected fetch: ${String(url)}`);
+    });
+
+    (llmGenerateJson as any)
+      .mockRejectedValueOnce(new LlmHttpError(408, 'primary timeout', 'workers-ai', '@cf/google/gemma-4-26b-a4b-it'))
+      .mockRejectedValueOnce(new LlmHttpError(503, 'fallback unavailable', 'google-ai-studio', 'gemini-2.5-flash'));
+
+    const ack = vi.fn();
+    const retry = vi.fn();
+
+    const env: any = {
+      BACKEND_BASE_URL: backendBase,
+      BACKEND_WORKER_TOKEN: 'token',
+      LLM_FALLBACK_PROVIDER: 'google-ai-studio',
+      LLM_FALLBACK_MODEL: 'gemini-2.5-flash',
+      GEMINI_API_KEY: 'gemini-key',
+      IMAGES_BUCKET: makeR2Bucket({
+        'img-1': { bytes: new Uint8Array([1, 2, 3]) },
+      }),
+      ASSETS_BUCKET: makeR2Bucket({
+        'answers_by_worksheet.json': { text: JSON.stringify({ '15': [] }) },
+      }),
+    };
+
+    await worker.queue(
+      {
+        messages: [
+          {
+            id: 'm-fallback-fails',
+            attempts: 1,
+            body: { v: 1, jobId: 'job-fallback-fails', enqueuedAt: new Date().toISOString() },
+            ack,
+            retry,
+          },
+        ],
+      },
+      env,
+      {} as any
+    );
+
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+    expect(fetchCalls.some((c) => c.url.endsWith('/requeue'))).toBe(true);
+    expect(fetchCalls.some((c) => c.url.endsWith('/fail'))).toBe(false);
+    expect((llmGenerateJson as any).mock.calls).toHaveLength(2);
+  });
+
   it('paces Gemini calls through the shared limiter and reports success feedback', async () => {
     const backendBase = 'https://backend.example';
     const limiterRequests: Array<{ path: string; body: any }> = [];
