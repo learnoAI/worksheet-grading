@@ -754,7 +754,7 @@ describe('cloudflare grading consumer queue semantics', () => {
       CF_AI_GATEWAY_TOKEN: 'cf-gateway-token',
       CF_AI_GATEWAY_ID: 'grading',
       LLM_FALLBACK_PROVIDER: 'google-ai-studio',
-      LLM_FALLBACK_MODEL: 'gemini-2.5-flash',
+      LLM_FALLBACK_MODEL: 'gemini-3.1-flash-lite-preview',
       GEMINI_API_KEY: 'gemini-key',
       IMAGES_BUCKET: makeR2Bucket({
         'img-1': { bytes: new Uint8Array([1, 2, 3]) },
@@ -794,7 +794,7 @@ describe('cloudflare grading consumer queue semantics', () => {
     });
     expect(calls[1][0].providerConfig).toMatchObject({
       provider: 'google-ai-studio',
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite-preview',
       apiKey: 'gemini-key',
     });
     expect(calls[2][0].providerConfig).toMatchObject({
@@ -843,7 +843,7 @@ describe('cloudflare grading consumer queue semantics', () => {
 
     (llmGenerateJson as any)
       .mockRejectedValueOnce(new LlmHttpError(408, 'primary timeout', 'workers-ai', '@cf/google/gemma-4-26b-a4b-it'))
-      .mockRejectedValueOnce(new LlmHttpError(503, 'fallback unavailable', 'google-ai-studio', 'gemini-2.5-flash'));
+      .mockRejectedValueOnce(new LlmHttpError(503, 'fallback unavailable', 'google-ai-studio', 'gemini-3.1-flash-lite-preview'));
 
     const ack = vi.fn();
     const retry = vi.fn();
@@ -852,7 +852,7 @@ describe('cloudflare grading consumer queue semantics', () => {
       BACKEND_BASE_URL: backendBase,
       BACKEND_WORKER_TOKEN: 'token',
       LLM_FALLBACK_PROVIDER: 'google-ai-studio',
-      LLM_FALLBACK_MODEL: 'gemini-2.5-flash',
+      LLM_FALLBACK_MODEL: 'gemini-3.1-flash-lite-preview',
       GEMINI_API_KEY: 'gemini-key',
       IMAGES_BUCKET: makeR2Bucket({
         'img-1': { bytes: new Uint8Array([1, 2, 3]) },
