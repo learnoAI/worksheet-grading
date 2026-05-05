@@ -48,6 +48,8 @@ interface Env {
   LLM_FALLBACK_PROVIDER?: string;
   LLM_FALLBACK_MODEL?: string;
   LLM_FALLBACK_API_KEY?: string;
+  LLM_PRIMARY_ATTEMPTS?: string;
+  LLM_FALLBACK_ATTEMPTS?: string;
   GEMINI_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
   GEMINI_RATE_LIMITER?: DurableObjectNamespace;
@@ -107,20 +109,29 @@ const DEFAULT_LLM_PROVIDER = 'workers-ai';
 const DEFAULT_LLM_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const DEFAULT_FALLBACK_LLM_PROVIDER = 'google-ai-studio';
 const DEFAULT_FALLBACK_LLM_MODEL = 'gemini-3.1-flash-lite-preview';
+const DEFAULT_LLM_PRIMARY_ATTEMPTS = 2;
+const DEFAULT_LLM_FALLBACK_ATTEMPTS = 2;
 const DEFAULT_OCR_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_GRADING_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_OCR_REQUEST_TIMEOUT_MS = 500_000;
 const DEFAULT_GRADING_REQUEST_TIMEOUT_MS = 500_000;
 
 class LlmFallbackError extends Error {
+  readonly primaryError: unknown;
+  readonly fallbackError: unknown;
+
   constructor(
-    readonly primaryError: unknown,
-    readonly fallbackError: unknown,
+    readonly primaryErrors: unknown[],
+    readonly fallbackErrors: unknown[],
     readonly primaryModel: string,
     readonly fallbackModel: string
   ) {
-    super(`Primary LLM failed (${primaryModel}): ${formatErrorMessage(primaryError)}; fallback LLM failed (${fallbackModel}): ${formatErrorMessage(fallbackError)}`);
+    const primaryError = primaryErrors[primaryErrors.length - 1];
+    const fallbackError = fallbackErrors[fallbackErrors.length - 1];
+    super(`LLM retry pattern failed (${primaryModel} x${primaryErrors.length}; ${fallbackModel} x${fallbackErrors.length}): last primary error: ${formatErrorMessage(primaryError)}; last fallback error: ${formatErrorMessage(fallbackError)}`);
     this.name = 'LlmFallbackError';
+    this.primaryError = primaryError;
+    this.fallbackError = fallbackError;
   }
 }
 
@@ -319,6 +330,14 @@ function getStageRequestTimeoutMs(env: Env, stage: 'ocr' | 'ai-grading' | 'book-
   return configured;
 }
 
+function getLlmPrimaryAttempts(env: Env): number {
+  return clamp(parsePositiveInt(env.LLM_PRIMARY_ATTEMPTS, DEFAULT_LLM_PRIMARY_ATTEMPTS), 1, 10);
+}
+
+function getLlmFallbackAttempts(env: Env): number {
+  return clamp(parsePositiveInt(env.LLM_FALLBACK_ATTEMPTS, DEFAULT_LLM_FALLBACK_ATTEMPTS), 1, 10);
+}
+
 function getGeminiLimiterStub(env: Env): DurableObjectStub | null {
   if (!env.GEMINI_RATE_LIMITER) return null;
   const id = env.GEMINI_RATE_LIMITER.idFromName('global-gemini-limiter');
@@ -446,29 +465,57 @@ async function limitedLlmGenerateJson<T>(
   options: Parameters<typeof llmGenerateJson<T>>[0],
   fallbackOptions?: Parameters<typeof llmGenerateJson<T>>[0] | null
 ): Promise<{ parsed: T; rawText: string }> {
-  try {
-    return await runLimitedLlmGenerateJson<T>(env, tracker, request, options);
-  } catch (primaryError) {
-    const primaryModel = formatLlmModelLabel(options.providerConfig);
+  const primaryModel = formatLlmModelLabel(options.providerConfig);
+  const primaryAttempts = getLlmPrimaryAttempts(env);
+  const primaryErrors: unknown[] = [];
 
-    if (
-      !fallbackOptions ||
-      isSameLlmConfig(options.providerConfig, fallbackOptions.providerConfig) ||
-      !isFallbackEligibleLlmError(primaryError)
-    ) {
-      throw primaryError;
+  for (let primaryAttempt = 1; primaryAttempt <= primaryAttempts; primaryAttempt += 1) {
+    try {
+      return await runLimitedLlmGenerateJson<T>(env, tracker, request, options);
+    } catch (primaryError) {
+      primaryErrors.push(primaryError);
+      const canRetryPrimary = isFallbackEligibleLlmError(primaryError) && primaryAttempt < primaryAttempts;
+      tracker.capturePipeline('llm_primary_attempt_failed', request.jobId, {
+        jobId: request.jobId,
+        stage: request.stage,
+        primaryModel,
+        primaryAttempt,
+        primaryAttempts,
+        primaryStatus: getLlmErrorStatus(primaryError) ?? null,
+        willRetryPrimary: canRetryPrimary,
+        error: formatErrorMessage(primaryError),
+      });
+
+      if (!canRetryPrimary) {
+        break;
+      }
     }
+  }
 
-    const fallbackModel = formatLlmModelLabel(fallbackOptions.providerConfig);
-    tracker.capturePipeline('llm_fallback_started', request.jobId, {
-      jobId: request.jobId,
-      stage: request.stage,
-      primaryModel,
-      fallbackModel,
-      primaryStatus: getLlmErrorStatus(primaryError) ?? null,
-      reason: formatErrorMessage(primaryError),
-    });
+  const primaryError = primaryErrors[primaryErrors.length - 1];
+  if (
+    !fallbackOptions ||
+    isSameLlmConfig(options.providerConfig, fallbackOptions.providerConfig) ||
+    !isFallbackEligibleLlmError(primaryError)
+  ) {
+    throw primaryError;
+  }
 
+  const fallbackModel = formatLlmModelLabel(fallbackOptions.providerConfig);
+  const fallbackAttempts = getLlmFallbackAttempts(env);
+  const fallbackErrors: unknown[] = [];
+  tracker.capturePipeline('llm_fallback_started', request.jobId, {
+    jobId: request.jobId,
+    stage: request.stage,
+    primaryModel,
+    fallbackModel,
+    primaryAttempts: primaryErrors.length,
+    fallbackAttempts,
+    primaryStatus: getLlmErrorStatus(primaryError) ?? null,
+    reason: formatErrorMessage(primaryError),
+  });
+
+  for (let fallbackAttempt = 1; fallbackAttempt <= fallbackAttempts; fallbackAttempt += 1) {
     try {
       const fallbackResult = await runLimitedLlmGenerateJson<T>(env, tracker, request, fallbackOptions);
       tracker.capturePipeline('llm_fallback_succeeded', request.jobId, {
@@ -476,22 +523,47 @@ async function limitedLlmGenerateJson<T>(
         stage: request.stage,
         primaryModel,
         fallbackModel,
+        primaryAttempts: primaryErrors.length,
+        fallbackAttempt,
+        fallbackAttempts,
       });
       return fallbackResult;
     } catch (fallbackError) {
-      tracker.capturePipeline('llm_fallback_failed', request.jobId, {
+      fallbackErrors.push(fallbackError);
+      const canRetryFallback = isFallbackEligibleLlmError(fallbackError) && fallbackAttempt < fallbackAttempts;
+      tracker.capturePipeline('llm_fallback_attempt_failed', request.jobId, {
         jobId: request.jobId,
         stage: request.stage,
         primaryModel,
         fallbackModel,
+        primaryAttempts: primaryErrors.length,
+        fallbackAttempt,
+        fallbackAttempts,
         primaryStatus: getLlmErrorStatus(primaryError) ?? null,
         fallbackStatus: getLlmErrorStatus(fallbackError) ?? null,
-        primaryError: formatErrorMessage(primaryError),
-        fallbackError: formatErrorMessage(fallbackError),
+        willRetryFallback: canRetryFallback,
+        error: formatErrorMessage(fallbackError),
       });
-      throw new LlmFallbackError(primaryError, fallbackError, primaryModel, fallbackModel);
+
+      if (!canRetryFallback) {
+        break;
+      }
     }
   }
+
+  tracker.capturePipeline('llm_fallback_failed', request.jobId, {
+    jobId: request.jobId,
+    stage: request.stage,
+    primaryModel,
+    fallbackModel,
+    primaryAttempts: primaryErrors.length,
+    fallbackAttempts: fallbackErrors.length,
+    primaryStatus: getLlmErrorStatus(primaryError) ?? null,
+    fallbackStatus: getLlmErrorStatus(fallbackErrors[fallbackErrors.length - 1]) ?? null,
+    primaryError: formatErrorMessage(primaryError),
+    fallbackError: formatErrorMessage(fallbackErrors[fallbackErrors.length - 1]),
+  });
+  throw new LlmFallbackError(primaryErrors, fallbackErrors, primaryModel, fallbackModel);
 }
 
 function isRetryableHttpStatus(status: number): boolean {
