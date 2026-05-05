@@ -117,22 +117,27 @@ name = "worksheet-grading-consumer-staging"
 [env.staging.vars]
 CF_AI_GATEWAY_ACCOUNT_ID = "2ffbc97db67c45deb3098acd1f647ac0"
 CF_AI_GATEWAY_ID = "learnoai"
-OCR_PROVIDER = "workers-ai"
-OCR_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+# Staging override: prod uses workers-ai for OCR + grading via the AI
+# Gateway, but the staging account's gateway is auth-required and we
+# don't have CF_AI_GATEWAY_TOKEN set. Point everything at google-ai-
+# studio so the GEMINI_API_KEY secret carries the full chain end to end.
+# Switch back to workers-ai when CF_AI_GATEWAY_TOKEN is available.
+OCR_PROVIDER = "google-ai-studio"
+OCR_MODEL = "gemini-3.1-flash-lite-preview"
 OCR_REASONING_EFFORT = "low"
 OCR_REQUEST_TIMEOUT_MS = "500000"
-AI_GRADING_PROVIDER = "workers-ai"
-AI_GRADING_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+AI_GRADING_PROVIDER = "google-ai-studio"
+AI_GRADING_MODEL = "gemini-3.1-flash-lite-preview"
 AI_GRADING_REASONING_EFFORT = "low"
 AI_GRADING_REQUEST_TIMEOUT_MS = "500000"
-BOOK_GRADING_PROVIDER = "workers-ai"
-BOOK_GRADING_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+BOOK_GRADING_PROVIDER = "google-ai-studio"
+BOOK_GRADING_MODEL = "gemini-3.1-flash-lite-preview"
 BOOK_GRADING_REASONING_EFFORT = "low"
 BOOK_GRADING_REQUEST_TIMEOUT_MS = "500000"
-# Staging override: prod fallback is openrouter, but staging has no
-# OpenRouter key set. Point fallback at google-ai-studio + a Gemini
-# model so the GEMINI_API_KEY secret (set via `wrangler secret put`)
-# actually carries the fallback path.
+# Fallback also Gemini so the chain stays consistent. If primary
+# rate-limits or 5xxs, fallback hits the same provider with the same
+# key — not redundancy in the strict sense but it exercises the
+# fallback code path during tests.
 LLM_FALLBACK_PROVIDER = "google-ai-studio"
 LLM_FALLBACK_MODEL = "gemini-3.1-flash-lite-preview"
 LLM_PRIMARY_ATTEMPTS = "2"
