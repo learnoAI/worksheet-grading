@@ -102,6 +102,79 @@ describe('persistWorksheetForGradingJob', () => {
     expect(result.worksheetId).toBe('ws-old');
   });
 
+  it('preserves user-owned fields on the upsert update branch', async () => {
+    // grade, wrongQuestionNumbers, isRepeated belong to the user once a row
+    // exists — an SR may have manually saved a worksheet before the AI
+    // worker finished, and the AI's UPDATE must not silently revert it.
+    const { tx, spies } = makeTx({
+      existing: { id: 'ws-existing' },
+      upsertResult: { id: 'ws-existing' },
+    });
+    await persistWorksheetForGradingJob(tx, {}, JOB, GOOD_RESPONSE);
+    const call = spies.worksheetUpsert.mock.calls[0][0];
+    // create branch still seeds everything (only runs on a fresh row).
+    expect(call.create.grade).toBe(32);
+    expect(call.create.wrongQuestionNumbers).toBe('1, 7');
+    expect(call.create.isRepeated).toBe(false);
+    // update branch refreshes AI-derived fields only.
+    expect(call.update.status).toBeDefined();
+    expect(call.update.gradingDetails).toBeDefined();
+    expect(call.update.outOf).toBe(40);
+    expect(call.update).not.toHaveProperty('grade');
+    expect(call.update).not.toHaveProperty('wrongQuestionNumbers');
+    expect(call.update).not.toHaveProperty('isRepeated');
+    expect(call.update).not.toHaveProperty('worksheetNumber');
+  });
+
+  it('preserves user-owned fields on the missing-unique-index fallback update path', async () => {
+    const err = new Error('code: "42P10"');
+    const { tx, spies } = makeTx({
+      existing: { id: 'ws-existing' },
+      upsertError: err,
+      updateResult: { id: 'ws-existing' },
+    });
+    await persistWorksheetForGradingJob(tx, {}, JOB, GOOD_RESPONSE);
+    const updateArgs = spies.worksheetUpdate.mock.calls[0][0];
+    expect(updateArgs.where).toEqual({ id: 'ws-existing' });
+    expect(updateArgs.data.status).toBeDefined();
+    expect(updateArgs.data.gradingDetails).toBeDefined();
+    expect(updateArgs.data).not.toHaveProperty('grade');
+    expect(updateArgs.data).not.toHaveProperty('wrongQuestionNumbers');
+    expect(updateArgs.data).not.toHaveProperty('isRepeated');
+    expect(updateArgs.data).not.toHaveProperty('worksheetNumber');
+  });
+
+  it('preserves user-owned fields on the P2002 race-recovery update path', async () => {
+    const err = new Prisma.PrismaClientKnownRequestError('Unique constraint', {
+      code: 'P2002',
+      clientVersion: 'x',
+    });
+    const templateFindFirst = vi.fn().mockResolvedValue(null);
+    const worksheetFindFirst = vi
+      .fn()
+      .mockResolvedValueOnce(null) // first lookup before upsert
+      .mockResolvedValueOnce({ id: 'ws-raced' }); // lookup inside P2002 handler
+    const worksheetUpsert = vi.fn().mockRejectedValue(err);
+    const worksheetUpdate = vi.fn().mockResolvedValue({ id: 'ws-raced' });
+    const tx = {
+      worksheetTemplate: { findFirst: templateFindFirst },
+      worksheet: {
+        findFirst: worksheetFindFirst,
+        upsert: worksheetUpsert,
+        update: worksheetUpdate,
+        create: vi.fn(),
+      },
+    } as unknown as PrismaClient;
+    await persistWorksheetForGradingJob(tx, {}, JOB, GOOD_RESPONSE);
+    const updateArgs = worksheetUpdate.mock.calls[0][0];
+    expect(updateArgs.where).toEqual({ id: 'ws-raced' });
+    expect(updateArgs.data.status).toBeDefined();
+    expect(updateArgs.data.gradingDetails).toBeDefined();
+    expect(updateArgs.data).not.toHaveProperty('grade');
+    expect(updateArgs.data).not.toHaveProperty('wrongQuestionNumbers');
+    expect(updateArgs.data).not.toHaveProperty('isRepeated');
+  });
+
   it('falls back to update-then-create when missing unique index error fires', async () => {
     const err = new Error(
       'no unique or exclusion constraint matching the ON CONFLICT specification'
