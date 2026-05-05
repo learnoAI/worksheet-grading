@@ -330,6 +330,54 @@ describe('POST /api/worksheets/grade — non-absent validation', () => {
     expect(call.create.worksheetNumber).toBe(5);
     expect(call.create.grade).toBe(32);
   });
+
+  it('rejects grade=0 with no AI or wrong-question evidence', async () => {
+    const upsert = vi.fn();
+    const app = mountApp({
+      worksheet: { upsert },
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 0,
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/Cannot save grade of 0/);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('accepts grade=0 when wrongQuestionNumbers is provided', async () => {
+    const upsert = vi.fn().mockResolvedValue({ id: 'w1' });
+    const app = mountApp({
+      worksheet: { upsert },
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 0,
+      wrongQuestionNumbers: '1, 2, 3',
+    });
+    expect(res.status).toBe(201);
+    expect(upsert).toHaveBeenCalled();
+  });
+
+  it('accepts grade=0 when isAbsent=true (absent path)', async () => {
+    const upsert = vi.fn().mockResolvedValue({ id: 'w1', isAbsent: true });
+    const app = mountApp({ worksheet: { upsert } });
+    const res = await jsonRequest(app, '/api/worksheets/grade', 'POST', {
+      classId: 'c1',
+      studentId: 'st1',
+      isAbsent: true,
+      grade: 0,
+    });
+    expect(res.status).toBe(201);
+    expect(upsert).toHaveBeenCalled();
+  });
 });
 
 describe('PUT /api/worksheets/grade/:id', () => {
@@ -338,6 +386,9 @@ describe('PUT /api/worksheets/grade/:id', () => {
   it('returns 404 when update reports P2025', async () => {
     const app = mountApp({
       worksheet: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ gradingDetails: null, wrongQuestionNumbers: null }),
         update: vi.fn().mockRejectedValue({ code: 'P2025', message: 'not found' }),
       },
       worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -349,6 +400,24 @@ describe('PUT /api/worksheets/grade/:id', () => {
       grade: 30,
     });
     expect(res.status).toBe(404);
+  });
+
+  it('returns 404 when the existing row is not found before update', async () => {
+    const update = vi.fn();
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        update,
+      },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade/missing', 'PUT', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 30,
+    });
+    expect(res.status).toBe(404);
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('clears grade state when flipping to absent', async () => {
@@ -386,6 +455,97 @@ describe('PUT /api/worksheets/grade/:id', () => {
       grade: 100,
     });
     expect(res.status).toBe(400);
+  });
+
+  it('rejects grade=0 with no AI or wrong-question evidence (existing row also empty)', async () => {
+    const update = vi.fn();
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ gradingDetails: null, wrongQuestionNumbers: null }),
+        update,
+      },
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade/w1', 'PUT', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 0,
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/Cannot save grade of 0/);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('accepts grade=0 when existing row has gradingDetails and body omits them', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'w1' });
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi.fn().mockResolvedValue({
+          gradingDetails: { score: 0, feedback: 'AI-graded' },
+          wrongQuestionNumbers: null,
+        }),
+        update,
+      },
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade/w1', 'PUT', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 0,
+    });
+    expect(res.status).toBe(200);
+    expect(update).toHaveBeenCalled();
+  });
+
+  it('accepts grade=0 when body provides wrongQuestionNumbers', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'w1' });
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ gradingDetails: null, wrongQuestionNumbers: null }),
+        update,
+      },
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade/w1', 'PUT', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 0,
+      wrongQuestionNumbers: '1, 4',
+    });
+    expect(res.status).toBe(200);
+    expect(update).toHaveBeenCalled();
+  });
+
+  it('rejects grade=0 when body explicitly clears existing evidence (null)', async () => {
+    const update = vi.fn();
+    const app = mountApp({
+      worksheet: {
+        findUnique: vi.fn().mockResolvedValue({
+          gradingDetails: { score: 0 },
+          wrongQuestionNumbers: '1',
+        }),
+        update,
+      },
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/grade/w1', 'PUT', {
+      classId: 'c1',
+      studentId: 'st1',
+      worksheetNumber: 5,
+      grade: 0,
+      gradingDetails: null,
+      wrongQuestionNumbers: null,
+    });
+    expect(res.status).toBe(400);
+    expect(update).not.toHaveBeenCalled();
   });
 });
 
@@ -1551,6 +1711,43 @@ describe('POST /api/worksheets/batch-save', () => {
     expect(body.saved).toBe(1);
     expect(body.failed).toBe(3);
     expect(body.errors.length).toBe(3);
+  });
+
+  it('rejects empty grade=0 rows into per-row errors but keeps the batch going', async () => {
+    const upsert = vi.fn().mockResolvedValue({});
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const app = mountApp({
+      worksheet: { upsert, findFirst },
+      worksheetTemplate: { findFirst: vi.fn().mockResolvedValue(null) },
+    });
+    const res = await jsonRequest(app, '/api/worksheets/batch-save', 'POST', {
+      classId: 'c1',
+      submittedOn: '2026-04-10T00:00:00Z',
+      worksheets: [
+        // empty grade=0 — rejected
+        { studentId: 'st1', worksheetNumber: 5, grade: 0 },
+        // grade=0 with wrong-question evidence — accepted
+        {
+          studentId: 'st2',
+          worksheetNumber: 5,
+          grade: 0,
+          wrongQuestionNumbers: '1, 2',
+        },
+        // grade=0 absent — accepted (absent path)
+        { studentId: 'st3', isAbsent: true, grade: 0 },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      saved: number;
+      failed: number;
+      errors: Array<{ studentId: string; error: string }>;
+    };
+    expect(body.saved).toBe(2);
+    expect(body.failed).toBe(1);
+    expect(body.errors.length).toBe(1);
+    expect(body.errors[0].studentId).toBe('st1');
+    expect(body.errors[0].error).toMatch(/Cannot save grade of 0/);
   });
 });
 
