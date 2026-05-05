@@ -38,7 +38,7 @@ vi.mock('../services/errorLogService', () => ({
   logError: vi.fn(async () => {}),
 }));
 
-vi.mock('../services/logger', () => ({
+const loggerMocks = vi.hoisted(() => ({
   aiGradingLogger: {
     debug: vi.fn(),
     info: vi.fn(),
@@ -47,7 +47,14 @@ vi.mock('../services/logger', () => ({
   },
 }));
 
-import { complete, resetDispatch } from './internalGradingWorkerController';
+vi.mock('../services/logger', () => loggerMocks);
+
+vi.mock('../services/posthogService', () => ({
+  captureGradingPipelineEvent: vi.fn(),
+  capturePosthogException: vi.fn(),
+}));
+
+import { complete, fail, resetDispatch } from './internalGradingWorkerController';
 
 describe('internalGradingWorkerController.complete', () => {
   beforeEach(() => {
@@ -164,6 +171,56 @@ describe('internalGradingWorkerController.complete', () => {
     expect(res.status).toHaveBeenCalledWith(409);
     expect(persistenceMocks.persistWorksheetForGradingJobId).not.toHaveBeenCalled();
     expect(tx.gradingJob.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('internalGradingWorkerController.fail', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('logs the worker-side errorName and stack into aiGradingLogger.error', async () => {
+    lifecycleMocks.markGradingJobFailed.mockResolvedValueOnce(true);
+
+    const req: any = {
+      params: { jobId: 'job-fail-1' },
+      body: {
+        leaseId: 'lease-x',
+        errorMessage: 'Workers AI request timed out',
+        errorName: 'LlmHttpError',
+        errorStack: 'LlmHttpError: timed out\n    at llmGenerateJson (llm.ts:259)',
+        errorContext: { provider: 'workers-ai', model: '@cf/google/gemma-4-26b-a4b-it', status: 504 },
+      },
+    };
+    const res: any = {
+      status: vi.fn(function status(this: any, code: number) {
+        this.statusCode = code;
+        return this;
+      }),
+      json: vi.fn(function json(this: any, body: any) {
+        this.body = body;
+        return this;
+      }),
+    };
+
+    await fail(req, res);
+
+    expect(res.body).toEqual({ success: true });
+    expect(loggerMocks.aiGradingLogger.error).toHaveBeenCalledWith(
+      'Grading job marked failed by worker',
+      expect.objectContaining({
+        jobId: 'job-fail-1',
+        leaseId: 'lease-x',
+        errorName: 'LlmHttpError',
+        errorMessage: 'Workers AI request timed out',
+        errorContext: expect.objectContaining({ status: 504 }),
+      }),
+      expect.objectContaining({
+        name: 'LlmHttpError',
+        message: 'Workers AI request timed out',
+        stack: expect.stringContaining('llm.ts:259'),
+      })
+    );
   });
 });
 

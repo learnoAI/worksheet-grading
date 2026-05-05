@@ -419,12 +419,21 @@ export async function complete(req: Request, res: Response): Promise<Response> {
 
 /**
  * POST /internal/grading-worker/jobs/:jobId/fail
- * Body: { errorMessage: string }
+ * Body: { errorMessage: string, errorName?: string, errorStack?: string, errorContext?: object }
+ *
+ * The worker passes through the original Error's name and stack so the backend
+ * can persist them to app_logs — without this, only `errorMessage` survives
+ * the Cloudflare → backend hop and the actual exception class + frames are
+ * lost as soon as `wrangler tail` rotates.
  */
 export async function fail(req: Request, res: Response): Promise<Response> {
     const { jobId } = req.params;
-    const leaseId = isObject(req.body) && typeof req.body.leaseId === 'string' ? req.body.leaseId : '';
-    const errorMessage = isObject(req.body) && typeof req.body.errorMessage === 'string' ? req.body.errorMessage : '';
+    const body = isObject(req.body) ? req.body : {};
+    const leaseId = typeof body.leaseId === 'string' ? body.leaseId : '';
+    const errorMessage = typeof body.errorMessage === 'string' ? body.errorMessage : '';
+    const errorName = typeof body.errorName === 'string' ? body.errorName : undefined;
+    const errorStack = typeof body.errorStack === 'string' ? body.errorStack : undefined;
+    const errorContext = isObject(body.errorContext) ? (body.errorContext as Record<string, unknown>) : undefined;
 
     if (!leaseId) {
         return res.status(400).json({ success: false, error: 'leaseId is required' });
@@ -444,10 +453,31 @@ export async function fail(req: Request, res: Response): Promise<Response> {
             return res.status(409).json({ success: false, error: 'Lease mismatch' });
         }
 
+        // Reconstruct the original Error so apiLogger writes the worker-side
+        // stack into app_logs. Falls back to a synthesized Error when the
+        // worker didn't send name/stack (older deploys, non-Error throws).
+        const reconstructed = new Error(errorMessage);
+        if (errorName) reconstructed.name = errorName;
+        if (errorStack) reconstructed.stack = errorStack;
+
+        aiGradingLogger.error(
+            'Grading job marked failed by worker',
+            {
+                jobId,
+                leaseId,
+                errorName: errorName ?? null,
+                errorMessage,
+                errorContext: errorContext ?? null
+            },
+            reconstructed
+        );
+
         captureGradingPipelineEvent('worker_fail_succeeded', jobId, {
             jobId,
             leaseId,
-            errorMessage
+            errorMessage,
+            errorName,
+            errorContext
         });
         return res.json({ success: true });
     } catch (error) {
