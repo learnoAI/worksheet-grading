@@ -71,6 +71,12 @@ app.get('/', (req: Request, res: Response) => {
 app.use((err: any, req: Request, res: Response, next: any) => {
     console.error(err.stack);
 
+    // Stash the error so requestDiagnostics can attach the stack and exception
+    // class to its 5xx log entry. Without this the diagnostics middleware only
+    // sees res.statusCode and writes `stack: null`, which makes prod 5xxs
+    // un-debuggable from the app_logs collection.
+    res.locals.diagnosticsError = err;
+
     const requestId = req.get('x-request-id') || 'unknown';
 
     // Express's built-in body parser throws SyntaxError with a `body` property
