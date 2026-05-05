@@ -77,6 +77,14 @@ const heartbeatSchema = z.object({
 const failSchema = z.object({
   leaseId: z.string().min(1, { message: 'leaseId is required' }),
   errorMessage: z.string().min(1, { message: 'errorMessage is required' }),
+  // Optional context the grading consumer forwards so the backend can
+  // surface the original Error's name/stack/structured-context in
+  // telemetry. Without these only `errorMessage` survives the CF→backend
+  // hop and the actual exception class disappears once `wrangler tail`
+  // rotates. See codex commit ee07833 for the consumer-side serializer.
+  errorName: z.string().optional(),
+  errorStack: z.string().optional(),
+  errorContext: z.record(z.string(), z.unknown()).optional(),
 });
 
 const requeueSchema = z.object({
@@ -533,7 +541,8 @@ internalGradingWorker.post(
     if (!prisma) return c.json({ success: false, error: 'Database is not available' }, 500);
 
     const jobId = c.req.param('jobId');
-    const { leaseId, errorMessage } = c.req.valid('json');
+    const { leaseId, errorMessage, errorName, errorStack, errorContext } =
+      c.req.valid('json');
     const env = c.env ?? {};
 
     try {
@@ -546,10 +555,27 @@ internalGradingWorker.post(
         return c.json({ success: false, error: 'Lease mismatch' }, 409);
       }
 
+      // Reconstruct the worker-side Error so PostHog captures the original
+      // exception class + stack as a $exception event. Without this, only
+      // `errorMessage` survives the CF→backend hop and stack frames are
+      // lost the moment `wrangler tail` rotates.
+      if (errorName || errorStack) {
+        const reconstructed = new Error(errorMessage);
+        if (errorName) reconstructed.name = errorName;
+        if (errorStack) reconstructed.stack = errorStack;
+        await capturePosthogException(env, reconstructed, {
+          distinctId: jobId,
+          stage: 'worker_fail_succeeded',
+          extra: { jobId, leaseId, errorContext },
+        });
+      }
+
       await capturePosthogEvent(env, 'worker_fail_succeeded', jobId, {
         jobId,
         leaseId,
         errorMessage,
+        errorName,
+        errorContext,
       });
       return c.json({ success: true }, 200);
     } catch (error) {

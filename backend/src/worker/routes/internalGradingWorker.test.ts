@@ -347,6 +347,36 @@ describe('POST /jobs/:jobId/fail', () => {
     expect(call.data.status).toBe('FAILED');
     expect(call.data.errorMessage).toBe('python down');
   });
+
+  it('accepts optional errorName/errorStack/errorContext from the worker', async () => {
+    // The grading consumer forwards these so the backend can capture the
+    // original Error class + stack in PostHog (see codex ee07833). The
+    // route must accept the extended payload without a 400 schema error
+    // and still write FAILED + errorMessage to the DB exactly as before.
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const app = mountApp({ gradingJob: { updateMany } });
+    const res = await postJson(app, '/internal/grading-worker/jobs/j1/fail', {
+      leaseId: 'mine',
+      errorMessage: 'Workers AI request timed out',
+      errorName: 'LlmHttpError',
+      errorStack:
+        'LlmHttpError: timed out\n    at llmGenerateJson (llm.ts:259)',
+      errorContext: {
+        provider: 'workers-ai',
+        model: '@cf/google/gemma-4-26b-a4b-it',
+        status: 504,
+      },
+    });
+    expect(res.status).toBe(200);
+    const call = updateMany.mock.calls[0][0];
+    expect(call.data.status).toBe('FAILED');
+    // errorMessage is the only field that goes onto the row — name/stack/
+    // context are telemetry-only, never persisted.
+    expect(call.data.errorMessage).toBe('Workers AI request timed out');
+    expect(call.data).not.toHaveProperty('errorName');
+    expect(call.data).not.toHaveProperty('errorStack');
+    expect(call.data).not.toHaveProperty('errorContext');
+  });
 });
 
 describe('POST /jobs/:jobId/requeue', () => {
