@@ -12,3 +12,4 @@ dist-worker
 
 # Staging seed output (contains throwaway credentials)
 prisma/seed-staging.out.json
+.env.staging
