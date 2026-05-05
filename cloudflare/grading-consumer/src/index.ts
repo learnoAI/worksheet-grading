@@ -841,7 +841,15 @@ async function processJob(
       parts: [{ text: ocrPrompt }, ...imageParts],
     } : null);
 
-    const extractedQuestions = ExtractedQuestionsSchema.parse(extracted.parsed);
+    // Gemini sometimes returns the bare questions array at the root instead
+    // of `{ questions: [...] }` despite the responseJsonSchema constraint
+    // and the explicit prompt. Coerce array-at-root into the expected
+    // wrapper before strict-parsing so the worker doesn't fail-and-retry
+    // on a deterministic Gemini quirk.
+    const extractedRaw = Array.isArray(extracted.parsed)
+      ? { questions: extracted.parsed }
+      : extracted.parsed;
+    const extractedQuestions = ExtractedQuestionsSchema.parse(extractedRaw);
     tracker.capturePipeline('worker_ocr_succeeded', jobId, {
       jobId,
       leaseId,
@@ -893,7 +901,14 @@ async function processJob(
       parts: [{ text: gradingPrompt }],
     } : null);
 
-    const gradingResult = GradingResultSchema.parse(grading.parsed);
+    // Same defensive coercion as OCR: Gemini may return question_scores at
+    // the root instead of wrapped in `{ question_scores, overall_feedback,
+    // ... }`. Wrap if needed; missing required fields will still trip the
+    // strict-parse below so genuine schema breaks aren't silently swallowed.
+    const gradingRaw = Array.isArray(grading.parsed)
+      ? { question_scores: grading.parsed, overall_feedback: '' }
+      : grading.parsed;
+    const gradingResult = GradingResultSchema.parse(gradingRaw);
     const backendResponse = toBackendGradingResponse(gradingResult, {
       expectedTotalQuestions: extractedQuestions.questions.length,
     });
