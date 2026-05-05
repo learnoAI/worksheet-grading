@@ -105,7 +105,7 @@ class NonRetryableError extends Error {
 const DEFAULT_LLM_PROVIDER = 'workers-ai';
 const DEFAULT_LLM_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const DEFAULT_FALLBACK_LLM_PROVIDER = 'google-ai-studio';
-const DEFAULT_FALLBACK_LLM_MODEL = 'gemini-2.5-flash';
+const DEFAULT_FALLBACK_LLM_MODEL = 'gemini-3.1-flash-lite-preview';
 const DEFAULT_OCR_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_GRADING_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_OCR_REQUEST_TIMEOUT_MS = 500_000;
