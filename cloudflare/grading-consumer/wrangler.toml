@@ -112,6 +112,38 @@ invocation_logs = true
 [env.staging]
 name = "worksheet-grading-consumer-staging"
 
+# Wrangler 4 doesn't inherit `vars` either. Mirror the top-level so the
+# consumer reads the same defaults; staging-specific overrides go below.
+[env.staging.vars]
+CF_AI_GATEWAY_ACCOUNT_ID = "2ffbc97db67c45deb3098acd1f647ac0"
+CF_AI_GATEWAY_ID = "learnoai"
+OCR_PROVIDER = "workers-ai"
+OCR_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+OCR_REASONING_EFFORT = "low"
+OCR_REQUEST_TIMEOUT_MS = "500000"
+AI_GRADING_PROVIDER = "workers-ai"
+AI_GRADING_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+AI_GRADING_REASONING_EFFORT = "low"
+AI_GRADING_REQUEST_TIMEOUT_MS = "500000"
+BOOK_GRADING_PROVIDER = "workers-ai"
+BOOK_GRADING_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+BOOK_GRADING_REASONING_EFFORT = "low"
+BOOK_GRADING_REQUEST_TIMEOUT_MS = "500000"
+# Staging override: prod fallback is openrouter, but staging has no
+# OpenRouter key set. Point fallback at google-ai-studio + a Gemini
+# model so the GEMINI_API_KEY secret (set via `wrangler secret put`)
+# actually carries the fallback path.
+LLM_FALLBACK_PROVIDER = "google-ai-studio"
+LLM_FALLBACK_MODEL = "gemini-3.1-flash-lite-preview"
+LLM_PRIMARY_ATTEMPTS = "2"
+LLM_FALLBACK_ATTEMPTS = "2"
+# Lower RPS targets than prod so test traffic doesn't blow our Gemini
+# free-tier quota during full-flow exercises.
+GEMINI_LIMITER_INITIAL_RPS = "5"
+GEMINI_LIMITER_MAX_RPS = "30"
+GEMINI_LIMITER_RAMP_UP_SUCCESS_COUNT = "10"
+GEMINI_LIMITER_RAMP_UP_MULTIPLIER = "1.12"
+
 [[env.staging.r2_buckets]]
 binding = "IMAGES_BUCKET"
 bucket_name = "worksheet-grading-files-staging"
@@ -119,6 +151,14 @@ bucket_name = "worksheet-grading-files-staging"
 [[env.staging.r2_buckets]]
 binding = "ASSETS_BUCKET"
 bucket_name = "worksheet-grading-assets"
+
+# Durable Object binding for the Gemini rate limiter. The new code at
+# index.ts:382 calls env.GEMINI_RATE_LIMITER.idFromName(...) and crashes
+# without this. The class itself ships with the script — the migration
+# block at the top level applies to every env's deploy.
+[[env.staging.durable_objects.bindings]]
+name = "GEMINI_RATE_LIMITER"
+class_name = "GeminiRateLimiter"
 
 [[env.staging.queues.consumers]]
 queue = "grading-fast-staging"
