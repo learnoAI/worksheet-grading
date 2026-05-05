@@ -37,6 +37,7 @@ import type { WorkerEnv } from './types';
 
 const DEFAULT_STALE_PROCESSING_MS = 20 * 60 * 1000; // 20 min
 const DEFAULT_QUEUE_POLL_BATCH_SIZE = 25;
+const DEFAULT_DISPATCH_ORPHAN_MS = 30 * 60 * 1000; // 30 min
 
 function parsePositiveInt(value: unknown, fallback: number): number {
   const raw = typeof value === 'string' ? Number.parseInt(value, 10) : NaN;
@@ -54,6 +55,13 @@ function queuePollBatchSize(env: WorkerEnv): number {
   return parsePositiveInt(
     (env as { GRADING_QUEUE_POLL_BATCH_SIZE?: string }).GRADING_QUEUE_POLL_BATCH_SIZE,
     DEFAULT_QUEUE_POLL_BATCH_SIZE
+  );
+}
+
+function dispatchOrphanMs(env: WorkerEnv): number {
+  return parsePositiveInt(
+    (env as { GRADING_DISPATCH_ORPHAN_MS?: string }).GRADING_DISPATCH_ORPHAN_MS,
+    DEFAULT_DISPATCH_ORPHAN_MS
   );
 }
 
@@ -79,6 +87,7 @@ export function shouldRetryDispatch(
 
 export interface DispatchResult {
   staleRequeued: number;
+  orphanRequeued: number;
   attempted: number;
   dispatched: number;
   failed: number;
@@ -97,6 +106,7 @@ export async function dispatchPendingJobs(
 ): Promise<DispatchResult> {
   const result: DispatchResult = {
     staleRequeued: 0,
+    orphanRequeued: 0,
     attempted: 0,
     dispatched: 0,
     failed: 0,
@@ -147,7 +157,54 @@ export async function dispatchPendingJobs(
     );
   }
 
-  // 2. Publish QUEUED → CF Queues (oldest first, respecting backoff)
+  // 2. Recover orphaned QUEUED jobs.
+  //
+  // When a CF Queue message is silently dropped (DLQ exhaustion, worker
+  // cold-start failure, OOM before the cleanup path runs), the GradingJob
+  // row stays QUEUED with `enqueuedAt` set and the publish loop below —
+  // which only matches `enqueuedAt: null` — skips it forever. Without this
+  // sweep, the only recovery is the 24h VERY_STALE_JOB_MS backstop in
+  // `recoverStuckJob`, which fires lazily on poll.
+  //
+  // Inverse of the stale-PROCESSING block above: that block clears
+  // `lastErrorAt`/`attemptCount` because a stale-requeue is a clean retry.
+  // Here we *stamp* `lastErrorAt` and a `dispatchError` because this IS an
+  // error condition — a queue message went missing — and surfacing it via
+  // the normal dispatch-error fields means it shows up in monitoring and
+  // the `attemptCount` accumulates if the CF Queue keeps swallowing it.
+  //
+  // The `updatedAt` filter excludes jobs the worker recently `/requeue`'d:
+  // those are intentionally kept enqueued so CF Queue's own retry can
+  // redeliver, and republishing here would double-deliver. Anything silent
+  // for `orphanCutoff` is past every plausible CF retry cycle.
+  const orphanMs = dispatchOrphanMs(env);
+  const orphanCutoff = new Date(Date.now() - orphanMs);
+  const orphanedRequeued = await prisma.gradingJob.updateMany({
+    where: {
+      status: GradingJobStatus.QUEUED,
+      leaseId: null,
+      startedAt: null,
+      enqueuedAt: { lt: orphanCutoff },
+      updatedAt: { lt: orphanCutoff },
+    },
+    data: {
+      enqueuedAt: null,
+      dispatchError: 'Requeued by dispatch loop: queued message orphaned',
+      lastErrorAt: new Date(),
+    },
+  });
+  result.orphanRequeued = orphanedRequeued.count;
+
+  if (result.orphanRequeued > 0) {
+    await capturePosthogEvent(
+      env,
+      'dispatch_loop_orphaned_queued_requeued',
+      'dispatch-loop',
+      { count: result.orphanRequeued, dispatchOrphanMs: orphanMs }
+    );
+  }
+
+  // 3. Publish QUEUED → CF Queues (oldest first, respecting backoff)
   const pendingJobs = await prisma.gradingJob.findMany({
     where: {
       status: GradingJobStatus.QUEUED,

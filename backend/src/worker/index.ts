@@ -118,6 +118,7 @@ async function runScheduledDispatch(env: WorkerEnv): Promise<void> {
     const result = await dispatchPendingJobs(prisma, env);
     await capturePosthogEvent(env, 'dispatch_loop_tick', 'dispatch-loop', {
       staleRequeued: result.staleRequeued,
+      orphanRequeued: result.orphanRequeued,
       attempted: result.attempted,
       dispatched: result.dispatched,
       failed: result.failed,

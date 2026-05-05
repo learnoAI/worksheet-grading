@@ -106,7 +106,16 @@ describe('dispatchPendingJobs — stale requeue', () => {
       lastErrorAt: Date | null;
     } = { id: 'rescued-1', attemptCount: 4, lastErrorAt: new Date(Date.now() - 1000) };
     const updateMany = vi.fn(
-      async (args: { data: { attemptCount?: number; lastErrorAt?: Date | null } }) => {
+      async (args: {
+        where: { status: string };
+        data: { attemptCount?: number; lastErrorAt?: Date | null };
+      }) => {
+        // Two updateMany calls happen per tick: stale-PROCESSING requeue
+        // and orphan-QUEUED sweep. Only the stale-requeue is what this
+        // test exercises; the orphan sweep is a no-op here (its filter
+        // wouldn't match in real life either, since the row's updatedAt
+        // is fresh from the tick-1 stale-requeue write).
+        if (args.where.status !== 'PROCESSING') return { count: 0 };
         // Tick 1's stale-requeue should null these out (the bug we're fixing).
         Object.assign(dbRow, {
           attemptCount: args.data.attemptCount,
@@ -167,6 +176,105 @@ describe('dispatchPendingJobs — stale requeue', () => {
     const cutoffMs = staleCutoff.getTime();
     expect(cutoffMs).toBeGreaterThanOrEqual(before - 60_000 - 1000);
     expect(cutoffMs).toBeLessThanOrEqual(before - 60_000 + 1000);
+  });
+});
+
+describe('dispatchPendingJobs — orphan-QUEUED sweep', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  // The orphan sweep is the SECOND updateMany call in a tick (after the
+  // stale-PROCESSING requeue). Tests below pin assertions to
+  // `updateMany.mock.calls[1]` rather than `[0]` to avoid coupling to
+  // the stale-requeue's args.
+
+  it('filters on status=QUEUED with leaseId/startedAt null and both timestamp gates', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const findMany = vi.fn().mockResolvedValue([]);
+    const prisma = {
+      gradingJob: { updateMany, findMany, update: vi.fn() },
+    } as unknown as PrismaClient;
+    mockSuccessfulPublish();
+
+    await dispatchPendingJobs(prisma, ENV);
+
+    expect(updateMany).toHaveBeenCalledTimes(2);
+    const orphanCall = updateMany.mock.calls[1][0];
+    expect(orphanCall.where.status).toBe('QUEUED');
+    expect(orphanCall.where.leaseId).toBeNull();
+    expect(orphanCall.where.startedAt).toBeNull();
+    expect(orphanCall.where.enqueuedAt.lt).toBeInstanceOf(Date);
+    expect(orphanCall.where.updatedAt.lt).toBeInstanceOf(Date);
+  });
+
+  it('stamps lastErrorAt + dispatchError and clears enqueuedAt on the data payload', async () => {
+    // INVERSE of the stale-PROCESSING requeue: orphan recovery is an
+    // error condition (a queue message went missing), so we surface it
+    // via `lastErrorAt` + `dispatchError` instead of nulling them. Do
+    // NOT copy the "clean retry" assertions from the stale-requeue test.
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const findMany = vi.fn().mockResolvedValue([]);
+    const prisma = {
+      gradingJob: { updateMany, findMany, update: vi.fn() },
+    } as unknown as PrismaClient;
+    mockSuccessfulPublish();
+
+    await dispatchPendingJobs(prisma, ENV);
+
+    const orphanData = updateMany.mock.calls[1][0].data;
+    expect(orphanData.enqueuedAt).toBeNull();
+    expect(orphanData.dispatchError).toBe(
+      'Requeued by dispatch loop: queued message orphaned'
+    );
+    expect(orphanData.lastErrorAt).toBeInstanceOf(Date);
+    // Must not piggyback the stale-requeue's clean-retry resets.
+    expect(orphanData.attemptCount).toBeUndefined();
+    expect(orphanData.status).toBeUndefined();
+    expect(orphanData.leaseId).toBeUndefined();
+  });
+
+  it('propagates the orphan-sweep count onto result.orphanRequeued', async () => {
+    // First updateMany call = stale-PROCESSING (return 0), second = orphan
+    // sweep (return 7). mockResolvedValueOnce queues per-call overrides.
+    const updateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 7 });
+    const findMany = vi.fn().mockResolvedValue([]);
+    const prisma = {
+      gradingJob: { updateMany, findMany, update: vi.fn() },
+    } as unknown as PrismaClient;
+    mockSuccessfulPublish();
+
+    const result = await dispatchPendingJobs(prisma, ENV);
+    expect(result.orphanRequeued).toBe(7);
+    expect(result.staleRequeued).toBe(0);
+  });
+
+  it('honours GRADING_DISPATCH_ORPHAN_MS override on both timestamp filters', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const findMany = vi.fn().mockResolvedValue([]);
+    const prisma = {
+      gradingJob: { updateMany, findMany, update: vi.fn() },
+    } as unknown as PrismaClient;
+    mockSuccessfulPublish();
+
+    const before = Date.now();
+    await dispatchPendingJobs(prisma, {
+      ...ENV,
+      GRADING_DISPATCH_ORPHAN_MS: '120000', // 2 min
+    });
+
+    const orphanWhere = updateMany.mock.calls[1][0].where;
+    const enqueuedCutoff = orphanWhere.enqueuedAt.lt as Date;
+    const updatedCutoff = orphanWhere.updatedAt.lt as Date;
+    expect(enqueuedCutoff).toBeInstanceOf(Date);
+    expect(updatedCutoff).toBeInstanceOf(Date);
+    // Both gates share the same cutoff so a job's CF retry cycle finishes
+    // in lockstep with the silence window.
+    expect(enqueuedCutoff.getTime()).toBe(updatedCutoff.getTime());
+    const cutoffMs = enqueuedCutoff.getTime();
+    expect(cutoffMs).toBeGreaterThanOrEqual(before - 120_000 - 1000);
+    expect(cutoffMs).toBeLessThanOrEqual(before - 120_000 + 1000);
   });
 });
 

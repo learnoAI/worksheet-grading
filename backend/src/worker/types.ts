@@ -68,10 +68,15 @@ export interface WorkerEnv {
   R2_ENDPOINT?: string;
   R2_PUBLIC_BASE_URL?: string;
 
-  // Dispatch-loop tunables (read by `dispatch.ts`; both stringly-typed
+  // Dispatch-loop tunables (read by `dispatch.ts`; all stringly-typed
   // because wrangler `[vars]` always serializes to string).
   GRADING_STALE_PROCESSING_MS?: string;
   GRADING_QUEUE_POLL_BATCH_SIZE?: string;
+  // Threshold for treating a QUEUED job as orphaned (CF Queue exhausted
+  // its retry cycle without the worker handler ever running). Must exceed
+  // the worst-case CF Queue retry cycle (max_retries × max retry-after);
+  // 30 min default is comfortably past CF's defaults.
+  GRADING_DISPATCH_ORPHAN_MS?: string;
 
   // Index signature so `WorkerEnv` is structurally assignable to adapter
   // env contracts that read dynamic keys (e.g. `QueuePublishEnv` does
