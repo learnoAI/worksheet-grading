@@ -106,6 +106,98 @@ describe('buildSections', () => {
     await buildSections(prisma, 's1', 's2', 's3');
     expect(updateMany).not.toHaveBeenCalled();
   });
+
+  it('threads renderSpec through all four section types', async () => {
+    // Long-division spec for new skill, vertical-arithmetic for review1,
+    // choice-circle for review2 — exercises the three known render kinds plus
+    // a `null` renderSpec to ensure plain rows still pass through.
+    const longDivisionSpec = { kind: 'long-division', dividend: 144, divisor: 12 };
+    const verticalSpec = { kind: 'vertical-arithmetic', op: '+', operands: [12, 7] };
+    const choiceSpec = { kind: 'choice-circle', options: ['A', 'B', 'C'] };
+
+    const newRows = Array.from({ length: 20 }, (_, i) => ({
+      id: `new-${i}`,
+      question: `Q${i}?`,
+      answer: `A${i}`,
+      instruction: 'Solve.',
+      // Mix of specs across the new-skill rows so slice 0..10 and 10..20
+      // both carry a non-null renderSpec.
+      renderSpec: i % 2 === 0 ? longDivisionSpec : verticalSpec,
+    }));
+    const review1Rows = Array.from({ length: 10 }, (_, i) => ({
+      id: `r1-${i}`,
+      question: `R1Q${i}?`,
+      answer: `R1A${i}`,
+      instruction: 'Review.',
+      renderSpec: verticalSpec,
+    }));
+    const review2Rows = Array.from({ length: 10 }, (_, i) => ({
+      id: `r2-${i}`,
+      question: `R2Q${i}?`,
+      answer: `R2A${i}`,
+      instruction: 'Review.',
+      // Half null to confirm null renderSpec is preserved verbatim, not dropped.
+      renderSpec: i < 5 ? choiceSpec : null,
+    }));
+
+    const findMany = vi.fn(async (args: { where: { mathSkillId: string }; take: number }) => {
+      const map: Record<string, Array<Record<string, unknown>>> = {
+        'new-1': newRows,
+        'rev-1': review1Rows,
+        'rev-2': review2Rows,
+      };
+      return (map[args.where.mathSkillId] ?? []).slice(0, args.take);
+    });
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const mathSkillFindUnique = vi.fn(async (args: { where: { id: string } }) => ({
+      name: { 'new-1': 'LongDiv', 'rev-1': 'VertAdd', 'rev-2': 'Choice' }[args.where.id] ?? 'Math',
+    }));
+
+    const prisma = {
+      questionBank: { findMany, updateMany },
+      mathSkill: { findUnique: mathSkillFindUnique },
+    } as unknown as PrismaClient;
+
+    const sections = await buildSections(prisma, 'new-1', 'rev-1', 'rev-2');
+
+    // findMany should select renderSpec
+    const findManyCall = findMany.mock.calls[0][0] as unknown as {
+      select: Record<string, boolean>;
+    };
+    expect(findManyCall.select.renderSpec).toBe(true);
+
+    // Section 0: new A — slice 0..10 of newRows (even indices = longDivision, odd = vertical)
+    expect(sections[0].questions).toHaveLength(10);
+    expect(sections[0].questions[0].renderSpec).toEqual(longDivisionSpec);
+    expect(sections[0].questions[1].renderSpec).toEqual(verticalSpec);
+
+    // Section 1: review 1 — every row carries verticalSpec
+    expect(sections[1].questions).toHaveLength(10);
+    for (const q of sections[1].questions) {
+      expect(q.renderSpec).toEqual(verticalSpec);
+    }
+
+    // Section 2: new C — slice 10..20 of newRows (index 10 even, 11 odd, ...)
+    expect(sections[2].questions).toHaveLength(10);
+    expect(sections[2].questions[0].renderSpec).toEqual(longDivisionSpec);
+    expect(sections[2].questions[1].renderSpec).toEqual(verticalSpec);
+
+    // Section 3: review 2 — first 5 carry choiceSpec, last 5 are null and must
+    // be preserved as null (not stripped to undefined / missing key).
+    expect(sections[3].questions).toHaveLength(10);
+    expect(sections[3].questions[0].renderSpec).toEqual(choiceSpec);
+    expect(sections[3].questions[4].renderSpec).toEqual(choiceSpec);
+    expect(sections[3].questions[5].renderSpec).toBeNull();
+    expect(sections[3].questions[9].renderSpec).toBeNull();
+
+    // The renderSpec key should be present on every question even when null,
+    // so PDF renderers downstream can rely on its existence.
+    for (const section of sections) {
+      for (const q of section.questions) {
+        expect(q).toHaveProperty('renderSpec');
+      }
+    }
+  });
 });
 
 describe('assembleAndEnqueuePdfs', () => {
