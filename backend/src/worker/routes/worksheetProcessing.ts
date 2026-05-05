@@ -368,7 +368,63 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
       items.map((i) => i.studentId)
     );
 
+    // Stale prior batches for this teacher/class/date are abandoned
+    // uploads — typically duplicates from a shared login or a tab the
+    // user closed mid-flight. Mark their PENDING items FAILED so the
+    // new session has a clean slate; QUEUED items are real worksheets
+    // already in the AI pipeline and are left alone. The threshold
+    // avoids interfering with a slow upload that's still genuinely
+    // in-flight from another tab. See codex `b9a3303`.
+    const staleUploadBatchMs =
+      Number.parseInt(c.env?.GRADING_STALE_UPLOAD_BATCH_MS ?? '', 10) || 5 * 60 * 1000;
+    let supersededBatchCount = 0;
+    let supersededItemCount = 0;
+
     const created = await prisma.$transaction(async (tx) => {
+      const staleCutoff = new Date(Date.now() - staleUploadBatchMs);
+      const staleBatches = await tx.worksheetUploadBatch.findMany({
+        where: {
+          teacherId,
+          classId,
+          submittedOn,
+          status: WorksheetUploadBatchStatus.UPLOADING,
+          updatedAt: { lt: staleCutoff },
+        },
+        select: { id: true },
+      });
+
+      for (const stale of staleBatches) {
+        const supersededItems = await tx.worksheetUploadItem.updateMany({
+          where: {
+            batchId: stale.id,
+            status: WorksheetUploadItemStatus.PENDING,
+          },
+          data: {
+            status: WorksheetUploadItemStatus.FAILED,
+            errorMessage: 'Superseded by new upload session',
+          },
+        });
+        supersededItemCount += supersededItems.count;
+
+        const remainingPending = await tx.worksheetUploadItem.count({
+          where: {
+            batchId: stale.id,
+            status: WorksheetUploadItemStatus.PENDING,
+          },
+        });
+
+        if (remainingPending === 0) {
+          await tx.worksheetUploadBatch.update({
+            where: { id: stale.id },
+            data: {
+              status: WorksheetUploadBatchStatus.FINALIZED,
+              finalizedAt: new Date(),
+            },
+          });
+          supersededBatchCount += 1;
+        }
+      }
+
       const batch = await tx.worksheetUploadBatch.create({
         data: {
           classId,
@@ -471,6 +527,22 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
         filesCount: items.reduce((total, it) => total + it.files.length, 0),
       }
     );
+
+    if (supersededItemCount > 0 || supersededBatchCount > 0) {
+      await capturePosthogEvent(
+        c.env ?? {},
+        'direct_upload_session_superseded_prior',
+        created.id,
+        {
+          batchId: created.id,
+          classId,
+          teacherId,
+          supersededBatchCount,
+          supersededItemCount,
+          staleUploadBatchMs,
+        }
+      );
+    }
 
     let serialized;
     try {

@@ -77,6 +77,10 @@ export interface WorkerEnv {
   // the worst-case CF Queue retry cycle (max_retries × max retry-after);
   // 30 min default is comfortably past CF's defaults.
   GRADING_DISPATCH_ORPHAN_MS?: string;
+  // How long an UPLOADING batch can sit idle before a new
+  // /upload-session for the same teacher/class/date supersedes its
+  // PENDING items as abandoned (default 5 min). See `b9a3303`.
+  GRADING_STALE_UPLOAD_BATCH_MS?: string;
 
   // Index signature so `WorkerEnv` is structurally assignable to adapter
   // env contracts that read dynamic keys (e.g. `QueuePublishEnv` does

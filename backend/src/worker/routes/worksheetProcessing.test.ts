@@ -180,8 +180,17 @@ describe('POST /api/worksheet-processing/upload-session', () => {
       studentClass: { findMany: studentClassFindMany },
       $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
         cb({
-          worksheetUploadBatch: { create: batchCreate },
-          worksheetUploadItem: { create: itemCreate },
+          worksheetUploadBatch: {
+            create: batchCreate,
+            // No stale batches → supersession is a no-op.
+            findMany: vi.fn().mockResolvedValue([]),
+            update: vi.fn(),
+          },
+          worksheetUploadItem: {
+            create: itemCreate,
+            updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+            count: vi.fn().mockResolvedValue(0),
+          },
           worksheetUploadImage: { create: imageCreate },
         })
       ),
@@ -207,6 +216,108 @@ describe('POST /api/worksheet-processing/upload-session', () => {
     // Unuploaded image should have an uploadUrl (presigned) and expiresAt
     expect(body.items[0].files[0].uploadUrl).toContain('X-Amz-Signature=');
     expect(body.items[0].files[0].expiresAt).toBeTruthy();
+  });
+
+  it('supersedes stale UPLOADING batches: PENDING → FAILED, batch FINALIZED, QUEUED untouched', async () => {
+    const teacherClassFindUnique = vi.fn().mockResolvedValue({ teacherId: 't1' });
+    const studentClassFindMany = vi.fn().mockResolvedValue([{ studentId: 'st1' }]);
+
+    // Two stale batches found; the sweep should mark their PENDING items
+    // FAILED. Batch A has only PENDING items (1 here, all FAILED) → finalized.
+    // Batch B has a remaining QUEUED item after the sweep → left UPLOADING.
+    const staleFindMany = vi
+      .fn()
+      .mockResolvedValue([{ id: 'stale-a' }, { id: 'stale-b' }]);
+    const itemUpdateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: 1 })  // stale-a: 1 PENDING marked FAILED
+      .mockResolvedValueOnce({ count: 0 }); // stale-b: 0 PENDING (everything QUEUED)
+    const itemCount = vi
+      .fn()
+      .mockResolvedValueOnce(0) // stale-a: no PENDING remaining → finalize
+      .mockResolvedValueOnce(2); // stale-b: 2 QUEUED still pending (in the items table) → don't finalize
+    const batchUpdate = vi.fn().mockResolvedValue({ id: 'stale-a', status: 'FINALIZED' });
+
+    const batchCreate = vi.fn().mockResolvedValue({
+      id: 'b-new',
+      classId: 'c1',
+      submittedOn: new Date('2026-04-10T00:00:00Z'),
+      status: 'UPLOADING',
+      finalizedAt: null,
+      teacherId: 't1',
+    });
+    const itemCreate = vi.fn().mockResolvedValue({
+      id: 'item-1',
+      studentId: 'st1',
+      studentName: 'Alice',
+      tokenNo: null,
+      worksheetNumber: 5,
+      worksheetName: '5',
+      isRepeated: false,
+      status: 'PENDING',
+      jobId: null,
+      errorMessage: null,
+    });
+    const imageCreate = vi.fn().mockResolvedValue({
+      id: 'img-1',
+      pageNumber: 1,
+      mimeType: 'image/png',
+      fileSize: null,
+      originalName: 'p1.png',
+      s3Key: 'some-key',
+      imageUrl: 'https://cdn.example.com/some-key',
+      uploadedAt: null,
+    });
+
+    const prisma = {
+      teacherClass: { findUnique: teacherClassFindUnique },
+      studentClass: { findMany: studentClassFindMany },
+      $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
+        cb({
+          worksheetUploadBatch: {
+            create: batchCreate,
+            findMany: staleFindMany,
+            update: batchUpdate,
+          },
+          worksheetUploadItem: {
+            create: itemCreate,
+            updateMany: itemUpdateMany,
+            count: itemCount,
+          },
+          worksheetUploadImage: { create: imageCreate },
+        })
+      ),
+    };
+    const app = mountApp(prisma);
+    const res = await jsonRequest(
+      app,
+      '/api/worksheet-processing/upload-session',
+      'POST',
+      validBody,
+      baseR2Env
+    );
+    expect(res.status).toBe(201);
+
+    // The findMany must be scoped to the same teacher/class/date and only
+    // UPLOADING + idle past the threshold.
+    const findManyArgs = staleFindMany.mock.calls[0][0];
+    expect(findManyArgs.where.teacherId).toBe('t1');
+    expect(findManyArgs.where.classId).toBe('c1');
+    expect(findManyArgs.where.status).toBe('UPLOADING');
+    expect(findManyArgs.where.updatedAt).toMatchObject({ lt: expect.any(Date) });
+
+    // PENDING items in stale batches must be marked FAILED with the
+    // canonical reason; updateMany must NOT touch QUEUED items.
+    const firstUpdate = itemUpdateMany.mock.calls[0][0];
+    expect(firstUpdate.where.status).toBe('PENDING');
+    expect(firstUpdate.data.status).toBe('FAILED');
+    expect(firstUpdate.data.errorMessage).toBe('Superseded by new upload session');
+
+    // stale-a (no PENDING remaining) → finalized; stale-b is left alone.
+    expect(batchUpdate).toHaveBeenCalledTimes(1);
+    expect(batchUpdate.mock.calls[0][0].where).toEqual({ id: 'stale-a' });
+    expect(batchUpdate.mock.calls[0][0].data.status).toBe('FINALIZED');
+    expect(batchUpdate.mock.calls[0][0].data.finalizedAt).toBeInstanceOf(Date);
   });
 });
 
