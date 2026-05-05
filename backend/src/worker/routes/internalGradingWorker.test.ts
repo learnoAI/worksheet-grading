@@ -375,3 +375,56 @@ describe('POST /jobs/:jobId/requeue', () => {
     expect(call.data).not.toHaveProperty('enqueuedAt');
   });
 });
+
+describe('POST /jobs/:jobId/reset-dispatch', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 409 when the job is not in QUEUED + leaseId:null state', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const app = mountApp({ gradingJob: { updateMany } });
+    const res = await postJson(
+      app,
+      '/internal/grading-worker/jobs/j1/reset-dispatch',
+      { reason: 'cf_queue_exhausted' }
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { success: boolean; error: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/queued and dispatch-resettable/);
+  });
+
+  it('returns 200 and clears enqueuedAt + lifecycle fields on success', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const app = mountApp({ gradingJob: { updateMany } });
+    const res = await postJson(
+      app,
+      '/internal/grading-worker/jobs/j1/reset-dispatch',
+      { reason: 'cf_queue_exhausted' }
+    );
+    expect(res.status).toBe(200);
+    const call = updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({
+      id: 'j1',
+      status: 'QUEUED',
+      leaseId: null,
+    });
+    expect(call.data.enqueuedAt).toBeNull();
+    expect(call.data.dispatchError).toBe('cf_queue_exhausted');
+    expect(call.data.startedAt).toBeNull();
+    expect(call.data.lastHeartbeatAt).toBeNull();
+    expect(call.data.completedAt).toBeNull();
+    expect(call.data.errorMessage).toBeNull();
+  });
+
+  it('accepts an empty body (reason is optional)', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const app = mountApp({ gradingJob: { updateMany } });
+    const res = await postJson(
+      app,
+      '/internal/grading-worker/jobs/j1/reset-dispatch',
+      {}
+    );
+    expect(res.status).toBe(200);
+    expect(updateMany.mock.calls[0][0].data.dispatchError).toBeNull();
+  });
+});

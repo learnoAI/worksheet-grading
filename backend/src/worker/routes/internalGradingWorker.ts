@@ -8,6 +8,7 @@ import {
   touchGradingJobHeartbeat,
   markGradingJobFailed,
   requeueGradingJobForRetry,
+  resetQueuedJobDispatch,
 } from '../adapters/gradingLifecycle';
 import { persistWorksheetForGradingJobId } from '../adapters/gradingPersistence';
 import { updateMasteryForWorksheet } from '../adapters/mastery';
@@ -34,6 +35,8 @@ import type { AppBindings } from '../types';
  *   POST /jobs/:jobId/complete   — PROCESSING → COMPLETED, persist worksheet + mastery
  *   POST /jobs/:jobId/fail       — PROCESSING → FAILED
  *   POST /jobs/:jobId/requeue    — PROCESSING → QUEUED (for retry)
+ *   POST /jobs/:jobId/reset-dispatch — clear dispatch marker on a QUEUED
+ *                                      job whose CF queue message died
  *
  * The grading Cloudflare Worker calls these endpoints over its
  * at-least-once queue-consumer loop. Lease semantics guard against a
@@ -78,6 +81,13 @@ const failSchema = z.object({
 
 const requeueSchema = z.object({
   leaseId: z.string().min(1, { message: 'leaseId is required' }),
+  reason: z.string().optional(),
+});
+
+// reset-dispatch is called by the grading consumer after CF Queues retry
+// exhaustion — there's no live lease at that point, so leaseId isn't in
+// the body. Only the optional reason string is.
+const resetDispatchSchema = z.object({
   reason: z.string().optional(),
 });
 
@@ -593,6 +603,61 @@ internalGradingWorker.post(
         extra: { jobId, leaseId },
       });
       return c.json({ success: false, error: 'Failed to requeue job' }, 500);
+    }
+  }
+);
+
+/**
+ * `POST /jobs/:jobId/reset-dispatch` — clear the dispatch marker on a
+ * QUEUED job whose Cloudflare queue message has been exhausted before
+ * any worker acquired a lease.
+ *
+ * Called by the grading consumer after CF Queues retry exhaustion. By
+ * clearing `enqueuedAt`, the dispatch loop's next tick will republish a
+ * fresh queue message. The where-clause requires `status: QUEUED` and
+ * `leaseId: null`, so a job that's already been picked up cannot be
+ * reset out from under the holding worker — that surfaces as 409.
+ */
+internalGradingWorker.post(
+  '/jobs/:jobId/reset-dispatch',
+  validateJson(resetDispatchSchema),
+  async (c) => {
+    const prisma = c.get('prisma');
+    if (!prisma) return c.json({ success: false, error: 'Database is not available' }, 500);
+
+    const jobId = c.req.param('jobId');
+    const { reason } = c.req.valid('json');
+    const env = c.env ?? {};
+
+    try {
+      const updated = await resetQueuedJobDispatch(prisma, jobId, reason);
+      if (!updated) {
+        await capturePosthogEvent(env, 'worker_reset_dispatch_mismatch', jobId, {
+          jobId,
+        });
+        return c.json(
+          { success: false, error: 'Job is not queued and dispatch-resettable' },
+          409
+        );
+      }
+
+      await capturePosthogEvent(env, 'worker_reset_dispatch_succeeded', jobId, {
+        jobId,
+        reason,
+      });
+      return c.json({ success: true }, 200);
+    } catch (error) {
+      console.error('[worker-reset-dispatch]', error, { jobId });
+      await capturePosthogEvent(env, 'worker_reset_dispatch_failed', jobId, {
+        jobId,
+        error: error instanceof Error ? error.message : 'Reset dispatch failed',
+      });
+      await capturePosthogException(env, error, {
+        distinctId: jobId,
+        stage: 'worker_reset_dispatch_failed',
+        extra: { jobId },
+      });
+      return c.json({ success: false, error: 'Failed to reset dispatch state' }, 500);
     }
   }
 );
