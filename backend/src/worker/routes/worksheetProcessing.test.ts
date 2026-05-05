@@ -674,18 +674,6 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
     const batchUpdate = vi.fn().mockResolvedValue({});
     const itemCount = vi.fn().mockResolvedValue(0);
 
-    const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
-      cb({
-        worksheetUploadItem: {
-          updateMany: itemClaim,
-          findUnique: itemFindUnique,
-          update: itemUpdate,
-        },
-        gradingJob: { create: gradingJobCreate },
-        gradingJobImage: { createMany: gradingJobImageCreateMany },
-      })
-    );
-
     // Mock fetch for the queue publish
     globalThis.fetch = vi.fn(async () =>
       new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
@@ -695,6 +683,29 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
     // (loadUploadItems) instead of re-reading the entire batch.
     const itemFindMany = vi.fn().mockImplementation(async () =>
       mutableBatch.items.map((it) => ({ ...it }))
+    );
+
+    // The handler now wraps three things in $transaction:
+    //   1. createGradingJobFromUploadItem (existing — claim → create job → ...)
+    //   2. updateMany(image.uploadedAt) + findMany(item.images)  — Hyperdrive
+    //      cache-bypass for the image-uploaded → item-fetch race
+    //   3. count(PENDING items) + conditional batch.update FINALIZED — same
+    //      cache-bypass for the count-after-job-creation race
+    // The mock tx callback includes every method any of the three may call.
+    const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
+      cb({
+        worksheetUploadItem: {
+          updateMany: itemClaim,
+          findUnique: itemFindUnique,
+          update: itemUpdate,
+          findMany: itemFindMany,
+          count: itemCount,
+        },
+        worksheetUploadImage: { updateMany: imageUpdateMany },
+        worksheetUploadBatch: { update: batchUpdate },
+        gradingJob: { create: gradingJobCreate },
+        gradingJobImage: { createMany: gradingJobImageCreateMany },
+      })
     );
 
     const prisma = {
@@ -804,13 +815,23 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
     const itemFindMany = vi.fn().mockImplementation(async () =>
       mutableBatch.items.map((it) => ({ ...it }))
     );
+    const itemCount = vi.fn().mockResolvedValue(1);
+    const batchUpdate = vi.fn();
+    const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
+      cb({
+        worksheetUploadItem: { findMany: itemFindMany, count: itemCount },
+        worksheetUploadImage: { updateMany: imageUpdateMany },
+        worksheetUploadBatch: { update: batchUpdate },
+      })
+    );
     const prisma = {
-      worksheetUploadBatch: { findUnique: batchFindUnique, update: vi.fn() },
+      worksheetUploadBatch: { findUnique: batchFindUnique, update: batchUpdate },
       worksheetUploadImage: { updateMany: imageUpdateMany },
       worksheetUploadItem: {
-        count: vi.fn().mockResolvedValue(1),
+        count: itemCount,
         findMany: itemFindMany,
       },
+      $transaction: transaction,
     };
     const app = mountApp(prisma);
     const token = await tokenAs('TEACHER', 't1');
@@ -868,13 +889,24 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
       ],
     });
     const itemFindMany = vi.fn();
+    const itemCount = vi.fn().mockResolvedValue(1);
+    const imageUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const batchUpdate = vi.fn();
+    const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
+      cb({
+        worksheetUploadItem: { findMany: itemFindMany, count: itemCount },
+        worksheetUploadImage: { updateMany: imageUpdateMany },
+        worksheetUploadBatch: { update: batchUpdate },
+      })
+    );
     const prisma = {
-      worksheetUploadBatch: { findUnique: batchFindUnique, update: vi.fn() },
-      worksheetUploadImage: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      worksheetUploadBatch: { findUnique: batchFindUnique, update: batchUpdate },
+      worksheetUploadImage: { updateMany: imageUpdateMany },
       worksheetUploadItem: {
-        count: vi.fn().mockResolvedValue(1),
+        count: itemCount,
         findMany: itemFindMany,
       },
+      $transaction: transaction,
     };
     const app = mountApp(prisma);
     const token = await tokenAs('TEACHER', 't1');

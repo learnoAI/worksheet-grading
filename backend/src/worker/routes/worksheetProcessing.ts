@@ -654,13 +654,6 @@ worksheetProcessing.post(
       );
       const uploadedImageIds = requestedUploadedIds.filter((id) => issuedImageIds.has(id));
 
-      if (uploadedImageIds.length > 0) {
-        await prisma.worksheetUploadImage.updateMany({
-          where: { id: { in: uploadedImageIds } },
-          data: { uploadedAt: new Date() },
-        });
-      }
-
       // Scope to the items the client *just* uploaded images for, instead
       // of re-walking the entire batch. Teachers upload page-by-page and
       // every PUT triggers a finalize; the old full-batch refetch made
@@ -673,7 +666,29 @@ worksheetProcessing.post(
             .map((item) => item.id)
         )
       );
-      const affectedItems = await loadUploadItems(prisma, batch.id, affectedItemIds);
+
+      // Mark the just-uploaded images and re-read the affected items in
+      // a single interactive transaction so Hyperdrive serves the read
+      // from the writing connection instead of its query cache. Without
+      // this, the findMany after the updateMany frequently returns rows
+      // with `uploadedAt: null` for images we just stamped (observed on
+      // staging: ~30s of staleness even with auto-invalidate). Inside a
+      // $transaction Hyperdrive bypasses caching entirely.
+      const affectedItems = await prisma.$transaction(async (tx) => {
+        if (uploadedImageIds.length > 0) {
+          await tx.worksheetUploadImage.updateMany({
+            where: { id: { in: uploadedImageIds } },
+            data: { uploadedAt: new Date() },
+          });
+        }
+        if (affectedItemIds.length === 0) return [] as LoadedBatch['items'];
+        const items = await tx.worksheetUploadItem.findMany({
+          where: { batchId: batch.id, id: { in: affectedItemIds } },
+          orderBy: { createdAt: 'asc' },
+          include: { images: { orderBy: { pageNumber: 'asc' } } },
+        });
+        return items as unknown as LoadedBatch['items'];
+      });
 
       const queued: Array<{
         itemId: string;
@@ -816,21 +831,30 @@ worksheetProcessing.post(
         }
       }
 
-      const stillPending = await prisma.worksheetUploadItem.count({
-        where: {
-          batchId: batch.id,
-          status: WorksheetUploadItemStatus.PENDING,
-        },
-      });
-      if (stillPending === 0) {
-        await prisma.worksheetUploadBatch.update({
-          where: { id: batch.id },
-          data: {
-            status: WorksheetUploadBatchStatus.FINALIZED,
-            finalizedAt: new Date(),
+      // Count + conditional batch update inside a transaction so Hyperdrive
+      // doesn't serve the count from cache. The per-item job-creation
+      // transactions above just flipped items from PENDING → QUEUED; an
+      // out-of-transaction count was hitting cache and seeing the
+      // pre-update PENDING count, so the batch never advanced to
+      // FINALIZED in the DB even though the response said it had.
+      const stillPending = await prisma.$transaction(async (tx) => {
+        const remaining = await tx.worksheetUploadItem.count({
+          where: {
+            batchId: batch.id,
+            status: WorksheetUploadItemStatus.PENDING,
           },
         });
-      }
+        if (remaining === 0) {
+          await tx.worksheetUploadBatch.update({
+            where: { id: batch.id },
+            data: {
+              status: WorksheetUploadBatchStatus.FINALIZED,
+              finalizedAt: new Date(),
+            },
+          });
+        }
+        return remaining;
+      });
 
       await capturePosthogEvent(c.env ?? {}, 'direct_upload_session_finalized', batch.id, {
         batchId: batch.id,
