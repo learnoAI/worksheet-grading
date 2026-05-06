@@ -36,11 +36,23 @@ export interface WorkerEnv {
   // passes env vars as strings; parsed in the handler.
   PROGRESSION_THRESHOLD?: string;
 
-  // Cloudflare queue IDs. `CF_QUEUE_ID` is the grading queue; the others
-  // are for worksheet generation and PDF rendering (Phase 5.13.D).
+  // Cloudflare queue IDs.
+  //   CF_QUEUE_ID — legacy grading queue. No longer published to from
+  //                 the Hono worker (grading is now driven by
+  //                 Cloudflare Workflows via GRADING_WORKFLOW); kept
+  //                 typed for the Express in-process loop in
+  //                 `src/workers/gradingDispatchLoop.ts`.
+  //   QUESTION_GENERATION_QUEUE_ID / PDF_RENDERING_QUEUE_ID — still
+  //                 used by worksheet-generation paths.
   CF_QUEUE_ID?: string;
   QUESTION_GENERATION_QUEUE_ID?: string;
   PDF_RENDERING_QUEUE_ID?: string;
+
+  // Cloudflare Workflows binding. Cross-script binding to the
+  // grading-consumer worker's `GradingWorkflow` class. Backend dispatch
+  // creates an instance per grading job; the workflow then drives the
+  // 3-tier LLM fallback chain and reports back via /complete or /fail.
+  GRADING_WORKFLOW?: GradingWorkflowBinding;
 
   // Cloudflare account + API token for queue publishing from the worker.
   CF_ACCOUNT_ID?: string;
@@ -88,6 +100,26 @@ export interface WorkerEnv {
   // `QUESTION_GENERATION_QUEUE_ID` / `PDF_RENDERING_QUEUE_ID` by name).
   // Named fields above remain typed; dynamic accesses return `unknown`.
   [k: string]: unknown;
+}
+
+/**
+ * Minimal subset of the Cloudflare Workflows binding we use from backend
+ * dispatch. The full surface lives in `@cloudflare/workers-types`; this
+ * mirrors only the methods the dispatch + reset paths invoke.
+ */
+export interface GradingWorkflowBinding {
+  create(options: {
+    id: string;
+    params: { jobId: string; enqueuedAt: string };
+  }): Promise<GradingWorkflowInstance>;
+  get(id: string): Promise<GradingWorkflowInstance>;
+}
+
+export interface GradingWorkflowInstance {
+  id: string;
+  status(): Promise<{ status: string; error?: string; output?: unknown }>;
+  restart(): Promise<void>;
+  terminate(): Promise<void>;
 }
 
 /**
