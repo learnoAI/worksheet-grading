@@ -13,7 +13,7 @@ import {
 } from './schemas';
 import type { ExtractedQuestions, GradingResult } from './schemas';
 import type { JobPayload } from './types';
-import type { LlmModelConfig, LlmReasoningEffort } from './llm';
+import type { LlmGenerateOptions, LlmModelConfig, LlmReasoningEffort, OpenRouterReasoningOptions } from './llm';
 
 interface Env {
   BACKEND_BASE_URL: string;
@@ -115,6 +115,7 @@ const DEFAULT_OCR_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_GRADING_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_OCR_REQUEST_TIMEOUT_MS = 500_000;
 const DEFAULT_GRADING_REQUEST_TIMEOUT_MS = 500_000;
+const OPENROUTER_THINKING_REASONING: OpenRouterReasoningOptions = { enabled: true, exclude: true };
 
 class LlmFallbackError extends Error {
   readonly primaryError: unknown;
@@ -342,6 +343,21 @@ function isSameLlmConfig(a: LlmModelConfig, b: LlmModelConfig): boolean {
   return a.provider === b.provider && a.model === b.model && (a.apiKey || '') === (b.apiKey || '');
 }
 
+function isOpenRouterConfig(config: LlmModelConfig): boolean {
+  return config.provider.trim().toLowerCase() === 'openrouter';
+}
+
+function withOpenRouterReasoningForAttempt(options: LlmGenerateOptions, attempt: number): LlmGenerateOptions {
+  if (!isOpenRouterConfig(options.providerConfig)) {
+    return options;
+  }
+
+  return {
+    ...options,
+    openRouterReasoning: attempt === 1 ? OPENROUTER_THINKING_REASONING : undefined,
+  };
+}
+
 function getStageReasoningEffort(env: Env, stage: 'ocr' | 'ai-grading' | 'book-grading'): LlmReasoningEffort | undefined {
   const configured = normalizeReasoningEffort(
     stage === 'ocr'
@@ -510,7 +526,12 @@ async function limitedLlmGenerateJson<T>(
 
   for (let primaryAttempt = 1; primaryAttempt <= primaryAttempts; primaryAttempt += 1) {
     try {
-      return await runLimitedLlmGenerateJson<T>(env, tracker, request, options);
+      return await runLimitedLlmGenerateJson<T>(
+        env,
+        tracker,
+        request,
+        withOpenRouterReasoningForAttempt(options, primaryAttempt)
+      );
     } catch (primaryError) {
       primaryErrors.push(primaryError);
       const canRetryPrimary = isFallbackEligibleLlmError(primaryError) && primaryAttempt < primaryAttempts;
@@ -556,7 +577,12 @@ async function limitedLlmGenerateJson<T>(
 
   for (let fallbackAttempt = 1; fallbackAttempt <= fallbackAttempts; fallbackAttempt += 1) {
     try {
-      const fallbackResult = await runLimitedLlmGenerateJson<T>(env, tracker, request, fallbackOptions);
+      const fallbackResult = await runLimitedLlmGenerateJson<T>(
+        env,
+        tracker,
+        request,
+        withOpenRouterReasoningForAttempt(fallbackOptions, fallbackAttempt)
+      );
       tracker.capturePipeline('llm_fallback_succeeded', request.jobId, {
         jobId: request.jobId,
         stage: request.stage,

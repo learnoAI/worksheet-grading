@@ -675,6 +675,128 @@ describe('cloudflare grading consumer queue semantics', () => {
     });
   });
 
+  it('enables OpenRouter thinking on the first primary attempt and omits it on the second', async () => {
+    const backendBase = 'https://backend.example';
+
+    (globalThis.fetch as any).mockImplementation(async (url: any, init?: any) => {
+      fetchCalls.push({ url: String(url), init });
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-openrouter-thinking/acquire`)) {
+        return jsonResponse({
+          success: true,
+          acquired: true,
+          leaseId: 'lease-openrouter-thinking',
+          job: {
+            id: 'job-openrouter-thinking',
+            status: 'QUEUED',
+            tokenNo: '123',
+            worksheetName: '15',
+            worksheetNumber: 15,
+            submittedOn: new Date().toISOString(),
+            isRepeated: false,
+            studentId: 's',
+            classId: 'c',
+            teacherId: 't',
+            images: [{ s3Key: 'img-1', storageProvider: 'R2', pageNumber: 1, mimeType: 'image/jpeg' }],
+          },
+        });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-openrouter-thinking/heartbeat`)) {
+        return jsonResponse({ success: true });
+      }
+
+      if (String(url).startsWith(`${backendBase}/internal/grading-worker/jobs/job-openrouter-thinking/complete`)) {
+        return jsonResponse({ success: true });
+      }
+
+      throw new Error(`Unexpected fetch: ${String(url)}`);
+    });
+
+    (llmGenerateJson as any)
+      .mockRejectedValueOnce(new LlmHttpError(503, 'first openrouter attempt failed', 'openrouter', 'google/gemma-4-26b-a4b-it'))
+      .mockResolvedValueOnce({
+        parsed: { questions: [{ question_number: 1, question: '1+1', student_answer: '2' }] },
+        rawText: '{}',
+      })
+      .mockResolvedValueOnce({
+        parsed: {
+          total_questions: 1,
+          overall_score: 40,
+          grade_percentage: 100,
+          question_scores: [
+            {
+              question_number: 1,
+              question: '1+1',
+              student_answer: '2',
+              correct_answer: '2',
+              points_earned: 40,
+              max_points: 40,
+              is_correct: true,
+              feedback: 'good',
+            },
+          ],
+          correct_answers: 1,
+          wrong_answers: 0,
+          unanswered: 0,
+          overall_feedback: 'great',
+        },
+        rawText: '{}',
+      });
+
+    const ack = vi.fn();
+    const retry = vi.fn();
+
+    const env: any = {
+      BACKEND_BASE_URL: backendBase,
+      BACKEND_WORKER_TOKEN: 'token',
+      CF_AI_GATEWAY_ACCOUNT_ID: 'acct-123',
+      CF_AI_GATEWAY_TOKEN: 'cf-gateway-token',
+      CF_AI_GATEWAY_ID: 'grading',
+      OCR_PROVIDER: 'openrouter',
+      OCR_MODEL: 'google/gemma-4-26b-a4b-it',
+      AI_GRADING_PROVIDER: 'openrouter',
+      AI_GRADING_MODEL: 'google/gemma-4-26b-a4b-it',
+      OPENROUTER_API_KEY: 'openrouter-key',
+      IMAGES_BUCKET: makeR2Bucket({
+        'img-1': { bytes: new Uint8Array([1, 2, 3]) },
+      }),
+      ASSETS_BUCKET: makeR2Bucket({
+        'answers_by_worksheet.json': { text: JSON.stringify({ '15': [] }) },
+      }),
+    };
+
+    await worker.queue(
+      {
+        messages: [
+          {
+            id: 'm-openrouter-thinking',
+            attempts: 1,
+            body: { v: 1, jobId: 'job-openrouter-thinking', enqueuedAt: new Date().toISOString() },
+            ack,
+            retry,
+          },
+        ],
+      },
+      env,
+      {} as any
+    );
+
+    expect(retry).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+
+    const calls = (llmGenerateJson as any).mock.calls;
+    expect(calls).toHaveLength(3);
+    expect(calls[0][0].providerConfig).toMatchObject({
+      provider: 'openrouter',
+      model: 'google/gemma-4-26b-a4b-it',
+      apiKey: 'openrouter-key',
+    });
+    expect(calls[0][0].openRouterReasoning).toEqual({ enabled: true, exclude: true });
+    expect(calls[1][0].openRouterReasoning).toBeUndefined();
+    expect(calls[2][0].openRouterReasoning).toEqual({ enabled: true, exclude: true });
+  });
+
   it('tries primary twice before falling back on retryable Workers AI timeouts', async () => {
     const backendBase = 'https://backend.example';
 

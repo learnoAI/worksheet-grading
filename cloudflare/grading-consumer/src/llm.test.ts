@@ -261,6 +261,7 @@ describe('llmGenerateJson', () => {
       },
       responseMimeType: 'application/json',
       responseJsonSchema: { type: 'object' },
+      openRouterReasoning: { enabled: true, exclude: true },
       parts: [{ text: 'Return json.' }],
     });
 
@@ -284,6 +285,10 @@ describe('llmGenerateJson', () => {
         strict: true,
         schema: { type: 'object' },
       },
+    });
+    expect(body.reasoning).toEqual({
+      enabled: true,
+      exclude: true,
     });
     expect(body.provider).toEqual({
       require_parameters: true,

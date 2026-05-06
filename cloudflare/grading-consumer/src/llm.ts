@@ -6,6 +6,13 @@ export interface LlmModelConfig {
 
 export type LlmReasoningEffort = 'low' | 'medium' | 'high';
 
+export interface OpenRouterReasoningOptions {
+  effort?: 'xhigh' | 'high' | 'medium' | 'low' | 'minimal' | 'none';
+  max_tokens?: number;
+  exclude?: boolean;
+  enabled?: boolean;
+}
+
 export interface LlmGenerateOptions {
   gatewayAccountId?: string;
   gatewayId?: string;
@@ -17,6 +24,7 @@ export interface LlmGenerateOptions {
   >;
   temperature?: number;
   reasoningEffort?: LlmReasoningEffort;
+  openRouterReasoning?: OpenRouterReasoningOptions;
   requestTimeoutMs?: number;
   responseMimeType?: string;
   responseJsonSchema?: unknown;
@@ -258,6 +266,14 @@ function buildReasoningEffort(options: LlmGenerateOptions): LlmReasoningEffort |
   return options.reasoningEffort;
 }
 
+function buildOpenRouterReasoning(options: LlmGenerateOptions): OpenRouterReasoningOptions | undefined {
+  if (options.providerConfig.provider.trim().toLowerCase() !== 'openrouter') {
+    return undefined;
+  }
+
+  return options.openRouterReasoning;
+}
+
 export async function llmGenerateJson<T>(options: LlmGenerateOptions): Promise<{ parsed: T; rawText: string }> {
   const gatewayAccountId = options.gatewayAccountId?.trim();
   const gatewayToken = options.gatewayToken?.trim();
@@ -288,6 +304,7 @@ export async function llmGenerateJson<T>(options: LlmGenerateOptions): Promise<{
   const responseFormat = buildResponseFormat(options);
   const providerOptions = buildProviderOptions(options);
   const reasoningEffort = buildReasoningEffort(options);
+  const openRouterReasoning = buildOpenRouterReasoning(options);
   const res = await fetch(url, {
     method: 'POST',
     headers,
@@ -296,6 +313,7 @@ export async function llmGenerateJson<T>(options: LlmGenerateOptions): Promise<{
       messages: buildMessages(options.parts),
       temperature: typeof options.temperature === 'number' ? options.temperature : 0.1,
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      ...(openRouterReasoning ? { reasoning: openRouterReasoning } : {}),
       ...(responseFormat ? { response_format: responseFormat } : {}),
       ...(providerOptions ? { provider: providerOptions } : {}),
     }),
