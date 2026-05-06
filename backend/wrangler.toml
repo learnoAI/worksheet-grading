@@ -3,15 +3,21 @@ main = "src/worker/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
-# ── Cron triggers ─────────────────────────────────────────────────────────
-# Grading dispatch loop — runs the same logic as the Express
-# `startGradingDispatchLoop()` did in-process. Re-queues stale PROCESSING
-# jobs, publishes QUEUED → CF Queues with exponential backoff. Minimum
-# supported interval is 1 minute; Express polled every 5 s but grading
-# itself takes 10s+ per page so the extra latency is negligible. See
-# `backend/src/worker/dispatch.ts` for the tick logic.
-[triggers]
-crons = ["*/1 * * * *"]
+# Cron triggers removed when the queue-based grading dispatch loop was
+# replaced by Cloudflare Workflows. Dispatch is now synchronous from
+# /finalize via env.GRADING_WORKFLOW.create(); workflow steps own retries
+# and orphan-recovery is no longer needed (workflows are durable + report
+# back to /internal/grading-worker/jobs/:id/{complete,fail}).
+
+# ── Cloudflare Workflows ─────────────────────────────────────────────────
+# Cross-script binding to the GradingWorkflow class defined in the
+# grading-consumer worker. Backend dispatch creates one workflow instance
+# per grading job; the workflow drives the 3-tier LLM fallback chain.
+[[workflows]]
+binding = "GRADING_WORKFLOW"
+name = "grading-workflow"
+class_name = "GradingWorkflow"
+script_name = "worksheet-grading-consumer"
 
 # Account ID comes from CLOUDFLARE_ACCOUNT_ID in the shell env (see
 # `.dev.vars.example`). Secrets are set with `wrangler secret put`.
@@ -63,9 +69,10 @@ crons = ["*/1 * * * *"]
 #   JWT_SECRET                      — matches the Express backend
 #   GRADING_WORKER_TOKEN            — shared secret with the grading CF worker
 #   WORKSHEET_CREATION_WORKER_TOKEN — shared secret with the PDF renderer
-#   CF_ACCOUNT_ID                   — account that owns the grading queue
-#   CF_API_TOKEN                    — token with queues:write scope
-#   CF_QUEUE_ID                     — ID of grading-fast queue
+#   CF_ACCOUNT_ID                   — Cloudflare account (still used by
+#                                      worksheet-generation queue paths)
+#   CF_API_TOKEN                    — token with queues:write scope (still
+#                                      used by worksheet-generation queue paths)
 #   POSTHOG_API_KEY                 — only set when analytics is enabled
 #   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
 #   R2_BUCKET_NAME, R2_ENDPOINT, R2_PUBLIC_BASE_URL
@@ -79,22 +86,13 @@ crons = ["*/1 * * * *"]
 #     `defaultdb`), via Hyperdrive 25a7b3a9cc28419b875c118202958715
 #   - R2 bucket `worksheet-grading-files-staging`
 #   - CF Queue `grading-fast-staging` (id 7e046369a51645158868e7f58b56f9e1)
-# Cron triggers are intentionally omitted for staging — re-enable once
-# read-parity smoke passes against the deployed worker.
 [env.staging]
 name = "worksheet-grading-api-staging"
-
-# Inherit the same dispatch cron as prod — staging has zero queued jobs so
-# this just exercises the loop and keeps the schedule path covered.
-[env.staging.triggers]
-crons = ["*/1 * * * *"]
 
 [env.staging.vars]
 NODE_ENV = "staging"
 CORS_ORIGINS = "*"
 CF_API_BASE_URL = "https://api.cloudflare.com/client/v4"
-GRADING_STALE_PROCESSING_MS = "1200000"
-GRADING_QUEUE_POLL_BATCH_SIZE = "25"
 
 [[env.staging.hyperdrive]]
 binding = "HYPERDRIVE"
@@ -103,3 +101,11 @@ id = "25a7b3a9cc28419b875c118202958715"
 [[env.staging.r2_buckets]]
 binding = "WORKSHEET_FILES"
 bucket_name = "worksheet-grading-files-staging"
+
+# Cross-script Workflow binding — staging-suffixed name + script_name so
+# instances stay isolated from prod.
+[[env.staging.workflows]]
+binding = "GRADING_WORKFLOW"
+name = "grading-workflow-staging"
+class_name = "GradingWorkflow"
+script_name = "worksheet-grading-consumer-staging"
