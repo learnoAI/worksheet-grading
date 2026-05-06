@@ -40,9 +40,7 @@ export async function acquireGradingJobLease(jobId: string): Promise<string | nu
             leaseId,
             startedAt: now,
             lastHeartbeatAt: now,
-            lastErrorAt: null,
             errorMessage: null,
-            dispatchError: null,
             completedAt: null,
             attemptCount: {
                 increment: 1

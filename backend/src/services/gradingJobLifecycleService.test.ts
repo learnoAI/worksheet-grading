@@ -11,7 +11,7 @@ vi.mock('../utils/prisma', () => ({
   default: mockPrisma,
 }));
 
-import { acquireGradingJobLease, requeueGradingJobForRetry, resetQueuedJobDispatch } from './gradingJobLifecycleService';
+import { acquireGradingJobLease, markGradingJobCompleted, requeueGradingJobForRetry, resetQueuedJobDispatch } from './gradingJobLifecycleService';
 
 describe('gradingJobLifecycleService', () => {
   beforeEach(() => {
@@ -33,6 +33,10 @@ describe('gradingJobLifecycleService', () => {
     expect(call.data.leaseId).toBe(acquired);
     expect(call.data.startedAt).toBeInstanceOf(Date);
     expect(call.data.lastHeartbeatAt).toBeInstanceOf(Date);
+    expect(call.data.errorMessage).toBeNull();
+    expect(call.data.completedAt).toBeNull();
+    expect(call.data).not.toHaveProperty('dispatchError');
+    expect(call.data).not.toHaveProperty('lastErrorAt');
   });
 
   it('acquireGradingJobLease returns null when job is not QUEUED', async () => {
@@ -59,6 +63,21 @@ describe('gradingJobLifecycleService', () => {
 
     // Critical: we must NOT clear enqueuedAt here or the dispatch loop might publish duplicates.
     expect(call.data).not.toHaveProperty('enqueuedAt');
+  });
+
+  it('markGradingJobCompleted clears retry diagnostics on successful completion', async () => {
+    mockPrisma.gradingJob.updateMany.mockResolvedValue({ count: 1 });
+
+    const completed = await markGradingJobCompleted('job-4', 'lease-4', 'worksheet-4');
+
+    expect(completed).toBe(true);
+    expect(mockPrisma.gradingJob.updateMany).toHaveBeenCalledTimes(1);
+    const call = mockPrisma.gradingJob.updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'job-4', status: GradingJobStatus.PROCESSING, leaseId: 'lease-4' });
+    expect(call.data.status).toBe(GradingJobStatus.COMPLETED);
+    expect(call.data.worksheetId).toBe('worksheet-4');
+    expect(call.data.errorMessage).toBeNull();
+    expect(call.data.dispatchError).toBeNull();
   });
 
   it('resetQueuedJobDispatch clears enqueuedAt for stuck queued jobs', async () => {
