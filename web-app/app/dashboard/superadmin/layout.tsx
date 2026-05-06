@@ -109,6 +109,10 @@ export default function SuperAdminLayout({
                                 Student Analytics
                             </Link>
 
+                            <Link href="/dashboard/superadmin/grading-jobs" className="block p-2 rounded hover:bg-gray-100">
+                                Grading Jobs
+                            </Link>
+
                             <Link href="/dashboard/superadmin/mastery" className="block p-2 rounded hover:bg-gray-100">
                                 Student Mastery
                             </Link>

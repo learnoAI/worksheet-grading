@@ -33,10 +33,96 @@ export interface TeacherJobsResponse {
     jobs: GradingJob[];
 }
 
+export interface AdminGradingDashboardResponse {
+    success: boolean;
+    minDate: string;
+    dateRange: {
+        startDate: string;
+        endDate: string;
+    };
+    current: {
+        generatedAt: string;
+        queued: number;
+        processing: number;
+        inProgress: number;
+        activeProcessing: number;
+        staleProcessing: number;
+        noHeartbeat: number;
+        avgProcessingSeconds: number | null;
+        oldestProcessingSeconds: number | null;
+        byClass: Array<{
+            className: string;
+            schoolName: string;
+            queued: number;
+            processing: number;
+            total: number;
+        }>;
+    };
+    historical: {
+        summary: {
+            total: number;
+            queued: number;
+            processing: number;
+            completed: number;
+            failed: number;
+            successRate: number | null;
+            failureRate: number | null;
+            avgJobSeconds: number | null;
+            avgSuccessSeconds: number | null;
+            avgFailureSeconds: number | null;
+            avgAttempts: number | null;
+        };
+        byDay: Array<{
+            date: string;
+            total: number;
+            queued: number;
+            processing: number;
+            completed: number;
+            failed: number;
+            successRate: number | null;
+            avgJobSeconds: number | null;
+        }>;
+        failureReasons: Array<{
+            reason: string;
+            count: number;
+            latestAt: string | null;
+            examples: Array<{
+                id: string;
+                worksheetNumber: number;
+                studentName: string;
+                className: string;
+                schoolName: string;
+                attemptCount: number;
+            }>;
+        }>;
+        recentFailures: Array<{
+            id: string;
+            worksheetNumber: number;
+            studentName: string;
+            className: string;
+            schoolName: string;
+            reason: string;
+            errorMessage: string | null;
+            dispatchError: string | null;
+            attemptCount: number;
+            createdAt: string;
+            startedAt: string | null;
+            completedAt: string | null;
+            lastErrorAt: string | null;
+            durationSeconds: number | null;
+        }>;
+    };
+}
+
 export const gradingJobsAPI = {
     // Get teacher's jobs summary for today
     getTeacherJobsToday: async (): Promise<TeacherJobsResponse> => {
         return fetchAPI('/grading-jobs/teacher/today');
+    },
+
+    getAdminDashboard: async (startDate: string, endDate: string): Promise<AdminGradingDashboardResponse> => {
+        const params = new URLSearchParams({ startDate, endDate });
+        return fetchAPI(`/grading-jobs/admin/dashboard?${params.toString()}`);
     },
 
     // Get jobs by class and date (for checking active jobs on page load)

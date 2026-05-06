@@ -202,6 +202,21 @@ export default function SuperAdminPage() {
                         </div>
                     </CardContent>
                 </Card>
+
+                <Card className="h-full flex flex-col">
+                    <CardHeader>
+                        <CardTitle>Grading Jobs</CardTitle>
+                        <CardDescription>Monitor grading job throughput, failures, and live processing</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex-1 flex flex-col space-y-4">
+                        <p>Track current queue health, daily success rates, failure reasons, and average grading time.</p>
+                        <div className="mt-auto">
+                            <Button className="w-full" asChild>
+                                <Link href="/dashboard/superadmin/grading-jobs">Open Job Dashboard</Link>
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
 
             <Card>
@@ -273,4 +288,4 @@ export default function SuperAdminPage() {
             </Card>
         </div>
     );
-} 
+}
