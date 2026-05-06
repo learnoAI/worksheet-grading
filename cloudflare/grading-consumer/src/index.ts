@@ -1,4 +1,5 @@
 import { BackendClient, BackendHttpError } from './backendClient';
+export { GradingWorkflow } from './gradingWorkflow';
 import { arrayBufferToBase64 } from './base64';
 import { loadAnswerKey, loadCustomPrompt } from './assets';
 import { llmGenerateJson, LlmHttpError } from './llm';
