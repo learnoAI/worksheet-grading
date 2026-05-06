@@ -75,6 +75,6 @@ export function toBackendGradingResponse(
     wrong_questions: parts.wrong,
     correct_questions: parts.correct,
     unanswered_questions: parts.unanswered,
-    overall_feedback: result.overall_feedback,
+    overall_feedback: result.overall_feedback ?? '',
   };
 }

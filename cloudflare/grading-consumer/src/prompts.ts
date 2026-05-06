@@ -54,8 +54,8 @@ export function buildAiGradingPrompt(extracted: ExtractedQuestions): string {
 
 ${formatted}
 
-IMPORTANT: Return your response in JSON with keys:
-question_scores[], overall_feedback.
+IMPORTANT: Return your response in JSON with key:
+question_scores[].
 Each question_scores[] item must include:
 question_number, question, student_answer, correct_answer, points_earned, max_points, is_correct, feedback.
 `;
@@ -77,8 +77,8 @@ export function buildBookGradingPrompt(extracted: ExtractedQuestions, bookAnswer
 
 ${formatted}
 
-IMPORTANT: Return your response in JSON with keys:
-question_scores[], overall_feedback.
+IMPORTANT: Return your response in JSON with key:
+question_scores[].
 Each question_scores[] item must include:
 question_number, question, student_answer, correct_answer, points_earned, max_points, is_correct, feedback.
 `;

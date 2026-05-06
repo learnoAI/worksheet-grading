@@ -502,7 +502,6 @@ describe('cloudflare grading consumer queue semantics', () => {
           correct_answers: 1,
           wrong_answers: 0,
           unanswered: 0,
-          overall_feedback: 'great',
         },
         rawText: '{}',
       });
@@ -540,7 +539,9 @@ describe('cloudflare grading consumer queue semantics', () => {
 
     expect(retry).not.toHaveBeenCalled();
     expect(ack).toHaveBeenCalledTimes(1);
-    expect(fetchCalls.some((c) => c.url.endsWith('/complete'))).toBe(true);
+    const completeCall = fetchCalls.find((c) => c.url.endsWith('/complete'));
+    expect(completeCall).toBeTruthy();
+    expect(JSON.parse(String(completeCall?.init?.body)).gradingResponse.overall_feedback).toBe('');
     expect(fetchCalls.some((c) => c.url.endsWith('/fail'))).toBe(false);
   });
 

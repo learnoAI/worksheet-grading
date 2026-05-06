@@ -114,5 +114,12 @@ describe('toBackendGradingResponse', () => {
     expect(response.grade).toBe(0);
     expect(response.grade_percentage).toBe(0);
   });
-});
 
+  it('defaults missing overall feedback to an empty string', () => {
+    const result = makeResult({ overall_feedback: undefined });
+
+    const response = toBackendGradingResponse(result);
+
+    expect(response.overall_feedback).toBe('');
+  });
+});

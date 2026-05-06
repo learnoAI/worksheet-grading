@@ -919,7 +919,10 @@ async function processJob(
       parts: [{ text: gradingPrompt }],
     } : null);
 
-    const gradingResult = GradingResultSchema.parse(grading.parsed);
+    const gradingResult: GradingResult = {
+      ...GradingResultSchema.parse(grading.parsed),
+      overall_feedback: '',
+    };
     const backendResponse = toBackendGradingResponse(gradingResult, {
       expectedTotalQuestions: extractedQuestions.questions.length,
     });

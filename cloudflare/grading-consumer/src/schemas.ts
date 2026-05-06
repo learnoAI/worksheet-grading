@@ -35,7 +35,7 @@ export const QuestionScoreSchema = z
 
 export type QuestionScore = z.infer<typeof QuestionScoreSchema>;
 
-export const GradingResultSchema = z
+const GradingModelResultSchema = z
   .object({
     // Final grade is computed by our backend pipeline from per-question correctness.
     // Keep these aggregate fields optional for backward compatibility with older prompts.
@@ -46,9 +46,15 @@ export const GradingResultSchema = z
     correct_answers: z.number().int().optional(),
     wrong_answers: z.number().int().optional(),
     unanswered: z.number().int().optional(),
-    overall_feedback: z.string(),
     // Some graders include extra narrative fields; allow it without affecting persistence.
     reason_why: z.string().optional(),
+  })
+  .strict();
+
+export const GradingResultSchema = GradingModelResultSchema
+  .extend({
+    // Old model responses may still include this. The worker overwrites it to "" before completion.
+    overall_feedback: z.string().optional(),
   })
   .strict();
 
@@ -71,4 +77,4 @@ function toStructuredOutputJsonSchema(schema: z.ZodTypeAny): unknown {
 }
 
 export const ExtractedQuestionsJsonSchema = toStructuredOutputJsonSchema(ExtractedQuestionsSchema);
-export const GradingResultJsonSchema = toStructuredOutputJsonSchema(GradingResultSchema);
+export const GradingResultJsonSchema = toStructuredOutputJsonSchema(GradingModelResultSchema);

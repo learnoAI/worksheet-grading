@@ -58,7 +58,7 @@ export interface GradingResult {
   correct_answers?: number;
   wrong_answers?: number;
   unanswered?: number;
-  overall_feedback: string;
+  overall_feedback?: string;
   reason_why?: string;
 }
 
