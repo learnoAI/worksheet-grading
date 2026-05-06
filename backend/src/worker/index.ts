@@ -73,8 +73,31 @@ app.notFound((c) => c.json({ error: 'Not Found' }, 404));
 // Match Express's global error middleware response shape so frontend
 // code that reads `response.data.message` keeps working after cutover.
 // See `backend/src/index.ts`'s `app.use((err, req, res, next) => ...)`.
+//
+// Also surface the Error to PostHog as a $exception event so 5xxs are
+// debuggable end-to-end without grepping `wrangler tail`. Mirrors codex
+// 3c23c14 (Express stashes `res.locals.diagnosticsError` and the
+// requestDiagnostics middleware logs the stack to app_logs); the Hono
+// equivalent lives here because `onError` is the only place we see the
+// thrown Error after handler frames unwind.
 app.onError((err, c) => {
   console.error('[worker] unhandled error:', err);
+  const env = c.env ?? {};
+  const requestId = c.get('requestId');
+  // capturePosthogException handles its own failures (no rethrow) and
+  // no-ops when POSTHOG_API_KEY is unset, so this is safe to leave
+  // unawaited — we don't want a slow PostHog hop to delay the 500.
+  c.executionCtx?.waitUntil(
+    capturePosthogException(env, err, {
+      distinctId: requestId ?? 'unknown',
+      stage: 'worker_unhandled_error',
+      extra: {
+        method: c.req.method,
+        path: new URL(c.req.url).pathname,
+        requestId,
+      },
+    })
+  );
   return c.json({ message: 'An unexpected error occurred' }, 500);
 });
 
@@ -118,6 +141,7 @@ async function runScheduledDispatch(env: WorkerEnv): Promise<void> {
     const result = await dispatchPendingJobs(prisma, env);
     await capturePosthogEvent(env, 'dispatch_loop_tick', 'dispatch-loop', {
       staleRequeued: result.staleRequeued,
+      orphanRequeued: result.orphanRequeued,
       attempted: result.attempted,
       dispatched: result.dispatched,
       failed: result.failed,

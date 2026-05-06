@@ -33,6 +33,7 @@ export interface BatchResult {
   batchId: string;
   totalWorksheets: number;
   skillsToGenerate: number;
+  worksheetIds: string[];
   errors: string[];
 }
 
@@ -302,18 +303,74 @@ export async function createClassBatch(
   days: number,
   startDate: Date
 ): Promise<BatchResult> {
-  const errors: string[] = [];
-
   const studentClasses = await prisma.studentClass.findMany({
     where: { classId },
     select: { studentId: true },
   });
 
-  if (studentClasses.length === 0) {
+  return createBatchForStudents(
+    prisma,
+    env,
+    classId,
+    studentClasses.map(({ studentId }) => studentId),
+    days,
+    startDate
+  );
+}
+
+/**
+ * Create a queued worksheet batch for a single student. Mirrors
+ * `createClassBatch` but for a one-student scope; the student must be
+ * assigned to a class so the batch row has a `classId`.
+ */
+export async function createStudentBatch(
+  prisma: PrismaClient,
+  env: WorkerEnv,
+  studentId: string,
+  days: number,
+  startDate: Date
+): Promise<BatchResult> {
+  const studentClass = await prisma.studentClass.findFirst({
+    where: { studentId },
+    select: { classId: true },
+  });
+
+  if (!studentClass) {
     return {
       batchId: '',
       totalWorksheets: 0,
       skillsToGenerate: 0,
+      worksheetIds: [],
+      errors: ['Student is not assigned to a class'],
+    };
+  }
+
+  return createBatchForStudents(
+    prisma,
+    env,
+    studentClass.classId,
+    [studentId],
+    days,
+    startDate
+  );
+}
+
+async function createBatchForStudents(
+  prisma: PrismaClient,
+  env: WorkerEnv,
+  classId: string,
+  studentIds: string[],
+  days: number,
+  startDate: Date
+): Promise<BatchResult> {
+  const errors: string[] = [];
+
+  if (studentIds.length === 0) {
+    return {
+      batchId: '',
+      totalWorksheets: 0,
+      skillsToGenerate: 0,
+      worksheetIds: [],
       errors: ['No students in class'],
     };
   }
@@ -329,9 +386,10 @@ export async function createClassBatch(
   });
 
   const allSkillIds = new Set<string>();
+  const worksheetIds: string[] = [];
   let totalWorksheets = 0;
 
-  for (const { studentId } of studentClasses) {
+  for (const studentId of studentIds) {
     const { plans, errors: planErrors } = await planWorksheets(
       prisma,
       studentId,
@@ -341,7 +399,7 @@ export async function createClassBatch(
     errors.push(...planErrors);
 
     for (const plan of plans) {
-      await prisma.generatedWorksheet.create({
+      const worksheet = await prisma.generatedWorksheet.create({
         data: {
           studentId,
           scheduledDate: plan.scheduledDate,
@@ -352,6 +410,7 @@ export async function createClassBatch(
           status: 'PENDING',
         },
       });
+      worksheetIds.push(worksheet.id);
       totalWorksheets++;
       allSkillIds.add(plan.newSkillId);
       allSkillIds.add(plan.reviewSkill1Id);
@@ -412,6 +471,7 @@ export async function createClassBatch(
     batchId: batch.id,
     totalWorksheets,
     skillsToGenerate: skillsNeedingGeneration.length,
+    worksheetIds,
     errors,
   };
 }

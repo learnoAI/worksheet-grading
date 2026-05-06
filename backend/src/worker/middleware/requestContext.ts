@@ -17,10 +17,10 @@ const EXTERNAL_REQUEST_ID_PREFIX = 'ext:';
  *   - Every sane inbound `X-Request-Id` is prefixed with `ext:`. There is
  *     no "trusted caller" branch — see WHY below.
  *   - Falls back to a fresh UUID when the header is missing or malformed.
- *   - Stores the chosen ID in `c.var.requestId` for downstream handlers,
- *     on the response as `X-Request-Id` for clients, and on
- *     `c.req.raw.headers` so the fallback proxy forwards the worker-
- *     chosen value rather than the raw inbound one.
+ *   - Stores the chosen ID in `c.var.requestId` for downstream handlers
+ *     and on the response as `X-Request-Id` for clients. The fallback
+ *     proxy reads `c.var.requestId` (not the raw inbound header) so it
+ *     forwards the worker-chosen value to Express.
  *
  * WHY always prefix: the worker is internet-facing, so any caller can set
  * `X-Request-Id`. Branching on the *presence* of an internal-token header
@@ -41,10 +41,10 @@ export const requestContext: MiddlewareHandler<AppBindings> = async (c, next) =>
 
   c.set('requestId', requestId);
   c.header('X-Request-Id', requestId);
-  // Overwrite the inbound header on the *request* too, so any downstream
-  // proxy (e.g. `fallback.ts`) that copies request headers forwards the
-  // worker-chosen ID rather than the raw external one.
-  c.req.raw.headers.set('X-Request-Id', requestId);
+  // NOTE: we deliberately do NOT mutate `c.req.raw.headers` here. In the
+  // Cloudflare Workers runtime the inbound `Request.headers` is immutable
+  // (per the WHATWG Fetch spec) and `set()` throws. The fallback proxy
+  // reads `c.var.requestId` directly — see `fallback.ts`.
 
   await next();
 };

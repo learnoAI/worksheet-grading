@@ -153,6 +153,30 @@ async function loadUploadBatchForUser(
   return batch as unknown as LoadedBatch;
 }
 
+/**
+ * Cheaper variant of `loadUploadBatchForUser` used by the finalize handler:
+ * fetches only the items whose images the client just uploaded, instead of
+ * re-reading the entire batch. The full-batch refetch is wasteful when a
+ * teacher uploads page-by-page across many students — every PUT triggers a
+ * finalize that walks every item and decides what to do based on its status.
+ *
+ * Caller is responsible for the access check (already done via
+ * `loadUploadBatchForUser` at the top of the handler).
+ */
+async function loadUploadItems(
+  prisma: PrismaClient,
+  batchId: string,
+  itemIds: string[]
+): Promise<LoadedBatch['items']> {
+  if (itemIds.length === 0) return [];
+  const items = await prisma.worksheetUploadItem.findMany({
+    where: { batchId, id: { in: itemIds } },
+    orderBy: { createdAt: 'asc' },
+    include: { images: { orderBy: { pageNumber: 'asc' } } },
+  });
+  return items as unknown as LoadedBatch['items'];
+}
+
 async function serializeUploadBatch(env: WorkerEnv, batch: LoadedBatch) {
   return {
     batchId: batch.id,
@@ -368,7 +392,63 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
       items.map((i) => i.studentId)
     );
 
+    // Stale prior batches for this teacher/class/date are abandoned
+    // uploads — typically duplicates from a shared login or a tab the
+    // user closed mid-flight. Mark their PENDING items FAILED so the
+    // new session has a clean slate; QUEUED items are real worksheets
+    // already in the AI pipeline and are left alone. The threshold
+    // avoids interfering with a slow upload that's still genuinely
+    // in-flight from another tab. See codex `b9a3303`.
+    const staleUploadBatchMs =
+      Number.parseInt(c.env?.GRADING_STALE_UPLOAD_BATCH_MS ?? '', 10) || 5 * 60 * 1000;
+    let supersededBatchCount = 0;
+    let supersededItemCount = 0;
+
     const created = await prisma.$transaction(async (tx) => {
+      const staleCutoff = new Date(Date.now() - staleUploadBatchMs);
+      const staleBatches = await tx.worksheetUploadBatch.findMany({
+        where: {
+          teacherId,
+          classId,
+          submittedOn,
+          status: WorksheetUploadBatchStatus.UPLOADING,
+          updatedAt: { lt: staleCutoff },
+        },
+        select: { id: true },
+      });
+
+      for (const stale of staleBatches) {
+        const supersededItems = await tx.worksheetUploadItem.updateMany({
+          where: {
+            batchId: stale.id,
+            status: WorksheetUploadItemStatus.PENDING,
+          },
+          data: {
+            status: WorksheetUploadItemStatus.FAILED,
+            errorMessage: 'Superseded by new upload session',
+          },
+        });
+        supersededItemCount += supersededItems.count;
+
+        const remainingPending = await tx.worksheetUploadItem.count({
+          where: {
+            batchId: stale.id,
+            status: WorksheetUploadItemStatus.PENDING,
+          },
+        });
+
+        if (remainingPending === 0) {
+          await tx.worksheetUploadBatch.update({
+            where: { id: stale.id },
+            data: {
+              status: WorksheetUploadBatchStatus.FINALIZED,
+              finalizedAt: new Date(),
+            },
+          });
+          supersededBatchCount += 1;
+        }
+      }
+
       const batch = await tx.worksheetUploadBatch.create({
         data: {
           classId,
@@ -472,6 +552,22 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
       }
     );
 
+    if (supersededItemCount > 0 || supersededBatchCount > 0) {
+      await capturePosthogEvent(
+        c.env ?? {},
+        'direct_upload_session_superseded_prior',
+        created.id,
+        {
+          batchId: created.id,
+          classId,
+          teacherId,
+          supersededBatchCount,
+          supersededItemCount,
+          staleUploadBatchMs,
+        }
+      );
+    }
+
     let serialized;
     try {
       serialized = await serializeUploadBatch(c.env ?? {}, created);
@@ -558,17 +654,41 @@ worksheetProcessing.post(
       );
       const uploadedImageIds = requestedUploadedIds.filter((id) => issuedImageIds.has(id));
 
-      if (uploadedImageIds.length > 0) {
-        await prisma.worksheetUploadImage.updateMany({
-          where: { id: { in: uploadedImageIds } },
-          data: { uploadedAt: new Date() },
-        });
-      }
+      // Scope to the items the client *just* uploaded images for, instead
+      // of re-walking the entire batch. Teachers upload page-by-page and
+      // every PUT triggers a finalize; the old full-batch refetch made
+      // each finalize O(N items) even when only one item changed.
+      const uploadedImageIdSet = new Set(uploadedImageIds);
+      const affectedItemIds = Array.from(
+        new Set(
+          batch.items
+            .filter((item) => item.images.some((image) => uploadedImageIdSet.has(image.id)))
+            .map((item) => item.id)
+        )
+      );
 
-      const refreshedBatch = await loadUploadBatchForUser(prisma, user, batch.id);
-      if (!refreshedBatch) {
-        return c.json({ success: false, error: 'Upload session not found' }, 404);
-      }
+      // Mark the just-uploaded images and re-read the affected items in
+      // a single interactive transaction so Hyperdrive serves the read
+      // from the writing connection instead of its query cache. Without
+      // this, the findMany after the updateMany frequently returns rows
+      // with `uploadedAt: null` for images we just stamped (observed on
+      // staging: ~30s of staleness even with auto-invalidate). Inside a
+      // $transaction Hyperdrive bypasses caching entirely.
+      const affectedItems = await prisma.$transaction(async (tx) => {
+        if (uploadedImageIds.length > 0) {
+          await tx.worksheetUploadImage.updateMany({
+            where: { id: { in: uploadedImageIds } },
+            data: { uploadedAt: new Date() },
+          });
+        }
+        if (affectedItemIds.length === 0) return [] as LoadedBatch['items'];
+        const items = await tx.worksheetUploadItem.findMany({
+          where: { batchId: batch.id, id: { in: affectedItemIds } },
+          orderBy: { createdAt: 'asc' },
+          include: { images: { orderBy: { pageNumber: 'asc' } } },
+        });
+        return items as unknown as LoadedBatch['items'];
+      });
 
       const queued: Array<{
         itemId: string;
@@ -590,8 +710,9 @@ worksheetProcessing.post(
         worksheetNumber: number;
         error: string;
       }> = [];
+      const readyItems: typeof affectedItems = [];
 
-      for (const item of refreshedBatch.items) {
+      for (const item of affectedItems) {
         if (item.status === WorksheetUploadItemStatus.QUEUED && item.jobId) {
           queued.push({
             itemId: item.id,
@@ -613,6 +734,13 @@ worksheetProcessing.post(
           continue;
         }
 
+        // Only PENDING items get progressed to job creation. A status we
+        // don't recognize (or a freshly-introduced new state) should fall
+        // through silently rather than be treated as ready.
+        if (item.status !== WorksheetUploadItemStatus.PENDING) {
+          continue;
+        }
+
         const missingImageIds = item.images
           .filter((image) => !image.uploadedAt)
           .map((image) => image.id);
@@ -626,66 +754,107 @@ worksheetProcessing.post(
           continue;
         }
 
-        try {
-          const jobResult = await createGradingJobFromUploadItem(prisma, item.id);
-          if (!jobResult.jobId) {
-            failed.push({
+        readyItems.push(item);
+      }
+
+      // Job creation involves a Prisma write + dispatchJob (which can
+      // publish to CF Queues with its own network round-trip), and the
+      // results are independent per item. Run them concurrently with
+      // allSettled so a single failure doesn't drag the others down.
+      const readyResults = await Promise.allSettled(
+        readyItems.map(async (item) => {
+          try {
+            const jobResult = await createGradingJobFromUploadItem(prisma, item.id);
+            if (!jobResult.jobId) {
+              return {
+                kind: 'failed' as const,
+                itemId: item.id,
+                studentId: item.studentId,
+                worksheetNumber: item.worksheetNumber,
+                error: jobResult.error || 'Unable to create grading job',
+              };
+            }
+            const dispatchResult = jobResult.created
+              ? await dispatchJob(prisma, c.env ?? {}, jobResult.jobId)
+              : { dispatchState: 'DISPATCHED' as const };
+            return {
+              kind: 'queued' as const,
               itemId: item.id,
               studentId: item.studentId,
               worksheetNumber: item.worksheetNumber,
-              error: jobResult.error || 'Unable to create grading job',
-            });
-            continue;
+              jobId: jobResult.jobId,
+              dispatchState: dispatchResult.dispatchState,
+              queuedAt:
+                'queuedAt' in dispatchResult ? dispatchResult.queuedAt : undefined,
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to create grading job';
+            await prisma.worksheetUploadItem
+              .update({
+                where: { id: item.id },
+                data: {
+                  status: WorksheetUploadItemStatus.FAILED,
+                  errorMessage: message,
+                },
+              })
+              .catch(() => {
+                /* best effort */
+              });
+            return {
+              kind: 'failed' as const,
+              itemId: item.id,
+              studentId: item.studentId,
+              worksheetNumber: item.worksheetNumber,
+              error: message,
+            };
           }
-          const dispatchResult = jobResult.created
-            ? await dispatchJob(prisma, c.env ?? {}, jobResult.jobId)
-            : { dispatchState: 'DISPATCHED' as const };
-          queued.push({
-            itemId: item.id,
-            studentId: item.studentId,
-            worksheetNumber: item.worksheetNumber,
-            jobId: jobResult.jobId,
-            dispatchState: dispatchResult.dispatchState,
-            queuedAt:
-              'queuedAt' in dispatchResult ? dispatchResult.queuedAt : undefined,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Failed to create grading job';
+        })
+      );
+
+      for (const result of readyResults) {
+        if (result.status === 'rejected') {
           failed.push({
-            itemId: item.id,
-            studentId: item.studentId,
-            worksheetNumber: item.worksheetNumber,
-            error: message,
+            itemId: 'unknown',
+            studentId: 'unknown',
+            worksheetNumber: 0,
+            error:
+              result.reason instanceof Error
+                ? result.reason.message
+                : 'Failed to finalize upload item',
           });
-          await prisma.worksheetUploadItem
-            .update({
-              where: { id: item.id },
-              data: {
-                status: WorksheetUploadItemStatus.FAILED,
-                errorMessage: message,
-              },
-            })
-            .catch(() => {
-              /* best effort */
-            });
+          continue;
+        }
+        if (result.value.kind === 'queued') {
+          queued.push(result.value);
+        } else {
+          failed.push(result.value);
         }
       }
 
-      const stillPending = await prisma.worksheetUploadItem.count({
-        where: {
-          batchId: batch.id,
-          status: WorksheetUploadItemStatus.PENDING,
-        },
-      });
-      if (stillPending === 0) {
-        await prisma.worksheetUploadBatch.update({
-          where: { id: batch.id },
-          data: {
-            status: WorksheetUploadBatchStatus.FINALIZED,
-            finalizedAt: new Date(),
+      // Count + conditional batch update inside a transaction so Hyperdrive
+      // doesn't serve the count from cache. The per-item job-creation
+      // transactions above just flipped items from PENDING → QUEUED; an
+      // out-of-transaction count was hitting cache and seeing the
+      // pre-update PENDING count, so the batch never advanced to
+      // FINALIZED in the DB even though the response said it had.
+      const stillPending = await prisma.$transaction(async (tx) => {
+        const remaining = await tx.worksheetUploadItem.count({
+          where: {
+            batchId: batch.id,
+            status: WorksheetUploadItemStatus.PENDING,
           },
         });
-      }
+        if (remaining === 0) {
+          await tx.worksheetUploadBatch.update({
+            where: { id: batch.id },
+            data: {
+              status: WorksheetUploadBatchStatus.FINALIZED,
+              finalizedAt: new Date(),
+            },
+          });
+        }
+        return remaining;
+      });
 
       await capturePosthogEvent(c.env ?? {}, 'direct_upload_session_finalized', batch.id, {
         batchId: batch.id,

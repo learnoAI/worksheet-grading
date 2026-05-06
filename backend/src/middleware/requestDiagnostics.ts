@@ -134,8 +134,20 @@ export function requestDiagnostics(req: Request, res: Response, next: NextFuncti
                 ? 'Request failed with server error'
                 : 'Slow request detected';
 
+        // Express puts the caught Error on res.locals.diagnosticsError (set by
+        // the global error middleware). Surface its name/message into the
+        // payload and pass the Error itself so apiLogger writes the stack.
+        const capturedError = res.locals?.diagnosticsError as unknown;
+        const errorObject = capturedError instanceof Error ? capturedError : undefined;
+        if (errorObject) {
+            payload.errorName = errorObject.name;
+            payload.errorMessage = errorObject.message;
+        } else if (capturedError !== undefined && capturedError !== null) {
+            payload.errorMessage = String(capturedError);
+        }
+
         if (aborted || isServerError) {
-            apiLogger.error(message, payload);
+            apiLogger.error(message, payload, errorObject);
         } else {
             apiLogger.warn(message, payload);
         }

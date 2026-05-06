@@ -106,6 +106,13 @@ export function expressFallback(options: {
     // Let Express know this request came through the Hono worker. Useful for
     // diagnostics and to avoid infinite loops if Express ever proxies back.
     headers.set('x-forwarded-via', 'hono-worker');
+    // Forward the worker-chosen request id (`ext:<inbound>` for external
+    // callers, fresh UUID otherwise — see `requestContext`). The inbound
+    // request's headers are immutable in the Workers runtime, so we cannot
+    // mutate them in `requestContext`; reading `c.var.requestId` here is
+    // the canonical way to thread the namespaced id through to Express.
+    const workerRequestId = c.get('requestId');
+    if (workerRequestId) headers.set('x-request-id', workerRequestId);
 
     let upstreamRes: Response;
     try {

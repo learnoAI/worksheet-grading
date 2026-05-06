@@ -4,6 +4,7 @@ import config from '../config/env';
 import {
     acquireGradingJobLease,
     markGradingJobFailed,
+    resetQueuedJobDispatch,
     requeueGradingJobForRetry,
     touchGradingJobHeartbeat
 } from '../services/gradingJobLifecycleService';
@@ -284,7 +285,9 @@ export async function complete(req: Request, res: Response): Promise<Response> {
             if (current.status === GradingJobStatus.COMPLETED) {
                 return {
                     worksheetId: current.worksheetId,
-                    action: 'ALREADY_COMPLETED' as const
+                    action: 'ALREADY_COMPLETED' as const,
+                    grade: null as number | null,
+                    outOf: null as number | null
                 };
             }
 
@@ -318,7 +321,9 @@ export async function complete(req: Request, res: Response): Promise<Response> {
 
             return {
                 worksheetId: persistedWorksheet.worksheetId,
-                action: persistedWorksheet.action
+                action: persistedWorksheet.action,
+                grade: persistedWorksheet.grade,
+                outOf: persistedWorksheet.outOf as number | null
             };
         });
 
@@ -340,8 +345,13 @@ export async function complete(req: Request, res: Response): Promise<Response> {
                     worksheetId: persisted.worksheetId,
                     studentId: job.studentId,
                     worksheetNumber: job.worksheetNumber,
-                    grade: gradingResponse.grade ?? 0,
-                    outOf: gradingResponse.total_possible ?? 40,
+                    // Use the persisted grade so mastery reflects an SR's
+                    // manual override rather than the raw AI response when the
+                    // upsert preserved an existing row's grade. The fallback
+                    // covers ALREADY_COMPLETED duplicate deliveries, where the
+                    // transaction skipped persistence and so has no row data.
+                    grade: persisted.grade ?? gradingResponse.grade ?? 0,
+                    outOf: persisted.outOf ?? gradingResponse.total_possible ?? 40,
                     submittedOn: job.submittedOn
                 });
             }
@@ -409,12 +419,21 @@ export async function complete(req: Request, res: Response): Promise<Response> {
 
 /**
  * POST /internal/grading-worker/jobs/:jobId/fail
- * Body: { errorMessage: string }
+ * Body: { errorMessage: string, errorName?: string, errorStack?: string, errorContext?: object }
+ *
+ * The worker passes through the original Error's name and stack so the backend
+ * can persist them to app_logs — without this, only `errorMessage` survives
+ * the Cloudflare → backend hop and the actual exception class + frames are
+ * lost as soon as `wrangler tail` rotates.
  */
 export async function fail(req: Request, res: Response): Promise<Response> {
     const { jobId } = req.params;
-    const leaseId = isObject(req.body) && typeof req.body.leaseId === 'string' ? req.body.leaseId : '';
-    const errorMessage = isObject(req.body) && typeof req.body.errorMessage === 'string' ? req.body.errorMessage : '';
+    const body = isObject(req.body) ? req.body : {};
+    const leaseId = typeof body.leaseId === 'string' ? body.leaseId : '';
+    const errorMessage = typeof body.errorMessage === 'string' ? body.errorMessage : '';
+    const errorName = typeof body.errorName === 'string' ? body.errorName : undefined;
+    const errorStack = typeof body.errorStack === 'string' ? body.errorStack : undefined;
+    const errorContext = isObject(body.errorContext) ? (body.errorContext as Record<string, unknown>) : undefined;
 
     if (!leaseId) {
         return res.status(400).json({ success: false, error: 'leaseId is required' });
@@ -434,10 +453,31 @@ export async function fail(req: Request, res: Response): Promise<Response> {
             return res.status(409).json({ success: false, error: 'Lease mismatch' });
         }
 
+        // Reconstruct the original Error so apiLogger writes the worker-side
+        // stack into app_logs. Falls back to a synthesized Error when the
+        // worker didn't send name/stack (older deploys, non-Error throws).
+        const reconstructed = new Error(errorMessage);
+        if (errorName) reconstructed.name = errorName;
+        if (errorStack) reconstructed.stack = errorStack;
+
+        aiGradingLogger.error(
+            'Grading job marked failed by worker',
+            {
+                jobId,
+                leaseId,
+                errorName: errorName ?? null,
+                errorMessage,
+                errorContext: errorContext ?? null
+            },
+            reconstructed
+        );
+
         captureGradingPipelineEvent('worker_fail_succeeded', jobId, {
             jobId,
             leaseId,
-            errorMessage
+            errorMessage,
+            errorName,
+            errorContext
         });
         return res.json({ success: true });
     } catch (error) {
@@ -503,5 +543,49 @@ export async function requeue(req: Request, res: Response): Promise<Response> {
         });
         capturePosthogException(error, { distinctId: jobId, stage: 'worker_requeue_failed', extra: { jobId, leaseId } });
         return res.status(500).json({ success: false, error: 'Failed to requeue job' });
+    }
+}
+
+/**
+ * POST /internal/grading-worker/jobs/:jobId/reset-dispatch
+ * Body: { reason?: string }
+ *
+ * Clears the dispatch marker for a QUEUED job whose Cloudflare queue message
+ * has already been exhausted before lease acquisition, allowing the dispatch
+ * loop to publish a fresh message.
+ */
+export async function resetDispatch(req: Request, res: Response): Promise<Response> {
+    const { jobId } = req.params;
+    const reason = isObject(req.body) && typeof req.body.reason === 'string' ? req.body.reason : undefined;
+
+    try {
+        const updated = await resetQueuedJobDispatch(jobId, reason);
+        if (!updated) {
+            captureGradingPipelineEvent('worker_reset_dispatch_mismatch', jobId, {
+                jobId
+            });
+            return res.status(409).json({ success: false, error: 'Job is not queued and dispatch-resettable' });
+        }
+
+        captureGradingPipelineEvent('worker_reset_dispatch_succeeded', jobId, {
+            jobId,
+            reason
+        });
+        return res.json({ success: true });
+    } catch (error) {
+        await logError(
+            'internal-grading-worker-reset-dispatch',
+            error instanceof Error ? error : new Error('Reset dispatch failed'),
+            { jobId }
+        ).catch(() => {
+            // best effort
+        });
+
+        captureGradingPipelineEvent('worker_reset_dispatch_failed', jobId, {
+            jobId,
+            error: error instanceof Error ? error.message : 'Reset dispatch failed'
+        });
+        capturePosthogException(error, { distinctId: jobId, stage: 'worker_reset_dispatch_failed', extra: { jobId } });
+        return res.status(500).json({ success: false, error: 'Failed to reset dispatch state' });
     }
 }

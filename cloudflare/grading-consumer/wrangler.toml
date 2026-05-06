@@ -5,14 +5,64 @@ compatibility_date = "2026-02-14"
 # Configure these in Cloudflare dashboard or via `wrangler secret put` (+ `wrangler deploy --var KEY:value` for non-secrets):
 # - BACKEND_BASE_URL
 # - BACKEND_WORKER_TOKEN
-# - GEMINI_API_KEY
-# - GEMINI_OCR_MODEL (default: gemini-2.0-flash)
-# - GEMINI_AI_GRADING_MODEL (default: gemini-2.0-flash)
-# - GEMINI_BOOK_GRADING_MODEL (default: gemini-2.0-flash)
+# - CF_AI_GATEWAY_ACCOUNT_ID
+# - CF_AI_GATEWAY_TOKEN (optional; required only if the gateway has authentication enabled)
+# - CF_AI_GATEWAY_ID (default: learnoai)
+# - OCR_PROVIDER (default: workers-ai)
+# - OCR_MODEL (default: @cf/google/gemma-4-26b-a4b-it)
+# - OCR_API_KEY (optional; for workers-ai, defaults to CF_AI_GATEWAY_TOKEN if unset)
+# - OCR_FALLBACK_PROVIDER / OCR_FALLBACK_MODEL / OCR_FALLBACK_API_KEY (optional; stage-specific fallback)
+# - OCR_REASONING_EFFORT (default: low)
+# - OCR_REQUEST_TIMEOUT_MS (default: 500000)
+# - AI_GRADING_PROVIDER (default: workers-ai)
+# - AI_GRADING_MODEL (default: @cf/google/gemma-4-26b-a4b-it)
+# - AI_GRADING_API_KEY (optional; for workers-ai, defaults to CF_AI_GATEWAY_TOKEN if unset)
+# - AI_GRADING_FALLBACK_PROVIDER / AI_GRADING_FALLBACK_MODEL / AI_GRADING_FALLBACK_API_KEY (optional; stage-specific fallback)
+# - AI_GRADING_REASONING_EFFORT (default: low)
+# - AI_GRADING_REQUEST_TIMEOUT_MS (default: 500000)
+# - BOOK_GRADING_PROVIDER (default: workers-ai)
+# - BOOK_GRADING_MODEL (default: @cf/google/gemma-4-26b-a4b-it)
+# - BOOK_GRADING_API_KEY (optional; for workers-ai, defaults to CF_AI_GATEWAY_TOKEN if unset)
+# - BOOK_GRADING_FALLBACK_PROVIDER / BOOK_GRADING_FALLBACK_MODEL / BOOK_GRADING_FALLBACK_API_KEY (optional; stage-specific fallback)
+# - BOOK_GRADING_REASONING_EFFORT (default: low)
+# - BOOK_GRADING_REQUEST_TIMEOUT_MS (default: 500000)
+# - LLM_FALLBACK_PROVIDER / LLM_FALLBACK_MODEL / LLM_FALLBACK_API_KEY (optional; shared fallback)
+# - LLM_PRIMARY_ATTEMPTS / LLM_FALLBACK_ATTEMPTS (default: 2 / 2)
+# - GEMINI_API_KEY (optional; used for Google AI Studio fallback when a fallback API key is not set)
+# - OPENROUTER_API_KEY (optional; used for OpenRouter provider/fallback when a provider API key is not set)
+# - GEMINI_LIMITER_MIN_RPS (default: 5)
+# - GEMINI_LIMITER_INITIAL_RPS (default: 30)
+# - GEMINI_LIMITER_MAX_RPS (default: 120)
+# - GEMINI_429_RETRY_BASE_DELAY_SECONDS (default: 30)
+# - GEMINI_429_RETRY_MAX_DELAY_SECONDS (default: 900)
 # - POSTHOG_API_KEY (optional; server-side event telemetry)
 # - POSTHOG_HOST (optional; default: https://us.i.posthog.com)
 # - HEARTBEAT_INTERVAL_MS (default: 60000)
 # - FAST_MAX_PAGES (default: 4)
+
+[vars]
+CF_AI_GATEWAY_ACCOUNT_ID = "2ffbc97db67c45deb3098acd1f647ac0"
+CF_AI_GATEWAY_ID = "learnoai"
+OCR_PROVIDER = "workers-ai"
+OCR_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+OCR_REASONING_EFFORT = "low"
+OCR_REQUEST_TIMEOUT_MS = "500000"
+AI_GRADING_PROVIDER = "workers-ai"
+AI_GRADING_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+AI_GRADING_REASONING_EFFORT = "low"
+AI_GRADING_REQUEST_TIMEOUT_MS = "500000"
+BOOK_GRADING_PROVIDER = "workers-ai"
+BOOK_GRADING_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+BOOK_GRADING_REASONING_EFFORT = "low"
+BOOK_GRADING_REQUEST_TIMEOUT_MS = "500000"
+LLM_FALLBACK_PROVIDER = "openrouter"
+LLM_FALLBACK_MODEL = "google/gemma-4-26b-a4b-it"
+LLM_PRIMARY_ATTEMPTS = "2"
+LLM_FALLBACK_ATTEMPTS = "2"
+GEMINI_LIMITER_INITIAL_RPS = "60"
+GEMINI_LIMITER_MAX_RPS = "240"
+GEMINI_LIMITER_RAMP_UP_SUCCESS_COUNT = "10"
+GEMINI_LIMITER_RAMP_UP_MULTIPLIER = "1.12"
 
 [[r2_buckets]]
 binding = "IMAGES_BUCKET"
@@ -22,9 +72,17 @@ bucket_name = "worksheet-grading-files"
 binding = "ASSETS_BUCKET"
 bucket_name = "worksheet-grading-assets"
 
+[[durable_objects.bindings]]
+name = "GEMINI_RATE_LIMITER"
+class_name = "GeminiRateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GeminiRateLimiter"]
+
 [[queues.consumers]]
 queue = "grading-fast"
-max_batch_size = 3
+max_batch_size = 20
 max_batch_timeout = 1
 max_concurrency = 250
 max_retries = 5
@@ -54,6 +112,43 @@ invocation_logs = true
 [env.staging]
 name = "worksheet-grading-consumer-staging"
 
+# Wrangler 4 doesn't inherit `vars` either. Mirror the top-level so the
+# consumer reads the same defaults; staging-specific overrides go below.
+[env.staging.vars]
+CF_AI_GATEWAY_ACCOUNT_ID = "2ffbc97db67c45deb3098acd1f647ac0"
+CF_AI_GATEWAY_ID = "learnoai"
+# Staging override: prod uses workers-ai for OCR + grading via the AI
+# Gateway, but the staging account's gateway is auth-required and we
+# don't have CF_AI_GATEWAY_TOKEN set. Point everything at google-ai-
+# studio so the GEMINI_API_KEY secret carries the full chain end to end.
+# Switch back to workers-ai when CF_AI_GATEWAY_TOKEN is available.
+OCR_PROVIDER = "google-ai-studio"
+OCR_MODEL = "gemini-3.1-flash-lite-preview"
+OCR_REASONING_EFFORT = "low"
+OCR_REQUEST_TIMEOUT_MS = "500000"
+AI_GRADING_PROVIDER = "google-ai-studio"
+AI_GRADING_MODEL = "gemini-3.1-flash-lite-preview"
+AI_GRADING_REASONING_EFFORT = "low"
+AI_GRADING_REQUEST_TIMEOUT_MS = "500000"
+BOOK_GRADING_PROVIDER = "google-ai-studio"
+BOOK_GRADING_MODEL = "gemini-3.1-flash-lite-preview"
+BOOK_GRADING_REASONING_EFFORT = "low"
+BOOK_GRADING_REQUEST_TIMEOUT_MS = "500000"
+# Fallback also Gemini so the chain stays consistent. If primary
+# rate-limits or 5xxs, fallback hits the same provider with the same
+# key — not redundancy in the strict sense but it exercises the
+# fallback code path during tests.
+LLM_FALLBACK_PROVIDER = "google-ai-studio"
+LLM_FALLBACK_MODEL = "gemini-3.1-flash-lite-preview"
+LLM_PRIMARY_ATTEMPTS = "2"
+LLM_FALLBACK_ATTEMPTS = "2"
+# Lower RPS targets than prod so test traffic doesn't blow our Gemini
+# free-tier quota during full-flow exercises.
+GEMINI_LIMITER_INITIAL_RPS = "5"
+GEMINI_LIMITER_MAX_RPS = "30"
+GEMINI_LIMITER_RAMP_UP_SUCCESS_COUNT = "10"
+GEMINI_LIMITER_RAMP_UP_MULTIPLIER = "1.12"
+
 [[env.staging.r2_buckets]]
 binding = "IMAGES_BUCKET"
 bucket_name = "worksheet-grading-files-staging"
@@ -61,6 +156,14 @@ bucket_name = "worksheet-grading-files-staging"
 [[env.staging.r2_buckets]]
 binding = "ASSETS_BUCKET"
 bucket_name = "worksheet-grading-assets"
+
+# Durable Object binding for the Gemini rate limiter. The new code at
+# index.ts:382 calls env.GEMINI_RATE_LIMITER.idFromName(...) and crashes
+# without this. The class itself ships with the script — the migration
+# block at the top level applies to every env's deploy.
+[[env.staging.durable_objects.bindings]]
+name = "GEMINI_RATE_LIMITER"
+class_name = "GeminiRateLimiter"
 
 [[env.staging.queues.consumers]]
 queue = "grading-fast-staging"

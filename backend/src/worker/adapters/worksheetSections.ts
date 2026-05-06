@@ -27,7 +27,7 @@ export interface SectionData {
   skillId: string;
   skillName: string;
   instruction: string;
-  questions: { question: string; answer: string }[];
+  questions: { question: string; answer: string; renderSpec?: Prisma.JsonValue }[];
 }
 
 /**
@@ -52,7 +52,7 @@ export async function buildSections(
       where: { mathSkillId: skillId },
       orderBy: { usedCount: 'asc' },
       take: count,
-      select: { id: true, question: true, answer: true, instruction: true },
+      select: { id: true, question: true, answer: true, instruction: true, renderSpec: true },
     });
     if (rows.length > 0) {
       await prisma.questionBank.updateMany({
@@ -91,6 +91,7 @@ export async function buildSections(
       questions: newQuestions.slice(0, 10).map((q) => ({
         question: q.question,
         answer: q.answer,
+        renderSpec: q.renderSpec,
       })),
     },
     {
@@ -100,6 +101,7 @@ export async function buildSections(
       questions: review1Questions.map((q) => ({
         question: q.question,
         answer: q.answer,
+        renderSpec: q.renderSpec,
       })),
     },
     {
@@ -109,6 +111,7 @@ export async function buildSections(
       questions: newQuestions.slice(10, 20).map((q) => ({
         question: q.question,
         answer: q.answer,
+        renderSpec: q.renderSpec,
       })),
     },
     {
@@ -118,6 +121,7 @@ export async function buildSections(
       questions: review2Questions.map((q) => ({
         question: q.question,
         answer: q.answer,
+        renderSpec: q.renderSpec,
       })),
     },
   ];

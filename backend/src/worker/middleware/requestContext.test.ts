@@ -79,17 +79,18 @@ describe('requestContext middleware', () => {
     expect(id).not.toContain(tooLong);
   });
 
-  it('overwrites X-Request-Id on the underlying request so downstream proxies forward the worker-chosen id', async () => {
+  it('exposes the worker-chosen id on c.var.requestId for downstream consumers', async () => {
+    // The CF Workers runtime makes the inbound Request.headers immutable,
+    // so we deliberately do NOT mutate `c.req.raw.headers` in middleware.
+    // Downstream consumers (e.g. the fallback proxy) read `c.var.requestId`.
     const app = new Hono<AppBindings>();
     app.use('*', requestContext);
-    // Echo back the *request* header, not the response header, to prove the
-    // worker mutated the inbound header for downstream consumers (fallback).
-    app.get('/echo-req', (c) => c.json({ inbound: c.req.raw.headers.get('X-Request-Id') }));
-    const res = await app.request('/echo-req', {
+    app.get('/echo-var', (c) => c.json({ chosen: c.get('requestId') }));
+    const res = await app.request('/echo-var', {
       headers: { 'X-Request-Id': 'attacker-supplied-id' },
     });
-    const body = (await res.json()) as { inbound: string };
-    expect(body.inbound).toBe('ext:attacker-supplied-id');
+    const body = (await res.json()) as { chosen: string };
+    expect(body.chosen).toBe('ext:attacker-supplied-id');
   });
 
   it('generates distinct ids across requests', async () => {

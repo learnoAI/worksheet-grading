@@ -80,7 +80,8 @@ describe('requestDiagnostics', () => {
         requestBodySummary: expect.objectContaining({
           gradingResponseWorksheetIdType: 'number',
         }),
-      })
+      }),
+      undefined
     );
     expect(posthogMocks.capturePosthogEvent).toHaveBeenCalledWith(
       'backend_request_diagnostic',
@@ -89,6 +90,36 @@ describe('requestDiagnostics', () => {
         diagnosticType: 'server_error',
         jobId: 'job-1',
       })
+    );
+  });
+
+  it('attaches captured error name/message and passes Error to logger when global handler stashed it', () => {
+    const req: any = {
+      method: 'POST',
+      originalUrl: '/api/worksheets/grade',
+      url: '/api/worksheets/grade',
+      path: '/api/worksheets/grade',
+      params: {},
+      body: {},
+      get: vi.fn(),
+    };
+    const res: any = new MockResponse();
+    res.locals = { diagnosticsError: new TypeError('boom from controller') };
+    const next = vi.fn();
+
+    requestDiagnostics(req, res, next);
+    res.statusCode = 500;
+    res.writableEnded = true;
+    res.emit('finish');
+
+    expect(loggerMocks.apiLogger.error).toHaveBeenCalledWith(
+      'Request failed with server error',
+      expect.objectContaining({
+        statusCode: 500,
+        errorName: 'TypeError',
+        errorMessage: 'boom from controller',
+      }),
+      expect.any(TypeError)
     );
   });
 });

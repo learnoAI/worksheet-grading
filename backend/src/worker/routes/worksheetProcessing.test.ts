@@ -180,8 +180,17 @@ describe('POST /api/worksheet-processing/upload-session', () => {
       studentClass: { findMany: studentClassFindMany },
       $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
         cb({
-          worksheetUploadBatch: { create: batchCreate },
-          worksheetUploadItem: { create: itemCreate },
+          worksheetUploadBatch: {
+            create: batchCreate,
+            // No stale batches → supersession is a no-op.
+            findMany: vi.fn().mockResolvedValue([]),
+            update: vi.fn(),
+          },
+          worksheetUploadItem: {
+            create: itemCreate,
+            updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+            count: vi.fn().mockResolvedValue(0),
+          },
           worksheetUploadImage: { create: imageCreate },
         })
       ),
@@ -207,6 +216,108 @@ describe('POST /api/worksheet-processing/upload-session', () => {
     // Unuploaded image should have an uploadUrl (presigned) and expiresAt
     expect(body.items[0].files[0].uploadUrl).toContain('X-Amz-Signature=');
     expect(body.items[0].files[0].expiresAt).toBeTruthy();
+  });
+
+  it('supersedes stale UPLOADING batches: PENDING → FAILED, batch FINALIZED, QUEUED untouched', async () => {
+    const teacherClassFindUnique = vi.fn().mockResolvedValue({ teacherId: 't1' });
+    const studentClassFindMany = vi.fn().mockResolvedValue([{ studentId: 'st1' }]);
+
+    // Two stale batches found; the sweep should mark their PENDING items
+    // FAILED. Batch A has only PENDING items (1 here, all FAILED) → finalized.
+    // Batch B has a remaining QUEUED item after the sweep → left UPLOADING.
+    const staleFindMany = vi
+      .fn()
+      .mockResolvedValue([{ id: 'stale-a' }, { id: 'stale-b' }]);
+    const itemUpdateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: 1 })  // stale-a: 1 PENDING marked FAILED
+      .mockResolvedValueOnce({ count: 0 }); // stale-b: 0 PENDING (everything QUEUED)
+    const itemCount = vi
+      .fn()
+      .mockResolvedValueOnce(0) // stale-a: no PENDING remaining → finalize
+      .mockResolvedValueOnce(2); // stale-b: 2 QUEUED still pending (in the items table) → don't finalize
+    const batchUpdate = vi.fn().mockResolvedValue({ id: 'stale-a', status: 'FINALIZED' });
+
+    const batchCreate = vi.fn().mockResolvedValue({
+      id: 'b-new',
+      classId: 'c1',
+      submittedOn: new Date('2026-04-10T00:00:00Z'),
+      status: 'UPLOADING',
+      finalizedAt: null,
+      teacherId: 't1',
+    });
+    const itemCreate = vi.fn().mockResolvedValue({
+      id: 'item-1',
+      studentId: 'st1',
+      studentName: 'Alice',
+      tokenNo: null,
+      worksheetNumber: 5,
+      worksheetName: '5',
+      isRepeated: false,
+      status: 'PENDING',
+      jobId: null,
+      errorMessage: null,
+    });
+    const imageCreate = vi.fn().mockResolvedValue({
+      id: 'img-1',
+      pageNumber: 1,
+      mimeType: 'image/png',
+      fileSize: null,
+      originalName: 'p1.png',
+      s3Key: 'some-key',
+      imageUrl: 'https://cdn.example.com/some-key',
+      uploadedAt: null,
+    });
+
+    const prisma = {
+      teacherClass: { findUnique: teacherClassFindUnique },
+      studentClass: { findMany: studentClassFindMany },
+      $transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
+        cb({
+          worksheetUploadBatch: {
+            create: batchCreate,
+            findMany: staleFindMany,
+            update: batchUpdate,
+          },
+          worksheetUploadItem: {
+            create: itemCreate,
+            updateMany: itemUpdateMany,
+            count: itemCount,
+          },
+          worksheetUploadImage: { create: imageCreate },
+        })
+      ),
+    };
+    const app = mountApp(prisma);
+    const res = await jsonRequest(
+      app,
+      '/api/worksheet-processing/upload-session',
+      'POST',
+      validBody,
+      baseR2Env
+    );
+    expect(res.status).toBe(201);
+
+    // The findMany must be scoped to the same teacher/class/date and only
+    // UPLOADING + idle past the threshold.
+    const findManyArgs = staleFindMany.mock.calls[0][0];
+    expect(findManyArgs.where.teacherId).toBe('t1');
+    expect(findManyArgs.where.classId).toBe('c1');
+    expect(findManyArgs.where.status).toBe('UPLOADING');
+    expect(findManyArgs.where.updatedAt).toMatchObject({ lt: expect.any(Date) });
+
+    // PENDING items in stale batches must be marked FAILED with the
+    // canonical reason; updateMany must NOT touch QUEUED items.
+    const firstUpdate = itemUpdateMany.mock.calls[0][0];
+    expect(firstUpdate.where.status).toBe('PENDING');
+    expect(firstUpdate.data.status).toBe('FAILED');
+    expect(firstUpdate.data.errorMessage).toBe('Superseded by new upload session');
+
+    // stale-a (no PENDING remaining) → finalized; stale-b is left alone.
+    expect(batchUpdate).toHaveBeenCalledTimes(1);
+    expect(batchUpdate.mock.calls[0][0].where).toEqual({ id: 'stale-a' });
+    expect(batchUpdate.mock.calls[0][0].data.status).toBe('FINALIZED');
+    expect(batchUpdate.mock.calls[0][0].data.finalizedAt).toBeInstanceOf(Date);
   });
 });
 
@@ -563,27 +674,48 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
     const batchUpdate = vi.fn().mockResolvedValue({});
     const itemCount = vi.fn().mockResolvedValue(0);
 
+    // Mock fetch for the queue publish
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
+    ) as unknown as typeof fetch;
+
+    // The finalize handler now scopes to affected items via findMany
+    // (loadUploadItems) instead of re-reading the entire batch.
+    const itemFindMany = vi.fn().mockImplementation(async () =>
+      mutableBatch.items.map((it) => ({ ...it }))
+    );
+
+    // The handler now wraps three things in $transaction:
+    //   1. createGradingJobFromUploadItem (existing — claim → create job → ...)
+    //   2. updateMany(image.uploadedAt) + findMany(item.images)  — Hyperdrive
+    //      cache-bypass for the image-uploaded → item-fetch race
+    //   3. count(PENDING items) + conditional batch.update FINALIZED — same
+    //      cache-bypass for the count-after-job-creation race
+    // The mock tx callback includes every method any of the three may call.
     const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
       cb({
         worksheetUploadItem: {
           updateMany: itemClaim,
           findUnique: itemFindUnique,
           update: itemUpdate,
+          findMany: itemFindMany,
+          count: itemCount,
         },
+        worksheetUploadImage: { updateMany: imageUpdateMany },
+        worksheetUploadBatch: { update: batchUpdate },
         gradingJob: { create: gradingJobCreate },
         gradingJobImage: { createMany: gradingJobImageCreateMany },
       })
     );
 
-    // Mock fetch for the queue publish
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
-    ) as unknown as typeof fetch;
-
     const prisma = {
       worksheetUploadBatch: { findUnique: batchFindUnique, update: batchUpdate },
       worksheetUploadImage: { updateMany: imageUpdateMany },
-      worksheetUploadItem: { count: itemCount, update: vi.fn() },
+      worksheetUploadItem: {
+        count: itemCount,
+        update: vi.fn(),
+        findMany: itemFindMany,
+      },
       gradingJob: { update: gradingJobUpdate },
       $transaction: transaction,
     };
@@ -617,7 +749,122 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('reports pending items when images have not been uploaded yet', async () => {
+  it('reports pending when an affected item still has missing images on a partial upload', async () => {
+    // An item with two images: the client just uploaded img-2 but img-1
+    // is still pending. The new affected-only semantic still picks this
+    // item up (img-2 is in the uploaded set) and surfaces it as pending.
+    const itemImages = [
+      {
+        id: 'img-1',
+        pageNumber: 1,
+        mimeType: 'image/png',
+        fileSize: null,
+        originalName: null,
+        s3Key: 'k1',
+        imageUrl: 'u1',
+        uploadedAt: null as Date | null,
+      },
+      {
+        id: 'img-2',
+        pageNumber: 2,
+        mimeType: 'image/png',
+        fileSize: null,
+        originalName: null,
+        s3Key: 'k2',
+        imageUrl: 'u2',
+        uploadedAt: null as Date | null,
+      },
+    ];
+    let mutableBatch = {
+      id: 'b1',
+      classId: 'c1',
+      submittedOn: new Date(),
+      status: 'UPLOADING',
+      finalizedAt: null,
+      teacherId: 't1',
+      items: [
+        {
+          id: 'item-1',
+          studentId: 'st1',
+          studentName: 'Alice',
+          tokenNo: null,
+          worksheetNumber: 5,
+          worksheetName: '5',
+          isRepeated: false,
+          status: 'PENDING',
+          jobId: null,
+          errorMessage: null,
+          images: itemImages,
+        },
+      ],
+    };
+    const imageUpdateMany = vi.fn(async () => {
+      // Only img-2 is in uploadedImageIds, so only img-2 gets uploadedAt.
+      mutableBatch = {
+        ...mutableBatch,
+        items: mutableBatch.items.map((it) => ({
+          ...it,
+          images: it.images.map((img) =>
+            img.id === 'img-2' ? { ...img, uploadedAt: new Date() } : img
+          ),
+        })),
+      };
+      return { count: 1 };
+    });
+    const batchFindUnique = vi.fn().mockImplementation(async () => mutableBatch);
+    const itemFindMany = vi.fn().mockImplementation(async () =>
+      mutableBatch.items.map((it) => ({ ...it }))
+    );
+    const itemCount = vi.fn().mockResolvedValue(1);
+    const batchUpdate = vi.fn();
+    const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
+      cb({
+        worksheetUploadItem: { findMany: itemFindMany, count: itemCount },
+        worksheetUploadImage: { updateMany: imageUpdateMany },
+        worksheetUploadBatch: { update: batchUpdate },
+      })
+    );
+    const prisma = {
+      worksheetUploadBatch: { findUnique: batchFindUnique, update: batchUpdate },
+      worksheetUploadImage: { updateMany: imageUpdateMany },
+      worksheetUploadItem: {
+        count: itemCount,
+        findMany: itemFindMany,
+      },
+      $transaction: transaction,
+    };
+    const app = mountApp(prisma);
+    const token = await tokenAs('TEACHER', 't1');
+    const res = await app.request(
+      '/api/worksheet-processing/upload-session/b1/finalize',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ uploadedImageIds: ['img-2'] }),
+      },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      queued: unknown[];
+      pending: Array<{ missingImageIds: string[] }>;
+      failed: unknown[];
+      status: string;
+    };
+    expect(body.queued.length).toBe(0);
+    expect(body.pending.length).toBe(1);
+    expect(body.pending[0].missingImageIds).toEqual(['img-1']);
+    expect(body.status).toBe('UPLOADING');
+  });
+
+  it('is a no-op when uploadedImageIds is empty (affected-only scoping)', async () => {
+    // The pre-codex behavior would walk every item in the batch on an
+    // empty payload. The new semantic says: finalize only commits items
+    // whose images the client just uploaded — an empty payload commits
+    // nothing. This locks that contract in.
     const batchFindUnique = vi.fn().mockResolvedValue({
       id: 'b1',
       classId: 'c1',
@@ -637,25 +884,29 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
           status: 'PENDING',
           jobId: null,
           errorMessage: null,
-          images: [
-            {
-              id: 'img-1',
-              pageNumber: 1,
-              mimeType: 'image/png',
-              fileSize: null,
-              originalName: null,
-              s3Key: 'k',
-              imageUrl: 'u',
-              uploadedAt: null,
-            },
-          ],
+          images: [{ id: 'img-1', uploadedAt: null }],
         },
       ],
     });
+    const itemFindMany = vi.fn();
+    const itemCount = vi.fn().mockResolvedValue(1);
+    const imageUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const batchUpdate = vi.fn();
+    const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
+      cb({
+        worksheetUploadItem: { findMany: itemFindMany, count: itemCount },
+        worksheetUploadImage: { updateMany: imageUpdateMany },
+        worksheetUploadBatch: { update: batchUpdate },
+      })
+    );
     const prisma = {
-      worksheetUploadBatch: { findUnique: batchFindUnique, update: vi.fn() },
-      worksheetUploadImage: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
-      worksheetUploadItem: { count: vi.fn().mockResolvedValue(1) },
+      worksheetUploadBatch: { findUnique: batchFindUnique, update: batchUpdate },
+      worksheetUploadImage: { updateMany: imageUpdateMany },
+      worksheetUploadItem: {
+        count: itemCount,
+        findMany: itemFindMany,
+      },
+      $transaction: transaction,
     };
     const app = mountApp(prisma);
     const token = await tokenAs('TEACHER', 't1');
@@ -674,14 +925,15 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       queued: unknown[];
-      pending: Array<{ missingImageIds: string[] }>;
+      pending: unknown[];
       failed: unknown[];
-      status: string;
     };
     expect(body.queued.length).toBe(0);
-    expect(body.pending.length).toBe(1);
-    expect(body.pending[0].missingImageIds).toEqual(['img-1']);
-    expect(body.status).toBe('UPLOADING');
+    expect(body.pending.length).toBe(0);
+    expect(body.failed.length).toBe(0);
+    // Cheap-path proof: with no uploaded image IDs, we shouldn't bother
+    // hitting findMany at all. loadUploadItems short-circuits on empty.
+    expect(itemFindMany).not.toHaveBeenCalled();
   });
 
   it('returns 404 when batch does not exist', async () => {

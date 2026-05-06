@@ -71,6 +71,53 @@ function parseDateInputToUtcEndExclusive(dateInput: string): Date | null {
   return parsed;
 }
 
+// A non-absent grade of exactly 0 is only legitimate when something attests to
+// it: AI gradingDetails, an explicit wrong-question list, or the absent flag.
+// Without any of those, the row is almost certainly a default-state save from
+// a card the teacher never actually graded — saving it would silently corrupt
+// the student's record. Reject at the boundary so the client surfaces the
+// problem instead of the row landing in the DB.
+//
+// On the update path the caller may omit `gradingDetails` /
+// `wrongQuestionNumbers` to mean "leave unchanged", so the helper consults the
+// existing row's fields when the body field is `undefined`. Explicit `null`
+// from the body is treated as "clear" and does NOT fall back to existing.
+function isUntrustedZeroSave(
+  payload: {
+    isAbsent?: boolean | null;
+    grade?: unknown;
+    gradingDetails?: unknown;
+    wrongQuestionNumbers?: unknown;
+  },
+  existing?: {
+    gradingDetails: unknown;
+    wrongQuestionNumbers: string | null;
+  }
+): boolean {
+  if (payload.isAbsent) return false;
+  const numeric = Number(payload.grade);
+  if (!Number.isFinite(numeric) || numeric !== 0) return false;
+
+  const detailsAfterSave =
+    payload.gradingDetails === undefined
+      ? existing?.gradingDetails
+      : payload.gradingDetails;
+  if (detailsAfterSave !== undefined && detailsAfterSave !== null) return false;
+
+  const wrongAfterSave =
+    payload.wrongQuestionNumbers === undefined
+      ? existing?.wrongQuestionNumbers ?? null
+      : payload.wrongQuestionNumbers;
+  const wrongStr =
+    typeof wrongAfterSave === 'string' ? wrongAfterSave.trim() : '';
+  if (wrongStr !== '') return false;
+
+  return true;
+}
+
+const EMPTY_GRADE_MSG =
+  'Cannot save grade of 0 without AI grading details or wrong-question evidence. Mark the student absent if they did not submit, or enter the grade manually.';
+
 /**
  * Worksheet routes — port of `backend/src/routes/worksheetRoutes.ts`.
  *
@@ -941,6 +988,10 @@ worksheets.post(
         );
       }
 
+      if (isUntrustedZeroSave(body)) {
+        return c.json({ message: EMPTY_GRADE_MSG }, 400);
+      }
+
       const template = await prisma.worksheetTemplate.findFirst({
         where: { worksheetNumber: worksheetNum },
       });
@@ -1055,6 +1106,31 @@ worksheets.put(
           { message: 'Valid grade between 0 and 40 is required for non-absent students' },
           400
         );
+      }
+
+      // WHY: The non-absent update path normally relies on Prisma's P2025 to
+      // surface "no row" without a pre-check (Hyperdrive-cache-safe). The
+      // grade=0 guard, however, needs the existing row's gradingDetails and
+      // wrongQuestionNumbers so an AI-graded row stays valid when the client
+      // re-saves the same evidence with body fields omitted. The alternative —
+      // attempting the update first then refetching on success — would mean
+      // two round-trips and a TOCTOU race. We accept the extra read here. If
+      // the row is missing, treat it the same as the update-side P2025.
+      const existingWorksheet = await prisma.worksheet.findUnique({
+        where: { id },
+        select: { gradingDetails: true, wrongQuestionNumbers: true },
+      });
+      if (!existingWorksheet) {
+        return c.json({ message: 'No worksheet found to update' }, 404);
+      }
+
+      if (
+        isUntrustedZeroSave(body, {
+          gradingDetails: existingWorksheet.gradingDetails,
+          wrongQuestionNumbers: existingWorksheet.wrongQuestionNumbers,
+        })
+      ) {
+        return c.json({ message: EMPTY_GRADE_MSG }, 400);
       }
 
       const template = await prisma.worksheetTemplate.findFirst({
@@ -1878,6 +1954,15 @@ worksheets.post(
           if (!Number.isFinite(gradeValue) || gradeValue < 0 || gradeValue > 40) {
             results.failed++;
             results.errors.push({ studentId, error: 'Invalid grade (must be 0-40)' });
+            continue;
+          }
+
+          // Push the empty-grade rejection into per-row errors rather than
+          // returning 400 — preserves the existing batch semantics of "one
+          // bad row does not abort the whole batch".
+          if (isUntrustedZeroSave(ws)) {
+            results.failed++;
+            results.errors.push({ studentId, error: EMPTY_GRADE_MSG });
             continue;
           }
 

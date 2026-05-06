@@ -136,6 +136,41 @@ export async function markGradingJobCompleted(
 }
 
 /**
+ * Clear the dispatch marker for a QUEUED job whose Cloudflare queue message
+ * has been exhausted before any worker picked up the lease. Allows the
+ * dispatch loop to republish a fresh queue message on the next tick.
+ *
+ * The where-clause requires QUEUED + leaseId:null so a job that's already
+ * been picked up (PROCESSING) or is in a terminal state can't be reset out
+ * from under the holding worker. Returns `false` (count=0) when the row
+ * doesn't match, which the caller surfaces as a 409 mismatch.
+ */
+export async function resetQueuedJobDispatch(
+  prisma: PrismaClient,
+  jobId: string,
+  reason?: string
+): Promise<boolean> {
+  const now = new Date();
+  const result = await prisma.gradingJob.updateMany({
+    where: {
+      id: jobId,
+      status: GradingJobStatus.QUEUED,
+      leaseId: null,
+    },
+    data: {
+      enqueuedAt: null,
+      dispatchError: reason ?? null,
+      lastErrorAt: now,
+      startedAt: null,
+      lastHeartbeatAt: null,
+      completedAt: null,
+      errorMessage: null,
+    },
+  });
+  return result.count > 0;
+}
+
+/**
  * PROCESSING → FAILED. Also lease-conditional.
  */
 export async function markGradingJobFailed(

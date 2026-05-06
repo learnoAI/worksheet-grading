@@ -347,6 +347,36 @@ describe('POST /jobs/:jobId/fail', () => {
     expect(call.data.status).toBe('FAILED');
     expect(call.data.errorMessage).toBe('python down');
   });
+
+  it('accepts optional errorName/errorStack/errorContext from the worker', async () => {
+    // The grading consumer forwards these so the backend can capture the
+    // original Error class + stack in PostHog (see codex ee07833). The
+    // route must accept the extended payload without a 400 schema error
+    // and still write FAILED + errorMessage to the DB exactly as before.
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const app = mountApp({ gradingJob: { updateMany } });
+    const res = await postJson(app, '/internal/grading-worker/jobs/j1/fail', {
+      leaseId: 'mine',
+      errorMessage: 'Workers AI request timed out',
+      errorName: 'LlmHttpError',
+      errorStack:
+        'LlmHttpError: timed out\n    at llmGenerateJson (llm.ts:259)',
+      errorContext: {
+        provider: 'workers-ai',
+        model: '@cf/google/gemma-4-26b-a4b-it',
+        status: 504,
+      },
+    });
+    expect(res.status).toBe(200);
+    const call = updateMany.mock.calls[0][0];
+    expect(call.data.status).toBe('FAILED');
+    // errorMessage is the only field that goes onto the row — name/stack/
+    // context are telemetry-only, never persisted.
+    expect(call.data.errorMessage).toBe('Workers AI request timed out');
+    expect(call.data).not.toHaveProperty('errorName');
+    expect(call.data).not.toHaveProperty('errorStack');
+    expect(call.data).not.toHaveProperty('errorContext');
+  });
 });
 
 describe('POST /jobs/:jobId/requeue', () => {
@@ -373,5 +403,58 @@ describe('POST /jobs/:jobId/requeue', () => {
     expect(call.data.status).toBe('QUEUED');
     expect(call.data.dispatchError).toBe('lease_lost');
     expect(call.data).not.toHaveProperty('enqueuedAt');
+  });
+});
+
+describe('POST /jobs/:jobId/reset-dispatch', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 409 when the job is not in QUEUED + leaseId:null state', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const app = mountApp({ gradingJob: { updateMany } });
+    const res = await postJson(
+      app,
+      '/internal/grading-worker/jobs/j1/reset-dispatch',
+      { reason: 'cf_queue_exhausted' }
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { success: boolean; error: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/queued and dispatch-resettable/);
+  });
+
+  it('returns 200 and clears enqueuedAt + lifecycle fields on success', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const app = mountApp({ gradingJob: { updateMany } });
+    const res = await postJson(
+      app,
+      '/internal/grading-worker/jobs/j1/reset-dispatch',
+      { reason: 'cf_queue_exhausted' }
+    );
+    expect(res.status).toBe(200);
+    const call = updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({
+      id: 'j1',
+      status: 'QUEUED',
+      leaseId: null,
+    });
+    expect(call.data.enqueuedAt).toBeNull();
+    expect(call.data.dispatchError).toBe('cf_queue_exhausted');
+    expect(call.data.startedAt).toBeNull();
+    expect(call.data.lastHeartbeatAt).toBeNull();
+    expect(call.data.completedAt).toBeNull();
+    expect(call.data.errorMessage).toBeNull();
+  });
+
+  it('accepts an empty body (reason is optional)', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const app = mountApp({ gradingJob: { updateMany } });
+    const res = await postJson(
+      app,
+      '/internal/grading-worker/jobs/j1/reset-dispatch',
+      {}
+    );
+    expect(res.status).toBe(200);
+    expect(updateMany.mock.calls[0][0].data.dispatchError).toBeNull();
   });
 });

@@ -53,10 +53,19 @@ export class BackendClient {
     });
   }
 
-  async fail(jobId: string, leaseId: string, errorMessage: string): Promise<void> {
+  async fail(
+    jobId: string,
+    leaseId: string,
+    errorMessage: string,
+    extra?: {
+      errorName?: string;
+      errorStack?: string;
+      errorContext?: Record<string, unknown>;
+    },
+  ): Promise<void> {
     await this.requestJson(`/internal/grading-worker/jobs/${encodeURIComponent(jobId)}/fail`, {
       method: 'POST',
-      body: JSON.stringify({ leaseId, errorMessage }),
+      body: JSON.stringify({ leaseId, errorMessage, ...extra }),
     });
   }
 
@@ -64,6 +73,13 @@ export class BackendClient {
     await this.requestJson(`/internal/grading-worker/jobs/${encodeURIComponent(jobId)}/requeue`, {
       method: 'POST',
       body: JSON.stringify({ leaseId, reason }),
+    });
+  }
+
+  async resetDispatch(jobId: string, reason: string): Promise<void> {
+    await this.requestJson(`/internal/grading-worker/jobs/${encodeURIComponent(jobId)}/reset-dispatch`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
   }
 

@@ -33,7 +33,14 @@ import type { WorkerEnv } from '../types';
 export interface PersistWorksheetResult {
   worksheetId: string;
   action: 'CREATED' | 'UPDATED';
+  // Reflects the row that's actually in the DB after the upsert. On the
+  // UPDATE path this can differ from gradingResponse.grade — an SR may
+  // have saved a manual override before this worker finished, and the
+  // upsert intentionally preserves that (see the user-owned-fields
+  // comment on the upsert.update branch). Downstream consumers (mastery,
+  // telemetry) should trust these values, not the raw AI response.
   grade: number | null;
+  outOf: number;
 }
 
 // Threshold for the "slow persistence" PostHog event. Matches the default
@@ -167,14 +174,16 @@ export async function persistWorksheetForGradingJob(
         },
       },
       update: {
-        grade: gradingResponse.grade,
+        // Refresh AI-derived analysis only. `grade`, `wrongQuestionNumbers`,
+        // and `isRepeated` are user-owned: an SR may have already saved a
+        // manual override before this worker finished, and overwriting them
+        // here would silently revert the SR's edit (prod observed 133 such
+        // collisions over 90 days, with SRs hammering Save up to 99 times
+        // on the same worksheet because the value kept reverting).
         status: ProcessingStatus.COMPLETED,
         outOf: gradingResponse.total_possible || 40,
         mongoDbId: gradingResponse.mongodb_id,
         gradingDetails,
-        wrongQuestionNumbers,
-        isRepeated: job.isRepeated,
-        worksheetNumber: job.worksheetNumber,
       },
       create: {
         classId: job.classId,
@@ -224,14 +233,12 @@ export async function persistWorksheetForGradingJob(
         worksheet = await tx.worksheet.update({
           where: { id: existing.id },
           data: {
-            grade: gradingResponse.grade,
+            // See note in the upsert above: never overwrite user-owned
+            // grade/wrongQuestionNumbers/isRepeated on an existing row.
             status: ProcessingStatus.COMPLETED,
             outOf: gradingResponse.total_possible || 40,
             mongoDbId: gradingResponse.mongodb_id,
             gradingDetails,
-            wrongQuestionNumbers,
-            isRepeated: job.isRepeated,
-            worksheetNumber: job.worksheetNumber,
           },
         });
       } else {
@@ -273,13 +280,13 @@ export async function persistWorksheetForGradingJob(
       worksheet = await tx.worksheet.update({
         where: { id: alreadyCreated.id },
         data: {
-          grade: gradingResponse.grade,
+          // P2002 means another writer (often an SR's manual save) created
+          // the row between our findFirst and the upsert. Treat it as an
+          // existing user-owned row and refresh AI-derived fields only.
           status: ProcessingStatus.COMPLETED,
           outOf: gradingResponse.total_possible || 40,
           mongoDbId: gradingResponse.mongodb_id,
           gradingDetails,
-          wrongQuestionNumbers,
-          isRepeated: job.isRepeated,
         },
       });
     } else {
@@ -323,7 +330,8 @@ export async function persistWorksheetForGradingJob(
   return {
     worksheetId: worksheet.id,
     action: wasCreated ? 'CREATED' : 'UPDATED',
-    grade: gradingResponse.grade ?? null,
+    grade: worksheet.grade ?? null,
+    outOf: worksheet.outOf ?? gradingResponse.total_possible ?? 40,
   };
 }
 

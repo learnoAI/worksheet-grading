@@ -511,6 +511,25 @@ async function loadUploadBatchForUser(batchId: string, req: Request) {
     return batch;
 }
 
+async function loadUploadItems(batchId: string, itemIds: string[]) {
+    if (itemIds.length === 0) {
+        return [];
+    }
+
+    return prisma.worksheetUploadItem.findMany({
+        where: {
+            batchId,
+            id: { in: itemIds }
+        },
+        orderBy: { createdAt: 'asc' },
+        include: {
+            images: {
+                orderBy: { pageNumber: 'asc' }
+            }
+        }
+    });
+}
+
 async function createGradingJobFromUploadItem(itemId: string): Promise<{
     itemId: string;
     studentId: string;
@@ -622,7 +641,60 @@ export const createDirectUploadSession = async (req: Request, res: Response) => 
 
         await assertDirectUploadAccess(req, classId, items.map((item) => item.studentId));
 
+        // Stale prior batches for this teacher/class/date are abandoned uploads
+        // — typically duplicates from a shared login or a tab the user closed
+        // mid-flight. Mark their PENDING items FAILED so the new session has a
+        // clean slate; QUEUED items are real worksheets in the AI pipeline and
+        // are left alone. Threshold avoids interfering with a slow upload that
+        // is still genuinely in-flight from another tab.
+        let supersededBatchCount = 0;
+        let supersededItemCount = 0;
+
         const created = await prisma.$transaction(async (tx) => {
+            const staleCutoff = new Date(Date.now() - config.grading.staleUploadBatchMs);
+            const staleBatches = await tx.worksheetUploadBatch.findMany({
+                where: {
+                    teacherId,
+                    classId,
+                    submittedOn,
+                    status: WorksheetUploadBatchStatus.UPLOADING,
+                    updatedAt: { lt: staleCutoff }
+                },
+                select: { id: true }
+            });
+
+            for (const stale of staleBatches) {
+                const supersededItems = await tx.worksheetUploadItem.updateMany({
+                    where: {
+                        batchId: stale.id,
+                        status: WorksheetUploadItemStatus.PENDING
+                    },
+                    data: {
+                        status: WorksheetUploadItemStatus.FAILED,
+                        errorMessage: 'Superseded by new upload session'
+                    }
+                });
+                supersededItemCount += supersededItems.count;
+
+                const remainingPending = await tx.worksheetUploadItem.count({
+                    where: {
+                        batchId: stale.id,
+                        status: WorksheetUploadItemStatus.PENDING
+                    }
+                });
+
+                if (remainingPending === 0) {
+                    await tx.worksheetUploadBatch.update({
+                        where: { id: stale.id },
+                        data: {
+                            status: WorksheetUploadBatchStatus.FINALIZED,
+                            finalizedAt: new Date()
+                        }
+                    });
+                    supersededBatchCount += 1;
+                }
+            }
+
             const batch = await tx.worksheetUploadBatch.create({
                 data: {
                     classId,
@@ -717,6 +789,17 @@ export const createDirectUploadSession = async (req: Request, res: Response) => 
             filesCount: items.reduce((total, item) => total + item.files.length, 0)
         });
 
+        if (supersededItemCount > 0 || supersededBatchCount > 0) {
+            captureGradingPipelineEvent('direct_upload_session_superseded_prior', created.id, {
+                batchId: created.id,
+                classId,
+                teacherId,
+                supersededBatchCount,
+                supersededItemCount,
+                staleUploadBatchMs: config.grading.staleUploadBatchMs
+            });
+        }
+
         // serializeUploadBatch → toUploadFileResponse → getPresignedUrl can throw
         // synchronously if the R2 signing layer fails (missing/invalid creds,
         // clock skew, bad bucket config). Capture those specifically so a failed
@@ -802,16 +885,20 @@ export const finalizeDirectUploadSession = async (req: Request, res: Response) =
             });
         }
 
-        const refreshedBatch = await loadUploadBatchForUser(batch.id, req);
-        if (!refreshedBatch) {
-            return res.status(404).json({ success: false, error: 'Upload session not found' });
-        }
+        const uploadedImageIdSet = new Set(uploadedImageIds);
+        const affectedItemIds = Array.from(new Set(
+            batch.items
+                .filter((item) => item.images.some((image) => uploadedImageIdSet.has(image.id)))
+                .map((item) => item.id)
+        ));
+        const affectedItems = await loadUploadItems(batch.id, affectedItemIds);
 
         const queued = [];
         const pending = [];
         const failed = [];
+        const readyItems = [];
 
-        for (const item of refreshedBatch.items) {
+        for (const item of affectedItems) {
             if (item.status === WorksheetUploadItemStatus.QUEUED && item.jobId) {
                 queued.push({
                     itemId: item.id,
@@ -833,6 +920,10 @@ export const finalizeDirectUploadSession = async (req: Request, res: Response) =
                 continue;
             }
 
+            if (item.status !== WorksheetUploadItemStatus.PENDING) {
+                continue;
+            }
+
             const missingImageIds = item.images
                 .filter((image) => !image.uploadedAt)
                 .map((image) => image.id);
@@ -847,40 +938,38 @@ export const finalizeDirectUploadSession = async (req: Request, res: Response) =
                 continue;
             }
 
+            readyItems.push(item);
+        }
+
+        const readyResults = await Promise.allSettled(readyItems.map(async (item) => {
             try {
                 const jobResult = await createGradingJobFromUploadItem(item.id);
 
                 if (!jobResult.jobId) {
-                    failed.push({
+                    return {
+                        kind: 'failed' as const,
                         itemId: item.id,
                         studentId: item.studentId,
                         worksheetNumber: item.worksheetNumber,
                         error: jobResult.error || 'Unable to create grading job'
-                    });
-                    continue;
+                    };
                 }
 
                 const dispatchResult = jobResult.created
                     ? await dispatchJob(jobResult.jobId)
                     : { dispatchState: 'DISPATCHED' as DispatchState };
 
-                queued.push({
+                return {
+                    kind: 'queued' as const,
                     itemId: item.id,
                     studentId: item.studentId,
                     worksheetNumber: item.worksheetNumber,
                     jobId: jobResult.jobId,
                     dispatchState: dispatchResult.dispatchState,
                     queuedAt: dispatchResult.queuedAt
-                });
+                };
             } catch (error) {
                 const message = error instanceof Error ? error.message : 'Failed to create grading job';
-                failed.push({
-                    itemId: item.id,
-                    studentId: item.studentId,
-                    worksheetNumber: item.worksheetNumber,
-                    error: message
-                });
-
                 await prisma.worksheetUploadItem.update({
                     where: { id: item.id },
                     data: {
@@ -890,6 +979,32 @@ export const finalizeDirectUploadSession = async (req: Request, res: Response) =
                 }).catch(() => {
                     // best effort
                 });
+
+                return {
+                    kind: 'failed' as const,
+                    itemId: item.id,
+                    studentId: item.studentId,
+                    worksheetNumber: item.worksheetNumber,
+                    error: message
+                };
+            }
+        }));
+
+        for (const result of readyResults) {
+            if (result.status === 'rejected') {
+                failed.push({
+                    itemId: 'unknown',
+                    studentId: 'unknown',
+                    worksheetNumber: 0,
+                    error: result.reason instanceof Error ? result.reason.message : 'Failed to finalize upload item'
+                });
+                continue;
+            }
+
+            if (result.value.kind === 'queued') {
+                queued.push(result.value);
+            } else {
+                failed.push(result.value);
             }
         }
 
