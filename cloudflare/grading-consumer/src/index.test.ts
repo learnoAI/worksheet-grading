@@ -792,9 +792,9 @@ describe('cloudflare grading consumer queue semantics', () => {
       model: 'google/gemma-4-26b-a4b-it',
       apiKey: 'openrouter-key',
     });
-    expect(calls[0][0].openRouterReasoning).toEqual({ enabled: true, exclude: true });
+    expect(calls[0][0].openRouterReasoning).toEqual({ effort: 'low', exclude: true });
     expect(calls[1][0].openRouterReasoning).toBeUndefined();
-    expect(calls[2][0].openRouterReasoning).toEqual({ enabled: true, exclude: true });
+    expect(calls[2][0].openRouterReasoning).toEqual({ effort: 'low', exclude: true });
   });
 
   it('tries primary twice before falling back on retryable Workers AI timeouts', async () => {

@@ -261,7 +261,7 @@ describe('llmGenerateJson', () => {
       },
       responseMimeType: 'application/json',
       responseJsonSchema: { type: 'object' },
-      openRouterReasoning: { enabled: true, exclude: true },
+      openRouterReasoning: { effort: 'low', exclude: true },
       parts: [{ text: 'Return json.' }],
     });
 
@@ -287,7 +287,7 @@ describe('llmGenerateJson', () => {
       },
     });
     expect(body.reasoning).toEqual({
-      enabled: true,
+      effort: 'low',
       exclude: true,
     });
     expect(body.provider).toEqual({

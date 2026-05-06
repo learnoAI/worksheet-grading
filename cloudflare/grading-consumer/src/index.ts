@@ -115,7 +115,7 @@ const DEFAULT_OCR_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_GRADING_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_OCR_REQUEST_TIMEOUT_MS = 500_000;
 const DEFAULT_GRADING_REQUEST_TIMEOUT_MS = 500_000;
-const OPENROUTER_THINKING_REASONING: OpenRouterReasoningOptions = { enabled: true, exclude: true };
+const OPENROUTER_THINKING_REASONING: OpenRouterReasoningOptions = { effort: 'low', exclude: true };
 
 class LlmFallbackError extends Error {
   readonly primaryError: unknown;
