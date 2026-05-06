@@ -80,6 +80,16 @@ class_name = "GeminiRateLimiter"
 tag = "v1"
 new_sqlite_classes = ["GeminiRateLimiter"]
 
+[[workflows]]
+name = "grading-workflow"
+binding = "GRADING_WORKFLOW"
+class_name = "GradingWorkflow"
+
+# Queue consumer kept active during cutover so any in-flight messages
+# enqueued by the previous backend deploy can drain. Once the queue
+# is empty post-deploy, this block + the queue resource itself are
+# removed in a follow-up PR. New work is routed through the workflow
+# above; backend dispatch no longer publishes here.
 [[queues.consumers]]
 queue = "grading-fast"
 max_batch_size = 20
@@ -165,6 +175,13 @@ bucket_name = "worksheet-grading-assets"
 name = "GEMINI_RATE_LIMITER"
 class_name = "GeminiRateLimiter"
 
+[[env.staging.workflows]]
+name = "grading-workflow-staging"
+binding = "GRADING_WORKFLOW"
+class_name = "GradingWorkflow"
+
+# Same drain rationale as prod (top-level): kept until staging queue
+# empties post-deploy, then removed in follow-up.
 [[env.staging.queues.consumers]]
 queue = "grading-fast-staging"
 max_batch_size = 1
