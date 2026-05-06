@@ -68,6 +68,10 @@ export interface AdminGradingDashboardResponse {
             successRate: number | null;
             failureRate: number | null;
             avgJobSeconds: number | null;
+            p75JobSeconds: number | null;
+            p90JobSeconds: number | null;
+            p95JobSeconds: number | null;
+            p99JobSeconds: number | null;
             avgSuccessSeconds: number | null;
             avgFailureSeconds: number | null;
             avgAttempts: number | null;

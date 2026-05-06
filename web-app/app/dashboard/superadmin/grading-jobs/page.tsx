@@ -276,6 +276,16 @@ export default function SuperAdminGradingJobsPage() {
                     <SummaryMetric label="Avg Attempts" value={formatNumber(summary?.avgAttempts)} />
                 </div>
 
+                <div className="rounded-md border border-slate-200">
+                    <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold text-slate-950">Duration Percentiles</div>
+                    <div className="grid sm:grid-cols-2 xl:grid-cols-4">
+                        <SummaryMetric label="P75" value={formatDuration(summary?.p75JobSeconds)} />
+                        <SummaryMetric label="P90" value={formatDuration(summary?.p90JobSeconds)} />
+                        <SummaryMetric label="P95" value={formatDuration(summary?.p95JobSeconds)} />
+                        <SummaryMetric label="P99" value={formatDuration(summary?.p99JobSeconds)} />
+                    </div>
+                </div>
+
                 <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
                     <div className="rounded-md border border-slate-200">
                         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">

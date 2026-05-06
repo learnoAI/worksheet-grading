@@ -147,6 +147,17 @@ function average(values: Array<number | null | undefined>): number | null {
     return Math.round(valid.reduce((sum, value) => sum + value, 0) / valid.length);
 }
 
+function percentile(values: Array<number | null | undefined>, percentileValue: number): number | null {
+    const valid = values
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+        .sort((a, b) => a - b);
+
+    if (valid.length === 0) return null;
+
+    const index = Math.ceil((percentileValue / 100) * valid.length) - 1;
+    return valid[Math.min(Math.max(index, 0), valid.length - 1)];
+}
+
 function getFailureReason(job: Pick<AdminDashboardJob, 'errorMessage' | 'dispatchError'>): string {
     return job.errorMessage?.trim() || job.dispatchError?.trim() || 'No reason recorded';
 }
@@ -549,6 +560,10 @@ export const getAdminGradingJobsDashboard = async (req: Request, res: Response) 
             successRate: terminalJobs.length > 0 ? Math.round((completedJobs.length / terminalJobs.length) * 10000) / 100 : null,
             failureRate: terminalJobs.length > 0 ? Math.round((failedJobs.length / terminalJobs.length) * 10000) / 100 : null,
             avgJobSeconds: average(terminalDurations),
+            p75JobSeconds: percentile(terminalDurations, 75),
+            p90JobSeconds: percentile(terminalDurations, 90),
+            p95JobSeconds: percentile(terminalDurations, 95),
+            p99JobSeconds: percentile(terminalDurations, 99),
             avgSuccessSeconds: average(completedDurations),
             avgFailureSeconds: average(failedDurations),
             avgAttempts: historicalJobs.length > 0 ? Math.round((historicalJobs.reduce((sum, job) => sum + job.attemptCount, 0) / historicalJobs.length) * 100) / 100 : null
