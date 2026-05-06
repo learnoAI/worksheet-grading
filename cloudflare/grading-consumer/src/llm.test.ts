@@ -277,7 +277,17 @@ describe('llmGenerateJson', () => {
 
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe('google/gemma-4-26b-a4b-it');
-    expect(body.response_format).toBeUndefined();
+    expect(body.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: {
+        name: 'worksheet_grading_response',
+        strict: true,
+        schema: { type: 'object' },
+      },
+    });
+    expect(body.provider).toEqual({
+      require_parameters: true,
+    });
   });
 
   it('treats Cloudflare provider error payloads as retryable LLM errors even when the HTTP wrapper is 200', async () => {

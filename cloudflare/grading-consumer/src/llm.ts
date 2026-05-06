@@ -180,7 +180,13 @@ function buildMessages(
 }
 
 function supportsResponseFormat(config: LlmModelConfig): boolean {
-  if (config.provider !== 'workers-ai') {
+  const provider = config.provider.trim().toLowerCase();
+
+  if (provider === 'openrouter') {
+    return true;
+  }
+
+  if (provider !== 'workers-ai') {
     return false;
   }
 
@@ -209,10 +215,35 @@ function buildResponseFormat(options: LlmGenerateOptions): unknown {
     return undefined;
   }
 
+  if (options.providerConfig.provider.trim().toLowerCase() === 'openrouter') {
+    return {
+      type: 'json_schema',
+      json_schema: {
+        name: 'worksheet_grading_response',
+        strict: true,
+        schema: options.responseJsonSchema,
+      },
+    };
+  }
+
   return {
     type: 'json_schema',
     json_schema: options.responseJsonSchema,
   };
+}
+
+function buildProviderOptions(options: LlmGenerateOptions): unknown {
+  if (
+    options.responseMimeType === 'application/json' &&
+    options.responseJsonSchema &&
+    options.providerConfig.provider.trim().toLowerCase() === 'openrouter'
+  ) {
+    return {
+      require_parameters: true,
+    };
+  }
+
+  return undefined;
 }
 
 function buildReasoningEffort(options: LlmGenerateOptions): LlmReasoningEffort | undefined {
@@ -255,6 +286,7 @@ export async function llmGenerateJson<T>(options: LlmGenerateOptions): Promise<{
   }
 
   const responseFormat = buildResponseFormat(options);
+  const providerOptions = buildProviderOptions(options);
   const reasoningEffort = buildReasoningEffort(options);
   const res = await fetch(url, {
     method: 'POST',
@@ -265,6 +297,7 @@ export async function llmGenerateJson<T>(options: LlmGenerateOptions): Promise<{
       temperature: typeof options.temperature === 'number' ? options.temperature : 0.1,
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       ...(responseFormat ? { response_format: responseFormat } : {}),
+      ...(providerOptions ? { provider: providerOptions } : {}),
     }),
   });
 
