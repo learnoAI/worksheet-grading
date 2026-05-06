@@ -8,7 +8,6 @@ import {
   touchGradingJobHeartbeat,
   markGradingJobFailed,
   requeueGradingJobForRetry,
-  resetQueuedJobDispatch,
 } from '../adapters/gradingLifecycle';
 import { persistWorksheetForGradingJobId } from '../adapters/gradingPersistence';
 import { updateMasteryForWorksheet } from '../adapters/mastery';
@@ -645,15 +644,20 @@ internalGradingWorker.post(
 );
 
 /**
- * `POST /jobs/:jobId/reset-dispatch` — clear the dispatch marker on a
- * QUEUED job whose Cloudflare queue message has been exhausted before
- * any worker acquired a lease.
+ * `POST /jobs/:jobId/reset-dispatch` — restart the workflow instance for
+ * a stuck grading job.
  *
- * Called by the grading consumer after CF Queues retry exhaustion. By
- * clearing `enqueuedAt`, the dispatch loop's next tick will republish a
- * fresh queue message. The where-clause requires `status: QUEUED` and
- * `leaseId: null`, so a job that's already been picked up cannot be
- * reset out from under the holding worker — that surfaces as 409.
+ * Pre-workflow this route cleared `enqueuedAt` so the next dispatch-loop
+ * tick republished a fresh CF Queue message. With workflows, "stuck"
+ * means the workflow instance terminated or errored without persisting
+ * back to the row. Recovery is `instance.restart()`, which the CF
+ * runtime executes from scratch (re-acquires lease, re-runs OCR, etc.).
+ *
+ * Behavior:
+ *   - Job has a workflowInstanceId → call restart() on it.
+ *   - Job has no workflowInstanceId (legacy or never-dispatched) →
+ *     create a fresh workflow with id = jobId.
+ *   - Job is in a terminal state (COMPLETED/FAILED) → 409.
  */
 internalGradingWorker.post(
   '/jobs/:jobId/reset-dispatch',
@@ -667,20 +671,68 @@ internalGradingWorker.post(
     const env = c.env ?? {};
 
     try {
-      const updated = await resetQueuedJobDispatch(prisma, jobId, reason);
-      if (!updated) {
+      const job = await prisma.gradingJob.findUnique({
+        where: { id: jobId },
+        select: { id: true, status: true, workflowInstanceId: true },
+      });
+      if (!job) {
+        return c.json({ success: false, error: 'Job not found' }, 404);
+      }
+      if (job.status === GradingJobStatus.COMPLETED || job.status === GradingJobStatus.FAILED) {
         await capturePosthogEvent(env, 'worker_reset_dispatch_mismatch', jobId, {
           jobId,
+          status: job.status,
         });
         return c.json(
-          { success: false, error: 'Job is not queued and dispatch-resettable' },
+          { success: false, error: `Job is in terminal state ${job.status} and cannot be reset` },
           409
         );
+      }
+
+      const binding = (env as { GRADING_WORKFLOW?: import('../types').GradingWorkflowBinding }).GRADING_WORKFLOW;
+      if (!binding) {
+        return c.json({ success: false, error: 'GRADING_WORKFLOW binding not configured' }, 500);
+      }
+
+      if (job.workflowInstanceId) {
+        const instance = await binding.get(job.workflowInstanceId);
+        await instance.restart();
+        await prisma.gradingJob.update({
+          where: { id: jobId },
+          data: {
+            status: GradingJobStatus.QUEUED,
+            leaseId: null,
+            startedAt: null,
+            lastHeartbeatAt: null,
+            completedAt: null,
+            dispatchError: reason ?? null,
+            lastErrorAt: new Date(),
+            errorMessage: null,
+          },
+        });
+      } else {
+        const queuedAt = new Date().toISOString();
+        const instance = await binding.create({
+          id: jobId,
+          params: { jobId, enqueuedAt: queuedAt },
+        });
+        await prisma.gradingJob.update({
+          where: { id: jobId },
+          data: {
+            status: GradingJobStatus.QUEUED,
+            workflowInstanceId: instance.id,
+            enqueuedAt: new Date(queuedAt),
+            dispatchError: reason ?? null,
+            lastErrorAt: new Date(),
+          },
+        });
       }
 
       await capturePosthogEvent(env, 'worker_reset_dispatch_succeeded', jobId, {
         jobId,
         reason,
+        workflowInstanceId: job.workflowInstanceId ?? jobId,
+        path: job.workflowInstanceId ? 'restart' : 'create',
       });
       return c.json({ success: true }, 200);
     } catch (error) {
