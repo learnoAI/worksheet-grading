@@ -59,6 +59,9 @@ describe('llmGenerateJson', () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe('workers-ai/@cf/google/gemma-4-26b-a4b-it');
     expect(body.reasoning_effort).toBe('low');
+    expect(body.chat_template_kwargs).toEqual({
+      enable_thinking: false,
+    });
     expect(body.response_format).toEqual({
       type: 'json_schema',
       json_schema: { type: 'object' },
@@ -123,6 +126,9 @@ describe('llmGenerateJson', () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe('workers-ai/@cf/meta/llama-3.2-11b-vision-instruct');
     expect(body.reasoning_effort).toBe('low');
+    expect(body.chat_template_kwargs).toEqual({
+      enable_thinking: false,
+    });
     expect(body.response_format).toEqual({
       type: 'json_schema',
       json_schema: { type: 'object', properties: { ok: { type: 'boolean' } } },
@@ -233,6 +239,7 @@ describe('llmGenerateJson', () => {
     const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit | undefined];
     const body = JSON.parse(String(firstCall[1]!.body));
     expect(body.reasoning_effort).toBeUndefined();
+    expect(body.chat_template_kwargs).toBeUndefined();
   });
 
   it('routes OpenRouter requests through the provider-native AI Gateway endpoint', async () => {

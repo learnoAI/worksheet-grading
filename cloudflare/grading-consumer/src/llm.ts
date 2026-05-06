@@ -13,6 +13,11 @@ export interface OpenRouterReasoningOptions {
   enabled?: boolean;
 }
 
+export interface WorkersAiChatTemplateKwargs {
+  enable_thinking?: boolean;
+  [key: string]: unknown;
+}
+
 export interface LlmGenerateOptions {
   gatewayAccountId?: string;
   gatewayId?: string;
@@ -28,6 +33,7 @@ export interface LlmGenerateOptions {
   requestTimeoutMs?: number;
   responseMimeType?: string;
   responseJsonSchema?: unknown;
+  workersAiChatTemplateKwargs?: WorkersAiChatTemplateKwargs;
 }
 
 export class LlmHttpError extends Error {
@@ -255,7 +261,7 @@ function buildProviderOptions(options: LlmGenerateOptions): unknown {
 }
 
 function buildReasoningEffort(options: LlmGenerateOptions): LlmReasoningEffort | undefined {
-  if (options.providerConfig.provider !== 'workers-ai') {
+  if (options.providerConfig.provider.trim().toLowerCase() !== 'workers-ai') {
     return undefined;
   }
 
@@ -264,6 +270,14 @@ function buildReasoningEffort(options: LlmGenerateOptions): LlmReasoningEffort |
   }
 
   return options.reasoningEffort;
+}
+
+function buildWorkersAiChatTemplateKwargs(options: LlmGenerateOptions): WorkersAiChatTemplateKwargs | undefined {
+  if (options.providerConfig.provider.trim().toLowerCase() !== 'workers-ai') {
+    return undefined;
+  }
+
+  return options.workersAiChatTemplateKwargs || { enable_thinking: false };
 }
 
 function buildOpenRouterReasoning(options: LlmGenerateOptions): OpenRouterReasoningOptions | undefined {
@@ -304,6 +318,7 @@ export async function llmGenerateJson<T>(options: LlmGenerateOptions): Promise<{
   const responseFormat = buildResponseFormat(options);
   const providerOptions = buildProviderOptions(options);
   const reasoningEffort = buildReasoningEffort(options);
+  const workersAiChatTemplateKwargs = buildWorkersAiChatTemplateKwargs(options);
   const openRouterReasoning = buildOpenRouterReasoning(options);
   const res = await fetch(url, {
     method: 'POST',
@@ -313,6 +328,7 @@ export async function llmGenerateJson<T>(options: LlmGenerateOptions): Promise<{
       messages: buildMessages(options.parts),
       temperature: typeof options.temperature === 'number' ? options.temperature : 0.1,
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      ...(workersAiChatTemplateKwargs ? { chat_template_kwargs: workersAiChatTemplateKwargs } : {}),
       ...(openRouterReasoning ? { reasoning: openRouterReasoning } : {}),
       ...(responseFormat ? { response_format: responseFormat } : {}),
       ...(providerOptions ? { provider: providerOptions } : {}),
