@@ -13,7 +13,7 @@ import {
 } from './schemas';
 import type { ExtractedQuestions, GradingResult } from './schemas';
 import type { JobPayload } from './types';
-import type { LlmGenerateOptions, LlmModelConfig, LlmReasoningEffort, OpenRouterReasoningOptions } from './llm';
+import type { LlmGenerateOptions, LlmModelConfig, LlmReasoningEffort } from './llm';
 
 interface Env {
   BACKEND_BASE_URL: string;
@@ -115,7 +115,6 @@ const DEFAULT_OCR_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_GRADING_REASONING_EFFORT: LlmReasoningEffort = 'low';
 const DEFAULT_OCR_REQUEST_TIMEOUT_MS = 500_000;
 const DEFAULT_GRADING_REQUEST_TIMEOUT_MS = 500_000;
-const OPENROUTER_THINKING_REASONING: OpenRouterReasoningOptions = { effort: 'low', exclude: true };
 
 class LlmFallbackError extends Error {
   readonly primaryError: unknown;
@@ -347,14 +346,14 @@ function isOpenRouterConfig(config: LlmModelConfig): boolean {
   return config.provider.trim().toLowerCase() === 'openrouter';
 }
 
-function withOpenRouterReasoningForAttempt(options: LlmGenerateOptions, attempt: number): LlmGenerateOptions {
+function withOpenRouterReasoningForAttempt(options: LlmGenerateOptions, _attempt: number): LlmGenerateOptions {
   if (!isOpenRouterConfig(options.providerConfig)) {
     return options;
   }
 
   return {
     ...options,
-    openRouterReasoning: attempt === 1 ? OPENROUTER_THINKING_REASONING : undefined,
+    openRouterReasoning: undefined,
   };
 }
 
