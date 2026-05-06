@@ -224,7 +224,11 @@ function getLlmErrorStatus(error: unknown): number | undefined {
 }
 
 const ERROR_STACK_MAX_BYTES = 2000;
-const ERROR_RESPONSE_TEXT_MAX_BYTES = 500;
+// Provider response bodies can echo prompt content (some OpenRouter models
+// do). Cap small enough to capture the provider's error code/message but
+// not enough to round-trip an OCR'd worksheet. Pair with the llm.ts
+// preview redaction so the combined PII surface stays tight.
+const ERROR_RESPONSE_TEXT_MAX_BYTES = 200;
 
 // Capture name/stack/structured-context off thrown errors so the backend can
 // log them to app_logs with full fidelity. Without this the worker only sends

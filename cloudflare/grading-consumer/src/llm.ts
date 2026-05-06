@@ -74,8 +74,15 @@ function parseJsonWithFallback<T>(rawText: string): T {
     }
   }
 
+  // The LLM output can include OCR'd student names + answers. Log the
+  // preview locally for `wrangler tail` debugging only; DO NOT attach it
+  // to the thrown Error — that flows through backend.fail → PostHog
+  // $exception (and Express app_logs) where it becomes durable PII.
   const preview = stripped.length > 800 ? `${stripped.slice(0, 800)}...` : stripped;
-  throw new Error(`Failed to parse LLM JSON payload: ${(lastErr as Error)?.message || String(lastErr)}. Payload preview: ${preview}`);
+  console.error('[llm] parse failed; payload preview (local-only):', preview);
+  throw new Error(
+    `Failed to parse LLM JSON payload: ${(lastErr as Error)?.message || String(lastErr)} (payload bytes: ${stripped.length})`
+  );
 }
 
 function extractText(responseJson: any): string {
