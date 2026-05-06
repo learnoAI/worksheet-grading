@@ -20,6 +20,13 @@ export interface LlmGenerateOptions {
   requestTimeoutMs?: number;
   responseMimeType?: string;
   responseJsonSchema?: unknown;
+  // When true, skip the per-provider `Authorization` header. Use this
+  // when the gateway already has the provider integration configured
+  // (e.g. workers-ai routed through an authed gateway): sending both
+  // `cf-aig-authorization` and `Authorization` with the same token
+  // causes some gateways (e.g. saarthi_test) to 401 with
+  // "Authentication error" code 10000.
+  skipProviderAuth?: boolean;
 }
 
 export class LlmHttpError extends Error {
@@ -254,7 +261,7 @@ export async function llmGenerateJson<T>(options: LlmGenerateOptions): Promise<{
   const providerApiKey =
     options.providerConfig.apiKey?.trim() ||
     (options.providerConfig.provider === 'workers-ai' ? gatewayToken : undefined);
-  if (providerApiKey) {
+  if (providerApiKey && !options.skipProviderAuth) {
     headers.Authorization = `Bearer ${providerApiKey}`;
   }
   if (typeof options.requestTimeoutMs === 'number' && Number.isFinite(options.requestTimeoutMs) && options.requestTimeoutMs > 0) {

@@ -291,6 +291,11 @@ export class GradingWorkflow extends WorkflowEntrypoint<Env, GradingWorkflowPara
             model: tier.model,
             apiKey: tierApiKey(this.env, tier.provider),
           },
+          // Workers-ai is routed via the gateway's managed integration,
+          // so the gateway header alone is sufficient. Sending a
+          // duplicate Authorization with the same token makes some
+          // gateways 401 (e.g. saarthi_test, 2026-05-07).
+          skipProviderAuth: tier.provider === 'workers-ai',
           reasoningEffort: tier.reasoningEffort,
           responseMimeType: 'application/json',
           responseJsonSchema: ExtractedQuestionsJsonSchema,
@@ -326,6 +331,7 @@ export class GradingWorkflow extends WorkflowEntrypoint<Env, GradingWorkflowPara
             model: tier.model,
             apiKey: tierApiKey(this.env, tier.provider),
           },
+          skipProviderAuth: tier.provider === 'workers-ai',
           reasoningEffort: tier.reasoningEffort,
           responseMimeType: 'application/json',
           responseJsonSchema: GradingResultJsonSchema,
