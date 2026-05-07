@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import prisma from '../utils/prisma';
+import config from '../config/env';
 import { capturePosthogEvent } from '../services/posthogService';
 
 /**
@@ -1142,9 +1143,17 @@ export const getClassesByTeacherWithStatus = async (req: Request, res: Response)
             return res.status(200).json({ teacherId, classes: [] });
         }
 
+        // UPLOADING batches older than staleUploadBatchMs are abandoned sessions
+        // (the upload flow itself supersedes them lazily on next session). Don't
+        // block on those — only count batches that are actually in-flight.
+        const uploadStaleCutoff = new Date(Date.now() - config.grading.staleUploadBatchMs);
         const [pendingBatches, pendingWorksheets, pendingJobs] = await Promise.all([
             prisma.worksheetUploadBatch.findMany({
-                where: { classId: { in: classIds }, status: 'UPLOADING' },
+                where: {
+                    classId: { in: classIds },
+                    status: 'UPLOADING',
+                    updatedAt: { gt: uploadStaleCutoff }
+                },
                 select: { classId: true }
             }),
             prisma.worksheet.findMany({
@@ -1241,10 +1250,16 @@ export const reassignTeacherClasses = async (req: Request, res: Response) => {
         }
 
         // Block on in-flight work for any of the listed classes:
-        // (A) UPLOADING batch, (B) Worksheet PENDING/PROCESSING, (C) GradingJob QUEUED/PROCESSING.
+        // (A) UPLOADING batch (skip stale ones — see staleUploadBatchMs),
+        // (B) Worksheet PENDING/PROCESSING, (C) GradingJob QUEUED/PROCESSING.
+        const uploadStaleCutoff = new Date(Date.now() - config.grading.staleUploadBatchMs);
         const [pendingBatches, pendingWorksheets, pendingJobs] = await Promise.all([
             prisma.worksheetUploadBatch.findMany({
-                where: { classId: { in: uniqueClassIds }, status: 'UPLOADING' },
+                where: {
+                    classId: { in: uniqueClassIds },
+                    status: 'UPLOADING',
+                    updatedAt: { gt: uploadStaleCutoff }
+                },
                 select: { id: true, classId: true, status: true }
             }),
             prisma.worksheet.findMany({
