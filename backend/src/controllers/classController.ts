@@ -1332,9 +1332,17 @@ export const reassignTeacherClasses = async (req: Request, res: Response) => {
 
             await prisma.$transaction(
                 async tx => {
+                    // deleteMany silently no-ops on rows already removed; that's
+                    // intentional — if source's TeacherClass was concurrently
+                    // removed between snapshot and tx, the desired end state
+                    // (target owns the class) is still reached by the create.
                     await tx.teacherClass.deleteMany({
                         where: { teacherId: fromTeacherId, classId: { in: moved } }
                     });
+                    // skipDuplicates absorbs the symmetric race: if target was
+                    // concurrently assigned, we treat the existing row as the
+                    // desired state instead of erroring out. The 'already_assigned'
+                    // skip from the snapshot handles the common case.
                     await tx.teacherClass.createMany({
                         data: moved.map(classId => ({ teacherId: toTeacherId, classId })),
                         skipDuplicates: true
