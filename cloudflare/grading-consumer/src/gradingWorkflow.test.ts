@@ -152,7 +152,7 @@ describe('GradingWorkflow', () => {
     });
 
     const wf = new GradingWorkflow({} as never, env as never);
-    await wf.run({ payload: { jobId: 'job-1', enqueuedAt: '2026-05-07T00:00:00Z' } } as never, step as never);
+    await wf.run({ payload: { jobId: 'job-1' } } as never, step as never);
 
     // tier-1 only for both OCR and grading; no fallthrough.
     const tierStepNames = calls.map((c) => c.name);
@@ -207,7 +207,7 @@ describe('GradingWorkflow', () => {
     );
 
     const wf = new GradingWorkflow({} as never, env as never);
-    await wf.run({ payload: { jobId: 'job-1', enqueuedAt: '2026-05-07T00:00:00Z' } } as never, step as never);
+    await wf.run({ payload: { jobId: 'job-1' } } as never, step as never);
 
     const tierStepNames = calls.map((c) => c.name);
     expect(tierStepNames).toContain('grading-cf-gemma-thinking');
@@ -250,7 +250,7 @@ describe('GradingWorkflow', () => {
 
     const wf = new GradingWorkflow({} as never, env as never);
     await expect(
-      wf.run({ payload: { jobId: 'job-1', enqueuedAt: '2026-05-07T00:00:00Z' } } as never, step as never),
+      wf.run({ payload: { jobId: 'job-1' } } as never, step as never),
     ).rejects.toThrow(/Grading failed after all tiers/);
 
     const tierStepNames = calls.map((c) => c.name);
@@ -278,7 +278,7 @@ describe('GradingWorkflow', () => {
 
     const wf = new GradingWorkflow({} as never, env as never);
     await expect(
-      wf.run({ payload: { jobId: 'job-1', enqueuedAt: '2026-05-07T00:00:00Z' } } as never, step as never),
+      wf.run({ payload: { jobId: 'job-1' } } as never, step as never),
     ).rejects.toThrow();
 
     // No tier or persist step should run if acquire didn't yield a lease.

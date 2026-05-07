@@ -42,6 +42,7 @@ export interface WorkerEnv {
   //                 Cloudflare Workflows via GRADING_WORKFLOW); kept
   //                 typed for the Express in-process loop in
   //                 `src/workers/gradingDispatchLoop.ts`.
+  //                 TODO(2026-08): remove once Express path retires.
   //   QUESTION_GENERATION_QUEUE_ID / PDF_RENDERING_QUEUE_ID — still
   //                 used by worksheet-generation paths.
   CF_QUEUE_ID?: string;
@@ -110,7 +111,7 @@ export interface WorkerEnv {
 export interface GradingWorkflowBinding {
   create(options: {
     id: string;
-    params: { jobId: string; enqueuedAt: string };
+    params: { jobId: string };
   }): Promise<GradingWorkflowInstance>;
   get(id: string): Promise<GradingWorkflowInstance>;
 }

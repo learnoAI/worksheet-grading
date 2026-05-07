@@ -59,7 +59,6 @@ interface Env {
 
 export interface GradingWorkflowParams {
   jobId: string;
-  enqueuedAt: string;
 }
 
 interface TierConfig {
@@ -181,6 +180,14 @@ function serializeError(error: unknown): {
  * returning the first success. Each step is checkpointed independently,
  * so a successful tier on workflow restart replays from cache and a
  * failed tier doesn't re-execute (control flow proceeds to the next one).
+ *
+ * Note on `NonRetryableError` semantics: the CF Workflows runtime treats
+ * `NonRetryableError` as "skip the rest of THIS step's retries and fail
+ * fast." We catch and proceed to the next tier here, so a tier-internal
+ * NonRetryableError (e.g. a 401 from one provider) still falls through
+ * to the next tier instead of aborting the workflow. The
+ * "non-retryable" name applies within a single tier; cross-tier
+ * fallthrough is unaffected.
  */
 async function runTieredStep<T>(
   step: WorkflowStep,

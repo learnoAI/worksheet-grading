@@ -227,7 +227,7 @@ async function dispatchJob(
 
   const queuedAt = new Date().toISOString();
   try {
-    const { instanceId } = await dispatchGradingWorkflow(env, jobId, queuedAt);
+    const { instanceId } = await dispatchGradingWorkflow(env, jobId);
     await prisma.gradingJob.update({
       where: { id: jobId },
       data: {
@@ -246,6 +246,16 @@ async function dispatchJob(
     return { dispatchState: 'DISPATCHED', queuedAt };
   } catch (error) {
     const dispatchError = error instanceof Error ? error.message : 'Workflow create failed';
+    // Pull whatever the adapter / CF runtime gave us so triage can
+    // distinguish "binding misconfigured" from "API timeout" from a
+    // race against an instance that already exists somewhere upstream.
+    const errorName = error instanceof Error ? error.name : undefined;
+    const errorCode = (error as { code?: string } | undefined)?.code;
+    // `Error.cause` is ES2022 — backend tsconfig targets es2016, so read
+    // through a structural cast.
+    const cause = (error as { cause?: unknown } | undefined)?.cause;
+    const causeMessage = cause instanceof Error ? cause.message : undefined;
+    const causeName = cause instanceof Error ? cause.name : undefined;
     await prisma.gradingJob
       .update({
         where: { id: jobId },
@@ -258,13 +268,17 @@ async function dispatchJob(
     await capturePosthogException(env, error, {
       distinctId: jobId,
       stage: 'grading_dispatch',
-      extra: { jobId },
+      extra: { jobId, errorName, errorCode, causeName, causeMessage },
     });
     await capturePosthogEvent(env, 'dispatch_failed', jobId, {
       jobId,
       queueMode: 'workflow',
       dispatchState: 'PENDING_DISPATCH',
       error: dispatchError,
+      errorName,
+      errorCode,
+      causeName,
+      causeMessage,
     });
     return { dispatchState: 'PENDING_DISPATCH' };
   }

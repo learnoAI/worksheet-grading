@@ -588,7 +588,7 @@ describe('POST /api/worksheet-processing/process', () => {
     expect(wf.create).toHaveBeenCalledTimes(1);
     const createArgs = wf.create.mock.calls[0][0] as {
       id: string;
-      params: { jobId: string; enqueuedAt: string };
+      params: { jobId: string };
     };
     expect(createArgs.id).toBe('job-1');
     expect(createArgs.params.jobId).toBe('job-1');
