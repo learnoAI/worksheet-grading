@@ -56,6 +56,16 @@ describe('dispatchGradingWorkflow', () => {
     await expect(dispatchGradingWorkflow(env, 'job-4')).rejects.toThrow(GradingWorkflowDispatchError);
   });
 
+  it('does NOT swallow generic "already exists" messages from upstream layers', async () => {
+    const { env } = makeBinding(async () => {
+      // e.g. R2 / asset-tier path returning "asset already exists".
+      // Only the CF-Workflows-specific phrase 'instance with the id'
+      // (or the typed code) should be treated as the swallow case.
+      throw new Error('asset already exists in bucket');
+    });
+    await expect(dispatchGradingWorkflow(env, 'job-4b')).rejects.toThrow(GradingWorkflowDispatchError);
+  });
+
   it('wraps unrelated errors as GradingWorkflowDispatchError with cause preserved', async () => {
     const root = new Error('socket hang up');
     const { env } = makeBinding(async () => {

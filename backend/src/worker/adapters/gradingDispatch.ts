@@ -27,16 +27,15 @@ export class GradingWorkflowDispatchError extends Error {
 function isInstanceAlreadyExistsError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   // Prefer the typed `code` field — the CF Workflows runtime sets it
-  // explicitly on the thrown Error. The substring fallbacks exist only
-  // because the public docs don't yet promise the code is always set;
-  // both phrases are sourced from observed CF runtime errors. We
-  // deliberately do NOT match on bare 'duplicate' — that string is
-  // generic enough to false-positive on Postgres / provider errors
-  // bubbling up through unrelated paths.
+  // explicitly on the thrown Error. The substring fallback exists only
+  // because the public docs don't yet promise the code is always set.
+  // We use the most specific phrase observed in CF runtime errors;
+  // generic strings ('already exists', 'duplicate') are deliberately
+  // NOT matched — they false-positive on unrelated upstream errors
+  // (e.g. R2 'asset already exists', Postgres 'duplicate key').
   const code = (error as Error & { code?: string }).code;
   if (code === 'instance_already_exists') return true;
-  const msg = error.message.toLowerCase();
-  return msg.includes('instance with the id') || msg.includes('already exists');
+  return error.message.toLowerCase().includes('instance with the id');
 }
 
 export async function dispatchGradingWorkflow(
