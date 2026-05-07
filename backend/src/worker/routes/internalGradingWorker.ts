@@ -695,46 +695,61 @@ internalGradingWorker.post(
         return c.json({ success: false, error: 'GRADING_WORKFLOW binding not configured' }, 500);
       }
 
+      // Three reset paths, all converging on a single row update:
+      //   - 'restart'                    — workflowInstanceId tracked → restart()
+      //   - 'create'                     — no tracked instance, fresh create
+      //   - 'restart-existing-untracked' — partial-write race: instance
+      //                                    already exists in CF, just
+      //                                    didn't make it onto the row
+      let instanceId: string;
+      let path: 'restart' | 'create' | 'restart-existing-untracked';
+      let stampEnqueuedAt = false;
+
       if (job.workflowInstanceId) {
         const instance = await binding.get(job.workflowInstanceId);
         await instance.restart();
-        await prisma.gradingJob.update({
-          where: { id: jobId },
-          data: {
-            status: GradingJobStatus.QUEUED,
-            leaseId: null,
-            startedAt: null,
-            lastHeartbeatAt: null,
-            completedAt: null,
-            dispatchError: reason ?? null,
-            lastErrorAt: new Date(),
-            errorMessage: null,
-          },
-        });
+        instanceId = job.workflowInstanceId;
+        path = 'restart';
       } else {
-        // Legacy job (or partial-write race): no recorded
-        // workflowInstanceId. Route through the dispatch adapter so the
-        // "instance already exists" case is swallowed if the create
-        // landed on the CF side but the row update never did.
-        const queuedAt = new Date().toISOString();
-        const { instanceId } = await dispatchGradingWorkflow(env, jobId);
-        await prisma.gradingJob.update({
-          where: { id: jobId },
-          data: {
-            status: GradingJobStatus.QUEUED,
-            workflowInstanceId: instanceId,
-            enqueuedAt: new Date(queuedAt),
-            dispatchError: reason ?? null,
-            lastErrorAt: new Date(),
-          },
-        });
+        const result = await dispatchGradingWorkflow(env, jobId);
+        instanceId = result.instanceId;
+        if (result.existed) {
+          // Adapter found an existing instance via the swallow. The
+          // route's contract is "make this job run again", so restart
+          // it explicitly — otherwise we'd just recover the row state
+          // without actually re-running anything.
+          const instance = await binding.get(instanceId);
+          await instance.restart();
+          path = 'restart-existing-untracked';
+        } else {
+          // Genuinely fresh create — only this path stamps enqueuedAt
+          // (the other two are restarts of an already-dispatched job).
+          path = 'create';
+          stampEnqueuedAt = true;
+        }
       }
+
+      await prisma.gradingJob.update({
+        where: { id: jobId },
+        data: {
+          status: GradingJobStatus.QUEUED,
+          workflowInstanceId: instanceId,
+          leaseId: null,
+          startedAt: null,
+          lastHeartbeatAt: null,
+          completedAt: null,
+          dispatchError: reason ?? null,
+          lastErrorAt: new Date(),
+          errorMessage: null,
+          ...(stampEnqueuedAt ? { enqueuedAt: new Date() } : {}),
+        },
+      });
 
       await capturePosthogEvent(env, 'worker_reset_dispatch_succeeded', jobId, {
         jobId,
         reason,
-        workflowInstanceId: job.workflowInstanceId ?? jobId,
-        path: job.workflowInstanceId ? 'restart' : 'create',
+        workflowInstanceId: instanceId,
+        path,
       });
       return c.json({ success: true }, 200);
     } catch (error) {

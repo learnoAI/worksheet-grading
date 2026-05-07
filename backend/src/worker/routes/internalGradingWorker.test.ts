@@ -469,21 +469,61 @@ describe('POST /jobs/:jobId/reset-dispatch', () => {
       .mockResolvedValue({ id: 'j1', status: 'QUEUED', workflowInstanceId: null });
     const update = vi.fn().mockResolvedValue({ id: 'j1' });
     const create = vi.fn().mockResolvedValue({ id: 'j1' });
+    const get = vi.fn();
     const app = mountApp({ gradingJob: { findUnique, update } });
     const res = await postJson(
       app,
       '/internal/grading-worker/jobs/j1/reset-dispatch',
       {},
-      { GRADING_WORKFLOW: { create, get: vi.fn() } }
+      { GRADING_WORKFLOW: { create, get } }
     );
     expect(res.status).toBe(200);
     const createArgs = create.mock.calls[0][0];
     expect(createArgs.id).toBe('j1');
     expect(createArgs.params.jobId).toBe('j1');
+    // Fresh-create path stamps enqueuedAt; restart paths do not.
     const updateData = update.mock.calls[0][0].data;
     expect(updateData.workflowInstanceId).toBe('j1');
     expect(updateData.dispatchError).toBeNull();
     expect(updateData.enqueuedAt).toBeInstanceOf(Date);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('restarts an untracked-but-already-existing instance (partial-write recovery)', async () => {
+    // Adapter returns existed:true when the create swallows the
+    // 'instance with the id ... already exists' case — i.e. the
+    // workflow landed on the CF side previously but the row update
+    // didn't persist workflowInstanceId. The route's contract is
+    // "make this job run again", so restart() should be invoked here
+    // and the row should NOT stamp a fresh enqueuedAt.
+    const findUnique = vi
+      .fn()
+      .mockResolvedValue({ id: 'j1', status: 'QUEUED', workflowInstanceId: null });
+    const update = vi.fn().mockResolvedValue({ id: 'j1' });
+    const restart = vi.fn().mockResolvedValue(undefined);
+    // Force the swallow path: create rejects with the instance-exists
+    // error, adapter recognizes it and returns existed:true.
+    const create = vi.fn(async () => {
+      throw Object.assign(new Error('Workflow instance with the id "j1" already exists'), {
+        code: 'instance_already_exists',
+      });
+    });
+    const get = vi.fn().mockResolvedValue({ id: 'j1', restart });
+    const app = mountApp({ gradingJob: { findUnique, update } });
+    const res = await postJson(
+      app,
+      '/internal/grading-worker/jobs/j1/reset-dispatch',
+      {},
+      { GRADING_WORKFLOW: { create, get } }
+    );
+    expect(res.status).toBe(200);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith('j1');
+    expect(restart).toHaveBeenCalledTimes(1);
+    const updateData = update.mock.calls[0][0].data;
+    expect(updateData.workflowInstanceId).toBe('j1');
+    // Critical: this branch is a restart, not a fresh dispatch.
+    expect(updateData.enqueuedAt).toBeUndefined();
   });
 
   it('returns 500 when the GRADING_WORKFLOW binding is missing', async () => {
