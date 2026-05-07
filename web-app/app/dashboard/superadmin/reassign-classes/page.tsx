@@ -234,11 +234,20 @@ export default function ReassignClassesPage() {
                                 <SelectValue placeholder={loadingTeachers ? 'Loading…' : 'Select source SR'} />
                             </SelectTrigger>
                             <SelectContent>
-                                {teachers.map(t => (
-                                    <SelectItem key={t.id} value={t.id}>
-                                        {t.name} <span className="text-muted-foreground">({t.username})</span>
-                                    </SelectItem>
-                                ))}
+                                {teachers.map(t => {
+                                    const schools = t.teacherSchools?.map(ts => ts.school.name) ?? [];
+                                    return (
+                                        <SelectItem key={t.id} value={t.id}>
+                                            <span className="font-medium">{t.name}</span>{' '}
+                                            <span className="text-muted-foreground">({t.username})</span>
+                                            {schools.length > 0 && (
+                                                <span className="text-muted-foreground">
+                                                    {' '}— {schools.join(', ')}
+                                                </span>
+                                            )}
+                                        </SelectItem>
+                                    );
+                                })}
                             </SelectContent>
                         </Select>
                     </div>
