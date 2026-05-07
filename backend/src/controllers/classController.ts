@@ -1115,6 +1115,80 @@ export const createClass = async (req: Request, res: Response) => {
 };
 
 /**
+ * Get a teacher's classes grouped with per-class block reasons. Powers the
+ * reassign UI so blocked classes can be disabled with a tooltip.
+ * @route GET /api/classes/by-teacher/:teacherId
+ */
+export const getClassesByTeacherWithStatus = async (req: Request, res: Response) => {
+    const { teacherId } = req.params;
+
+    try {
+        const teacher = await prisma.user.findUnique({ where: { id: teacherId } });
+        if (!teacher || teacher.role !== 'TEACHER') {
+            return res.status(404).json({ message: 'Teacher not found' });
+        }
+
+        const teacherClasses = await prisma.teacherClass.findMany({
+            where: { teacherId, class: { isArchived: false } },
+            include: {
+                class: {
+                    include: { school: { select: { id: true, name: true } } }
+                }
+            }
+        });
+
+        const classIds = teacherClasses.map(tc => tc.classId);
+        if (classIds.length === 0) {
+            return res.status(200).json({ teacherId, classes: [] });
+        }
+
+        const [pendingBatches, pendingWorksheets, pendingJobs] = await Promise.all([
+            prisma.worksheetUploadBatch.findMany({
+                where: { classId: { in: classIds }, status: 'UPLOADING' },
+                select: { classId: true }
+            }),
+            prisma.worksheet.findMany({
+                where: { classId: { in: classIds }, status: { in: ['PENDING', 'PROCESSING'] } },
+                select: { classId: true }
+            }),
+            prisma.gradingJob.findMany({
+                where: { classId: { in: classIds }, status: { in: ['QUEUED', 'PROCESSING'] } },
+                select: { classId: true }
+            })
+        ]);
+
+        const reasonsByClass = new Map<string, Set<string>>();
+        const tag = (classId: string, reason: string) => {
+            if (!reasonsByClass.has(classId)) reasonsByClass.set(classId, new Set());
+            reasonsByClass.get(classId)!.add(reason);
+        };
+        pendingBatches.forEach(b => tag(b.classId, 'upload_in_progress'));
+        pendingWorksheets.forEach(w => tag(w.classId, 'worksheet_not_graded'));
+        pendingJobs.forEach(j => tag(j.classId, 'grading_job_in_flight'));
+
+        const classes = teacherClasses
+            .map(tc => ({
+                classId: tc.class.id,
+                name: tc.class.name,
+                academicYear: tc.class.academicYear,
+                schoolId: tc.class.school.id,
+                schoolName: tc.class.school.name,
+                blockReasons: Array.from(reasonsByClass.get(tc.classId) ?? [])
+            }))
+            .sort((a, b) =>
+                a.schoolName.localeCompare(b.schoolName) ||
+                b.academicYear.localeCompare(a.academicYear) ||
+                a.name.localeCompare(b.name)
+            );
+
+        return res.status(200).json({ teacherId, classes });
+    } catch (error) {
+        console.error('Error fetching classes by teacher:', error);
+        return res.status(500).json({ message: 'Server error while retrieving classes' });
+    }
+};
+
+/**
  * Reassign a set of classes from one teacher (SR) to another. Atomic per submit.
  * @route POST /api/classes/reassign
  */
