@@ -26,20 +26,22 @@ export class GradingWorkflowDispatchError extends Error {
 
 function isInstanceAlreadyExistsError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
+  // Prefer the typed `code` field — the CF Workflows runtime sets it
+  // explicitly on the thrown Error. The substring fallbacks exist only
+  // because the public docs don't yet promise the code is always set;
+  // both phrases are sourced from observed CF runtime errors. We
+  // deliberately do NOT match on bare 'duplicate' — that string is
+  // generic enough to false-positive on Postgres / provider errors
+  // bubbling up through unrelated paths.
+  const code = (error as Error & { code?: string }).code;
+  if (code === 'instance_already_exists') return true;
   const msg = error.message.toLowerCase();
-  return (
-    msg.includes('already exists') ||
-    msg.includes('duplicate') ||
-    msg.includes('instance with the id') ||
-    // CF Workflows surfaces this as a typed code on the thrown Error.
-    (error as Error & { code?: string }).code === 'instance_already_exists'
-  );
+  return msg.includes('instance with the id') || msg.includes('already exists');
 }
 
 export async function dispatchGradingWorkflow(
   env: WorkerEnv,
-  jobId: string,
-  enqueuedAt: string
+  jobId: string
 ): Promise<{ instanceId: string; existed: boolean }> {
   const binding = env.GRADING_WORKFLOW as GradingWorkflowBinding | undefined;
   if (!binding || typeof binding.create !== 'function') {
@@ -51,7 +53,7 @@ export async function dispatchGradingWorkflow(
   try {
     const instance = await binding.create({
       id: jobId,
-      params: { jobId, enqueuedAt },
+      params: { jobId },
     });
     return { instanceId: instance.id, existed: false };
   } catch (error) {
