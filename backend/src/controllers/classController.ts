@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import prisma from '../utils/prisma';
+import config from '../config/env';
+import { capturePosthogEvent } from '../services/posthogService';
 
 /**
  * Get all classes for superadmin with archive status
@@ -1109,5 +1112,277 @@ export const createClass = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error creating class:', error);
         return res.status(500).json({ message: 'Server error while creating class' });
+    }
+};
+
+/**
+ * Get a teacher's classes grouped with per-class block reasons. Powers the
+ * reassign UI so blocked classes can be disabled with a tooltip.
+ * @route GET /api/classes/by-teacher/:teacherId
+ */
+export const getClassesByTeacherWithStatus = async (req: Request, res: Response) => {
+    const { teacherId } = req.params;
+
+    try {
+        const teacher = await prisma.user.findUnique({ where: { id: teacherId } });
+        if (!teacher || teacher.role !== 'TEACHER') {
+            return res.status(404).json({ message: 'Teacher not found' });
+        }
+
+        const teacherClasses = await prisma.teacherClass.findMany({
+            where: { teacherId, class: { isArchived: false } },
+            include: {
+                class: {
+                    include: { school: { select: { id: true, name: true } } }
+                }
+            }
+        });
+
+        const classIds = teacherClasses.map(tc => tc.classId);
+        if (classIds.length === 0) {
+            return res.status(200).json({ teacherId, classes: [] });
+        }
+
+        // UPLOADING batches older than staleUploadBatchMs are abandoned sessions
+        // (the upload flow itself supersedes them lazily on next session). Don't
+        // block on those — only count batches that are actually in-flight.
+        const uploadStaleCutoff = new Date(Date.now() - config.grading.staleUploadBatchMs);
+        const [pendingBatches, pendingWorksheets, pendingJobs] = await Promise.all([
+            prisma.worksheetUploadBatch.findMany({
+                where: {
+                    classId: { in: classIds },
+                    status: 'UPLOADING',
+                    updatedAt: { gt: uploadStaleCutoff }
+                },
+                select: { classId: true }
+            }),
+            prisma.worksheet.findMany({
+                where: { classId: { in: classIds }, status: { in: ['PENDING', 'PROCESSING'] } },
+                select: { classId: true }
+            }),
+            prisma.gradingJob.findMany({
+                where: { classId: { in: classIds }, status: { in: ['QUEUED', 'PROCESSING'] } },
+                select: { classId: true }
+            })
+        ]);
+
+        const reasonsByClass = new Map<string, Set<string>>();
+        const tag = (classId: string, reason: string) => {
+            if (!reasonsByClass.has(classId)) reasonsByClass.set(classId, new Set());
+            reasonsByClass.get(classId)!.add(reason);
+        };
+        pendingBatches.forEach(b => tag(b.classId, 'upload_in_progress'));
+        pendingWorksheets.forEach(w => tag(w.classId, 'worksheet_not_graded'));
+        pendingJobs.forEach(j => tag(j.classId, 'grading_job_in_flight'));
+
+        const classes = teacherClasses
+            .map(tc => ({
+                classId: tc.class.id,
+                name: tc.class.name,
+                academicYear: tc.class.academicYear,
+                schoolId: tc.class.school.id,
+                schoolName: tc.class.school.name,
+                blockReasons: Array.from(reasonsByClass.get(tc.classId) ?? [])
+            }))
+            .sort((a, b) =>
+                a.schoolName.localeCompare(b.schoolName) ||
+                b.academicYear.localeCompare(a.academicYear) ||
+                a.name.localeCompare(b.name)
+            );
+
+        return res.status(200).json({ teacherId, classes });
+    } catch (error) {
+        console.error('Error fetching classes by teacher:', error);
+        return res.status(500).json({ message: 'Server error while retrieving classes' });
+    }
+};
+
+/**
+ * Reassign a set of classes from one teacher (SR) to another. Atomic per submit.
+ * @route POST /api/classes/reassign
+ */
+export const reassignTeacherClasses = async (req: Request, res: Response) => {
+    const { fromTeacherId, toTeacherId, classIds } = req.body as {
+        fromTeacherId?: string;
+        toTeacherId?: string;
+        classIds?: string[];
+    };
+    const actorId = req.user?.userId ?? 'unknown';
+
+    if (!fromTeacherId || !toTeacherId || !Array.isArray(classIds) || classIds.length === 0) {
+        return res.status(400).json({
+            message: 'fromTeacherId, toTeacherId, and a non-empty classIds[] are required'
+        });
+    }
+
+    if (fromTeacherId === toTeacherId) {
+        return res.status(400).json({ message: 'Source and target teachers must be different' });
+    }
+
+    const uniqueClassIds = Array.from(new Set(classIds));
+
+    try {
+        const teacherSelect = { id: true, name: true, role: true, isArchived: true } as const;
+        const [fromTeacher, toTeacher, classes] = await Promise.all([
+            prisma.user.findUnique({ where: { id: fromTeacherId }, select: teacherSelect }),
+            prisma.user.findUnique({ where: { id: toTeacherId }, select: teacherSelect }),
+            prisma.class.findMany({
+                where: { id: { in: uniqueClassIds } },
+                include: { school: { select: { id: true, name: true } } }
+            })
+        ]);
+
+        if (!fromTeacher || fromTeacher.role !== 'TEACHER' || fromTeacher.isArchived) {
+            return res.status(400).json({ message: 'Source teacher not found or not an active TEACHER' });
+        }
+        if (!toTeacher || toTeacher.role !== 'TEACHER' || toTeacher.isArchived) {
+            return res.status(400).json({ message: 'Target teacher not found or not an active TEACHER' });
+        }
+
+        const foundIds = new Set(classes.map(c => c.id));
+        const missing = uniqueClassIds.filter(id => !foundIds.has(id));
+        if (missing.length > 0) {
+            return res.status(400).json({ message: 'One or more classes not found', classIds: missing });
+        }
+
+        const archived = classes.filter(c => c.isArchived).map(c => c.id);
+        if (archived.length > 0) {
+            return res.status(400).json({ message: 'Cannot reassign archived classes', classIds: archived });
+        }
+
+        // Block on in-flight work for any of the listed classes:
+        // (A) UPLOADING batch (skip stale ones — see staleUploadBatchMs),
+        // (B) Worksheet PENDING/PROCESSING, (C) GradingJob QUEUED/PROCESSING.
+        const uploadStaleCutoff = new Date(Date.now() - config.grading.staleUploadBatchMs);
+        const [pendingBatches, pendingWorksheets, pendingJobs] = await Promise.all([
+            prisma.worksheetUploadBatch.findMany({
+                where: {
+                    classId: { in: uniqueClassIds },
+                    status: 'UPLOADING',
+                    updatedAt: { gt: uploadStaleCutoff }
+                },
+                select: { id: true, classId: true, status: true }
+            }),
+            prisma.worksheet.findMany({
+                where: { classId: { in: uniqueClassIds }, status: { in: ['PENDING', 'PROCESSING'] } },
+                select: { id: true, classId: true, status: true }
+            }),
+            prisma.gradingJob.findMany({
+                where: { classId: { in: uniqueClassIds }, status: { in: ['QUEUED', 'PROCESSING'] } },
+                select: { id: true, classId: true, status: true }
+            })
+        ]);
+
+        const blocked: Array<{ classId: string; reason: string; refId: string; status: string }> = [
+            ...pendingBatches.map(b => ({ classId: b.classId, reason: 'upload_in_progress', refId: b.id, status: b.status })),
+            ...pendingWorksheets.map(w => ({ classId: w.classId, reason: 'worksheet_not_graded', refId: w.id, status: w.status })),
+            ...pendingJobs.map(j => ({ classId: j.classId, reason: 'grading_job_in_flight', refId: j.id, status: j.status }))
+        ];
+
+        if (blocked.length > 0) {
+            const blockedClassIds = Array.from(new Set(blocked.map(b => b.classId)));
+            void capturePosthogEvent('sr_class_reassign_blocked', actorId, {
+                fromTeacherId,
+                toTeacherId,
+                blockedClassIds,
+                blocked
+            });
+            return res.status(409).json({
+                message: 'Some classes have in-flight work and cannot be reassigned right now',
+                blocked
+            });
+        }
+
+        // Snapshot current TeacherClass rows for the source on these classes.
+        const sourceLinks = await prisma.teacherClass.findMany({
+            where: { teacherId: fromTeacherId, classId: { in: uniqueClassIds } },
+            select: { classId: true }
+        });
+        const sourceHas = new Set(sourceLinks.map(t => t.classId));
+
+        const targetLinks = await prisma.teacherClass.findMany({
+            where: { teacherId: toTeacherId, classId: { in: uniqueClassIds } },
+            select: { classId: true }
+        });
+        const targetHas = new Set(targetLinks.map(t => t.classId));
+
+        const batchId = randomUUID();
+        const moved: string[] = [];
+        const skipped: Array<{ classId: string; reason: string }> = [];
+
+        // Resolve skip reasons against the snapshots taken above. The actual
+        // mutation inside the transaction is bulk so it stays cheap even when
+        // an SR has hundreds of classes.
+        for (const classId of uniqueClassIds) {
+            if (!sourceHas.has(classId)) {
+                skipped.push({ classId, reason: 'source_no_longer_assigned' });
+                continue;
+            }
+            if (targetHas.has(classId)) {
+                skipped.push({ classId, reason: 'already_assigned' });
+                continue;
+            }
+            moved.push(classId);
+        }
+
+        if (moved.length > 0) {
+            const movedSchoolIds = Array.from(
+                new Set(classes.filter(c => moved.includes(c.id)).map(c => c.schoolId))
+            );
+
+            await prisma.$transaction(
+                async tx => {
+                    // deleteMany silently no-ops on rows already removed; that's
+                    // intentional — if source's TeacherClass was concurrently
+                    // removed between snapshot and tx, the desired end state
+                    // (target owns the class) is still reached by the create.
+                    await tx.teacherClass.deleteMany({
+                        where: { teacherId: fromTeacherId, classId: { in: moved } }
+                    });
+                    // skipDuplicates absorbs the symmetric race: if target was
+                    // concurrently assigned, we treat the existing row as the
+                    // desired state instead of erroring out. The 'already_assigned'
+                    // skip from the snapshot handles the common case.
+                    await tx.teacherClass.createMany({
+                        data: moved.map(classId => ({ teacherId: toTeacherId, classId })),
+                        skipDuplicates: true
+                    });
+                    // Ensure target has TeacherSchool for every affected school.
+                    // Source's TeacherSchool is intentionally left as-is per plan.
+                    for (const schoolId of movedSchoolIds) {
+                        await tx.teacherSchool.upsert({
+                            where: { teacherId_schoolId: { teacherId: toTeacherId, schoolId } },
+                            create: { teacherId: toTeacherId, schoolId },
+                            update: {}
+                        });
+                    }
+                },
+                { timeout: 30000 }
+            );
+        }
+
+        // Telemetry: one event per moved class, all sharing batchId.
+        const classById = new Map(classes.map(c => [c.id, c]));
+        for (const classId of moved) {
+            const cls = classById.get(classId)!;
+            void capturePosthogEvent('sr_class_reassigned', actorId, {
+                batchId,
+                classId,
+                className: cls.name,
+                schoolId: cls.schoolId,
+                schoolName: cls.school.name,
+                academicYear: cls.academicYear,
+                fromTeacherId,
+                fromTeacherName: fromTeacher.name,
+                toTeacherId,
+                toTeacherName: toTeacher.name,
+                actorId
+            });
+        }
+
+        return res.status(200).json({ batchId, moved, skipped });
+    } catch (error) {
+        console.error('Error reassigning teacher classes:', error);
+        return res.status(500).json({ message: 'Server error while reassigning classes' });
     }
 };

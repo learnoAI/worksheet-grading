@@ -148,5 +148,36 @@ export const classAPI = {
 
     getAvailableStudents: async (classId: string): Promise<User[]> => {
         return fetchAPI<User[]>(`/classes/students/available/${classId}`);
+    },
+
+    // Reassign UI: source teacher's classes with per-class block reasons
+    getClassesByTeacherWithStatus: async (teacherId: string): Promise<{
+        teacherId: string;
+        classes: Array<{
+            classId: string;
+            name: string;
+            academicYear: string;
+            schoolId: string;
+            schoolName: string;
+            blockReasons: string[];
+        }>;
+    }> => {
+        return fetchAPI(`/classes/by-teacher/${teacherId}`);
+    },
+
+    // Reassign UI: atomic move of classIds from source to target SR
+    reassignClasses: async (payload: {
+        fromTeacherId: string;
+        toTeacherId: string;
+        classIds: string[];
+    }): Promise<{
+        batchId: string;
+        moved: string[];
+        skipped: Array<{ classId: string; reason: string }>;
+    }> => {
+        return fetchAPI('/classes/reassign', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
     }
 };

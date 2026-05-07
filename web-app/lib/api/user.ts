@@ -2,9 +2,12 @@ import { fetchAPI } from './utils';
 import { User } from './types';
 
 export const userAPI = {
-    getUsers: async (role?: string): Promise<User[]> => {
-        const query = role ? `?role=${role}` : '';
-        return fetchAPI<User[]>(`/users${query}`);
+    getUsers: async (role?: string, options?: { includeArchived?: boolean }): Promise<User[]> => {
+        const params = new URLSearchParams();
+        if (role) params.set('role', role);
+        if (options?.includeArchived === false) params.set('includeArchived', 'false');
+        const query = params.toString();
+        return fetchAPI<User[]>(`/users${query ? `?${query}` : ''}`);
     },
 
     getUsersWithDetails: async (params: {

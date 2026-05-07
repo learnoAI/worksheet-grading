@@ -95,6 +95,10 @@ export default function SuperAdminLayout({
                             <Link href="/dashboard/superadmin/classes" className="block p-2 rounded hover:bg-gray-100">
                                 Classes
                             </Link>
+
+                            <Link href="/dashboard/superadmin/reassign-classes" className="block p-2 rounded hover:bg-gray-100">
+                                Reassign SR Classes
+                            </Link>
                             
                             {/* Analytics section */}
                             <div className="pt-2 pb-1">

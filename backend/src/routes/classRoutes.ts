@@ -16,7 +16,9 @@ import {
     getAvailableStudents,
     archiveClassesByYear,
     uploadClassTeachersCsv,
-    uploadStudentClassesCsv
+    uploadStudentClassesCsv,
+    reassignTeacherClasses,
+    getClassesByTeacherWithStatus
 } from '../controllers/classController';
 import { UserRole } from '@prisma/client';
 import { auth, authorizeRoles, asHandler } from '../middleware/utils';
@@ -38,6 +40,12 @@ router.get('/archived', asHandler(getArchivedClasses));
 
 // Bulk archive all classes for an academic year
 router.post('/archive-by-year', asHandler(archiveClassesByYear));
+
+// Reassign a set of classes from one teacher (SR) to another
+router.post('/reassign', asHandler(reassignTeacherClasses));
+
+// Get a teacher's classes with per-class block reasons (for reassign UI)
+router.get('/by-teacher/:teacherId', asHandler(getClassesByTeacherWithStatus));
 
 // Upload class-teacher mapping CSV
 router.post('/upload-class-teachers', asHandler(uploadClassTeachersCsv));
