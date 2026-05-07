@@ -9,6 +9,7 @@ import {
   markGradingJobFailed,
   requeueGradingJobForRetry,
 } from '../adapters/gradingLifecycle';
+import { dispatchGradingWorkflow } from '../adapters/gradingDispatch';
 import { persistWorksheetForGradingJobId } from '../adapters/gradingPersistence';
 import { updateMasteryForWorksheet } from '../adapters/mastery';
 import {
@@ -711,16 +712,17 @@ internalGradingWorker.post(
           },
         });
       } else {
+        // Legacy job (or partial-write race): no recorded
+        // workflowInstanceId. Route through the dispatch adapter so the
+        // "instance already exists" case is swallowed if the create
+        // landed on the CF side but the row update never did.
         const queuedAt = new Date().toISOString();
-        const instance = await binding.create({
-          id: jobId,
-          params: { jobId, enqueuedAt: queuedAt },
-        });
+        const { instanceId } = await dispatchGradingWorkflow(env, jobId);
         await prisma.gradingJob.update({
           where: { id: jobId },
           data: {
             status: GradingJobStatus.QUEUED,
-            workflowInstanceId: instance.id,
+            workflowInstanceId: instanceId,
             enqueuedAt: new Date(queuedAt),
             dispatchError: reason ?? null,
             lastErrorAt: new Date(),
