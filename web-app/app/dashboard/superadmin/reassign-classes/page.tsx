@@ -80,7 +80,7 @@ export default function ReassignClassesPage() {
         (async () => {
             try {
                 setLoadingTeachers(true);
-                const data = await userAPI.getUsers(UserRole.TEACHER);
+                const data = await userAPI.getUsers(UserRole.TEACHER, { includeArchived: false });
                 setTeachers(data);
 
                 // Pre-select source from query string if provided

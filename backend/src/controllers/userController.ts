@@ -286,23 +286,36 @@ export const resetPassword = async (req: Request, res: Response) => {
 export const getUsers = async (req: Request, res: Response) => {
     try {
         const role = req.query.role as UserRole | undefined;
+        // Preserve historical default (archived users included); callers opt in
+        // to filtering with ?includeArchived=false. Reassign UI passes that.
+        const includeArchived = req.query.includeArchived !== 'false';
+        // teacherSchools is a superadmin-only relation. Other roles get the
+        // base list without school assignments.
+        const isSuperadmin = req.user?.role === UserRole.SUPERADMIN;
+
+        const archiveWhere = includeArchived ? {} : { isArchived: false };
+        const where = role ? { ...archiveWhere, role } : archiveWhere;
+
+        const baseSelect = {
+            id: true,
+            name: true,
+            username: true,
+            role: true,
+            isArchived: true,
+            createdAt: true,
+            updatedAt: true
+        } as const;
 
         const users = await prisma.user.findMany({
-            where: role ? { role, isArchived: false } : { isArchived: false },
-            select: {
-                id: true,
-                name: true,
-                username: true,
-                role: true,
-                isArchived: true,
-                createdAt: true,
-                updatedAt: true,
-                teacherSchools: {
-                    select: {
-                        school: { select: { id: true, name: true } }
-                    }
-                }
-            },
+            where,
+            select: isSuperadmin
+                ? {
+                      ...baseSelect,
+                      teacherSchools: {
+                          select: { school: { select: { id: true, name: true } } }
+                      }
+                  }
+                : baseSelect,
             orderBy: { name: 'asc' }
         });
 
