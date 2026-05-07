@@ -442,6 +442,17 @@ const EditUserModal = memo(({ user, isOpen, onClose, onSuccess }: {
                         </div>
                     )}
 
+                    {role === UserRole.TEACHER && user && (
+                        <div className="text-xs">
+                            <Link
+                                href={`/dashboard/superadmin/reassign-classes?fromTeacherId=${user.id}`}
+                                className="text-blue-600 underline"
+                            >
+                                Reassign this SR&rsquo;s classes →
+                            </Link>
+                        </div>
+                    )}
+
                     {/* School & class management for students and teachers */}
                     {(role === UserRole.STUDENT || role === UserRole.TEACHER) && (
                         <>
