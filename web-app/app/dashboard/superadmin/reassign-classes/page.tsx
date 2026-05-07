@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { userAPI } from '@/lib/api/user';
 import { classAPI } from '@/lib/api/class';
+import { ApiError } from '@/lib/api/utils';
 import { User, UserRole } from '@/lib/api/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -185,12 +186,14 @@ function ReassignClassesContent() {
             const refreshed = await classAPI.getClassesByTeacherWithStatus(fromTeacherId);
             setSourceClasses(refreshed.classes);
             setSelectedClassIds(new Set());
-        } catch (err: any) {
-            const message = err?.message || 'Reassignment failed';
-            // Surface 409 blocked details if API returns structured payload
-            const blocked = err?.data?.blocked as
-                | Array<{ classId: string; reason: string }>
-                | undefined;
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Reassignment failed';
+            // Surface 409 blocked details when API returns structured payload
+            let blocked: Array<{ classId: string; reason: string }> | undefined;
+            if (err instanceof ApiError && err.data && typeof err.data === 'object') {
+                const data = err.data as { blocked?: Array<{ classId: string; reason: string }> };
+                blocked = data.blocked;
+            }
             if (blocked && blocked.length) {
                 toast.error(
                     `Blocked: ${blocked.length} class${blocked.length === 1 ? '' : 'es'} have in-flight work`
