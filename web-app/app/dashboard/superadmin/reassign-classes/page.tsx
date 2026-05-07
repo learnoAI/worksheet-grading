@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
@@ -43,7 +43,7 @@ const SKIP_REASON_LABEL: Record<string, string> = {
     source_no_longer_assigned: 'Source SR no longer had this class'
 };
 
-export default function ReassignClassesPage() {
+function ReassignClassesContent() {
     const { user, isLoading: authLoading } = useAuth();
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -467,5 +467,15 @@ export default function ReassignClassesPage() {
                 </DialogContent>
             </Dialog>
         </div>
+    );
+}
+
+// useSearchParams must be inside a Suspense boundary so `next build` can
+// statically prerender the page shell.
+export default function ReassignClassesPage() {
+    return (
+        <Suspense fallback={null}>
+            <ReassignClassesContent />
+        </Suspense>
     );
 }
