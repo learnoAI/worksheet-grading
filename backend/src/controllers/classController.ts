@@ -1222,9 +1222,10 @@ export const reassignTeacherClasses = async (req: Request, res: Response) => {
     const uniqueClassIds = Array.from(new Set(classIds));
 
     try {
+        const teacherSelect = { id: true, name: true, role: true, isArchived: true } as const;
         const [fromTeacher, toTeacher, classes] = await Promise.all([
-            prisma.user.findUnique({ where: { id: fromTeacherId } }),
-            prisma.user.findUnique({ where: { id: toTeacherId } }),
+            prisma.user.findUnique({ where: { id: fromTeacherId }, select: teacherSelect }),
+            prisma.user.findUnique({ where: { id: toTeacherId }, select: teacherSelect }),
             prisma.class.findMany({
                 where: { id: { in: uniqueClassIds } },
                 include: { school: { select: { id: true, name: true } } }
@@ -1309,37 +1310,48 @@ export const reassignTeacherClasses = async (req: Request, res: Response) => {
         const moved: string[] = [];
         const skipped: Array<{ classId: string; reason: string }> = [];
 
-        await prisma.$transaction(async tx => {
-            for (const classId of uniqueClassIds) {
-                if (!sourceHas.has(classId)) {
-                    skipped.push({ classId, reason: 'source_no_longer_assigned' });
-                    continue;
-                }
-                if (targetHas.has(classId)) {
-                    skipped.push({ classId, reason: 'already_assigned' });
-                    continue;
-                }
-                await tx.teacherClass.delete({
-                    where: { teacherId_classId: { teacherId: fromTeacherId, classId } }
-                });
-                await tx.teacherClass.create({
-                    data: { teacherId: toTeacherId, classId }
-                });
-                moved.push(classId);
+        // Resolve skip reasons against the snapshots taken above. The actual
+        // mutation inside the transaction is bulk so it stays cheap even when
+        // an SR has hundreds of classes.
+        for (const classId of uniqueClassIds) {
+            if (!sourceHas.has(classId)) {
+                skipped.push({ classId, reason: 'source_no_longer_assigned' });
+                continue;
             }
+            if (targetHas.has(classId)) {
+                skipped.push({ classId, reason: 'already_assigned' });
+                continue;
+            }
+            moved.push(classId);
+        }
 
-            // Ensure target has TeacherSchool for every affected school. Source's
-            // TeacherSchool is intentionally left as-is per plan.
-            const movedClasses = classes.filter(c => moved.includes(c.id));
-            const schoolIds = Array.from(new Set(movedClasses.map(c => c.schoolId)));
-            for (const schoolId of schoolIds) {
-                await tx.teacherSchool.upsert({
-                    where: { teacherId_schoolId: { teacherId: toTeacherId, schoolId } },
-                    create: { teacherId: toTeacherId, schoolId },
-                    update: {}
-                });
-            }
-        });
+        if (moved.length > 0) {
+            const movedSchoolIds = Array.from(
+                new Set(classes.filter(c => moved.includes(c.id)).map(c => c.schoolId))
+            );
+
+            await prisma.$transaction(
+                async tx => {
+                    await tx.teacherClass.deleteMany({
+                        where: { teacherId: fromTeacherId, classId: { in: moved } }
+                    });
+                    await tx.teacherClass.createMany({
+                        data: moved.map(classId => ({ teacherId: toTeacherId, classId })),
+                        skipDuplicates: true
+                    });
+                    // Ensure target has TeacherSchool for every affected school.
+                    // Source's TeacherSchool is intentionally left as-is per plan.
+                    for (const schoolId of movedSchoolIds) {
+                        await tx.teacherSchool.upsert({
+                            where: { teacherId_schoolId: { teacherId: toTeacherId, schoolId } },
+                            create: { teacherId: toTeacherId, schoolId },
+                            update: {}
+                        });
+                    }
+                },
+                { timeout: 30000 }
+            );
+        }
 
         // Telemetry: one event per moved class, all sharing batchId.
         const classById = new Map(classes.map(c => [c.id, c]));
