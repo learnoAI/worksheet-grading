@@ -90,6 +90,17 @@ class_name = "GradingWorkflow"
 # is empty post-deploy, this block + the queue resource itself are
 # removed in a follow-up PR. New work is routed through the workflow
 # above; backend dispatch no longer publishes here.
+#
+# CUTOVER MIXED STATE (deploy-window note for on-call):
+# Pre-deploy queue messages still flow through this consumer, so any
+# GradingJob row picked up via the legacy path will have
+# `workflowInstanceId = null`. `recoverStuckJob` (in
+# `backend/src/worker/routes/gradingJobs.ts`) intentionally keeps the
+# heartbeat-based stale-recovery for jobs with null workflowInstanceId,
+# so legacy in-flight jobs recover the same way they always did. Rows
+# with `workflowInstanceId` set follow the workflow's own watchdog and
+# are immune to the 20-min heartbeat cutoff. Don't be surprised by the
+# temporary mixed state — it lasts only until the queue depth hits 0.
 [[queues.consumers]]
 queue = "grading-fast"
 max_batch_size = 20
