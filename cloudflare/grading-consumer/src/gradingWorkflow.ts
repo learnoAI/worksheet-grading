@@ -7,6 +7,7 @@ import { loadAnswerKey, loadCustomPrompt } from './assets';
 import { llmGenerateJson, type LlmReasoningEffort } from './llm';
 import { buildAiGradingPrompt, buildBookGradingPrompt, buildOcrPrompt } from './prompts';
 import { toBackendGradingResponse } from './gradingTransform';
+import { createPosthogClient } from './posthog';
 import {
   ExtractedQuestionsJsonSchema,
   ExtractedQuestionsSchema,
@@ -55,7 +56,11 @@ interface Env {
   IMAGES_BUCKET: R2Bucket;
   ASSETS_BUCKET: R2Bucket;
   FAST_MAX_PAGES?: string;
+  POSTHOG_API_KEY?: string;
+  POSTHOG_HOST?: string;
 }
+
+type PosthogTracker = ReturnType<typeof createPosthogClient>;
 
 export interface GradingWorkflowParams {
   jobId: string;
@@ -191,12 +196,22 @@ function serializeError(error: unknown): {
  */
 async function runTieredStep<T>(
   step: WorkflowStep,
+  tracker: PosthogTracker,
+  jobId: string,
   stageName: string,
   tiers: TierConfig[],
   call: (tier: TierConfig) => Promise<T>,
 ): Promise<T> {
   let lastError: unknown = null;
   for (const tier of tiers) {
+    tracker.capturePipeline('workflow_tier_attempted', jobId, {
+      jobId,
+      stage: stageName,
+      tier: tier.name,
+      provider: tier.provider,
+      model: tier.model,
+      reasoningEffort: tier.reasoningEffort ?? null,
+    });
     try {
       // step.do constrains its callback return to `Serializable<T>` (a
       // structural-clone-shaped derivative of T). Our T is JSON-shaped
@@ -209,9 +224,25 @@ async function runTieredStep<T>(
         tier.step,
         (async () => call(tier)) as never,
       );
+      tracker.capturePipeline('workflow_tier_succeeded', jobId, {
+        jobId,
+        stage: stageName,
+        tier: tier.name,
+        provider: tier.provider,
+        model: tier.model,
+      });
       return result as T;
     } catch (error) {
       lastError = error;
+      tracker.capturePipeline('workflow_tier_failed', jobId, {
+        jobId,
+        stage: stageName,
+        tier: tier.name,
+        provider: tier.provider,
+        model: tier.model,
+        error: error instanceof Error ? error.message : String(error),
+        errorName: error instanceof Error ? error.name : undefined,
+      });
     }
   }
   if (lastError instanceof Error) throw lastError;
@@ -222,6 +253,9 @@ export class GradingWorkflow extends WorkflowEntrypoint<Env, GradingWorkflowPara
   async run(event: WorkflowEvent<GradingWorkflowParams>, step: WorkflowStep): Promise<void> {
     const { jobId } = event.payload;
     const backend = new BackendClient(this.env);
+    const tracker = createPosthogClient(this.env, this.ctx);
+
+    tracker.capturePipeline('workflow_started', jobId, { jobId });
 
     // 1. Acquire — QUEUED → PROCESSING with leaseId. Mirrors what the
     //    queue consumer's `processJob` does, but inside a checkpointed
@@ -245,10 +279,11 @@ export class GradingWorkflow extends WorkflowEntrypoint<Env, GradingWorkflowPara
     const { leaseId, job } = acquired;
 
     try {
-      const gradingResponse = await this.runGrading(step, job);
+      const gradingResponse = await this.runGrading(step, tracker, job);
       await step.do('persist-success', PERSIST_STEP, async () => {
         await backend.complete(jobId, leaseId, gradingResponse);
       });
+      tracker.capturePipeline('workflow_completed', jobId, { jobId, outcome: 'success' });
     } catch (gradingError) {
       const serialized = serializeError(gradingError);
       await step.do('persist-failure', PERSIST_STEP, async () => {
@@ -257,6 +292,12 @@ export class GradingWorkflow extends WorkflowEntrypoint<Env, GradingWorkflowPara
           errorStack: serialized.errorStack,
           errorContext: serialized.errorContext,
         });
+      });
+      tracker.capturePipeline('workflow_completed', jobId, {
+        jobId,
+        outcome: 'failure',
+        errorName: serialized.errorName,
+        errorMessage: serialized.errorMessage,
       });
       // Re-throw as NonRetryableError so the workflow ends in `errored`
       // state — the dashboard surfaces the failure and we don't burn
@@ -275,7 +316,11 @@ export class GradingWorkflow extends WorkflowEntrypoint<Env, GradingWorkflowPara
    * checkpointed. On workflow restart, image bytes are re-loaded — cheap
    * (~5 ms per R2 GET) and avoids fighting the size limit.
    */
-  private async runGrading(step: WorkflowStep, job: JobPayload): Promise<GradingApiResponse> {
+  private async runGrading(
+    step: WorkflowStep,
+    tracker: PosthogTracker,
+    job: JobPayload,
+  ): Promise<GradingApiResponse> {
     const imageMeta = await step.do('load-image-meta', LOAD_IMAGES_STEP, async () => {
       return validateImageMeta(this.env, job.images);
     });
@@ -286,6 +331,8 @@ export class GradingWorkflow extends WorkflowEntrypoint<Env, GradingWorkflowPara
 
     const extractedQuestions = await runTieredStep<ExtractedQuestions>(
       step,
+      tracker,
+      job.id,
       'ocr',
       OCR_TIERS,
       async (tier) => {
@@ -326,6 +373,8 @@ export class GradingWorkflow extends WorkflowEntrypoint<Env, GradingWorkflowPara
 
     const gradingResult = await runTieredStep<GradingResult>(
       step,
+      tracker,
+      job.id,
       'grading',
       GRADING_TIERS,
       async (tier) => {
