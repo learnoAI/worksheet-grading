@@ -288,14 +288,17 @@ export const getUsers = async (req: Request, res: Response) => {
         const role = req.query.role as UserRole | undefined;
 
         const users = await prisma.user.findMany({
-            where: role ? { role } : undefined,
+            where: role ? { role, isArchived: false } : { isArchived: false },
             select: {
                 id: true,
+                name: true,
                 username: true,
                 role: true,
+                isArchived: true,
                 createdAt: true,
                 updatedAt: true
-            }
+            },
+            orderBy: { name: 'asc' }
         });
 
         return res.status(200).json(users);
