@@ -100,11 +100,15 @@ export async function fetchAPI<T>(endpoint: string, options: FetchAPIOptions = {
 
     if (!response.ok) {
         let message = `Request failed (${response.status})`;
+        let body: any = undefined;
         try {
-            const body = await response.json();
+            body = await response.json();
             if (body?.message) message = body.message;
         } catch {/* ignore */}
-        throw new Error(message);
+        const err = new Error(message) as Error & { status?: number; data?: any };
+        err.status = response.status;
+        err.data = body;
+        throw err;
     }
 
     if (response.status === 204) return undefined as T;
