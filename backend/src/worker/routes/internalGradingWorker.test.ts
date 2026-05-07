@@ -409,52 +409,134 @@ describe('POST /jobs/:jobId/requeue', () => {
 describe('POST /jobs/:jobId/reset-dispatch', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns 409 when the job is not in QUEUED + leaseId:null state', async () => {
-    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
-    const app = mountApp({ gradingJob: { updateMany } });
+  it('returns 404 when the job does not exist', async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const app = mountApp({ gradingJob: { findUnique } });
     const res = await postJson(
       app,
       '/internal/grading-worker/jobs/j1/reset-dispatch',
-      { reason: 'cf_queue_exhausted' }
+      { reason: 'cf_queue_exhausted' },
+      { GRADING_WORKFLOW: { create: vi.fn(), get: vi.fn() } }
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 409 when the job is in a terminal state', async () => {
+    const findUnique = vi
+      .fn()
+      .mockResolvedValue({ id: 'j1', status: 'COMPLETED', workflowInstanceId: 'j1' });
+    const app = mountApp({ gradingJob: { findUnique } });
+    const res = await postJson(
+      app,
+      '/internal/grading-worker/jobs/j1/reset-dispatch',
+      { reason: 'manual' },
+      { GRADING_WORKFLOW: { create: vi.fn(), get: vi.fn() } }
     );
     expect(res.status).toBe(409);
     const body = (await res.json()) as { success: boolean; error: string };
-    expect(body.success).toBe(false);
-    expect(body.error).toMatch(/queued and dispatch-resettable/);
+    expect(body.error).toMatch(/terminal state COMPLETED/);
   });
 
-  it('returns 200 and clears enqueuedAt + lifecycle fields on success', async () => {
-    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
-    const app = mountApp({ gradingJob: { updateMany } });
+  it('restarts the existing workflow instance when one is recorded on the job', async () => {
+    const findUnique = vi
+      .fn()
+      .mockResolvedValue({ id: 'j1', status: 'QUEUED', workflowInstanceId: 'wf-j1' });
+    const update = vi.fn().mockResolvedValue({ id: 'j1' });
+    const restart = vi.fn().mockResolvedValue(undefined);
+    const get = vi.fn().mockResolvedValue({ id: 'wf-j1', restart });
+    const create = vi.fn();
+    const app = mountApp({ gradingJob: { findUnique, update } });
     const res = await postJson(
       app,
       '/internal/grading-worker/jobs/j1/reset-dispatch',
-      { reason: 'cf_queue_exhausted' }
+      { reason: 'manual' },
+      { GRADING_WORKFLOW: { create, get } }
     );
     expect(res.status).toBe(200);
-    const call = updateMany.mock.calls[0][0];
-    expect(call.where).toEqual({
-      id: 'j1',
-      status: 'QUEUED',
-      leaseId: null,
-    });
-    expect(call.data.enqueuedAt).toBeNull();
-    expect(call.data.dispatchError).toBe('cf_queue_exhausted');
-    expect(call.data.startedAt).toBeNull();
-    expect(call.data.lastHeartbeatAt).toBeNull();
-    expect(call.data.completedAt).toBeNull();
-    expect(call.data.errorMessage).toBeNull();
+    expect(get).toHaveBeenCalledWith('wf-j1');
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(create).not.toHaveBeenCalled();
+    const call = update.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'j1' });
+    expect(call.data.status).toBe('QUEUED');
+    expect(call.data.dispatchError).toBe('manual');
+    expect(call.data.leaseId).toBeNull();
   });
 
-  it('accepts an empty body (reason is optional)', async () => {
-    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
-    const app = mountApp({ gradingJob: { updateMany } });
+  it('creates a fresh workflow when the job has no recorded workflowInstanceId', async () => {
+    const findUnique = vi
+      .fn()
+      .mockResolvedValue({ id: 'j1', status: 'QUEUED', workflowInstanceId: null });
+    const update = vi.fn().mockResolvedValue({ id: 'j1' });
+    const create = vi.fn().mockResolvedValue({ id: 'j1' });
+    const get = vi.fn();
+    const app = mountApp({ gradingJob: { findUnique, update } });
     const res = await postJson(
       app,
       '/internal/grading-worker/jobs/j1/reset-dispatch',
+      {},
+      { GRADING_WORKFLOW: { create, get } }
+    );
+    expect(res.status).toBe(200);
+    const createArgs = create.mock.calls[0][0];
+    expect(createArgs.id).toBe('j1');
+    expect(createArgs.params.jobId).toBe('j1');
+    // Fresh-create path stamps enqueuedAt; restart paths do not.
+    const updateData = update.mock.calls[0][0].data;
+    expect(updateData.workflowInstanceId).toBe('j1');
+    expect(updateData.dispatchError).toBeNull();
+    expect(updateData.enqueuedAt).toBeInstanceOf(Date);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('restarts an untracked-but-already-existing instance (partial-write recovery)', async () => {
+    // Adapter returns existed:true when the create swallows the
+    // 'instance with the id ... already exists' case — i.e. the
+    // workflow landed on the CF side previously but the row update
+    // didn't persist workflowInstanceId. The route's contract is
+    // "make this job run again", so restart() should be invoked here
+    // and the row should NOT stamp a fresh enqueuedAt.
+    const findUnique = vi
+      .fn()
+      .mockResolvedValue({ id: 'j1', status: 'QUEUED', workflowInstanceId: null });
+    const update = vi.fn().mockResolvedValue({ id: 'j1' });
+    const restart = vi.fn().mockResolvedValue(undefined);
+    // Force the swallow path: create rejects with the instance-exists
+    // error, adapter recognizes it and returns existed:true.
+    const create = vi.fn(async () => {
+      throw Object.assign(new Error('Workflow instance with the id "j1" already exists'), {
+        code: 'instance_already_exists',
+      });
+    });
+    const get = vi.fn().mockResolvedValue({ id: 'j1', restart });
+    const app = mountApp({ gradingJob: { findUnique, update } });
+    const res = await postJson(
+      app,
+      '/internal/grading-worker/jobs/j1/reset-dispatch',
+      {},
+      { GRADING_WORKFLOW: { create, get } }
+    );
+    expect(res.status).toBe(200);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith('j1');
+    expect(restart).toHaveBeenCalledTimes(1);
+    const updateData = update.mock.calls[0][0].data;
+    expect(updateData.workflowInstanceId).toBe('j1');
+    // Critical: this branch is a restart, not a fresh dispatch.
+    expect(updateData.enqueuedAt).toBeUndefined();
+  });
+
+  it('returns 500 when the GRADING_WORKFLOW binding is missing', async () => {
+    const findUnique = vi
+      .fn()
+      .mockResolvedValue({ id: 'j1', status: 'QUEUED', workflowInstanceId: null });
+    const app = mountApp({ gradingJob: { findUnique } });
+    const res = await postJson(
+      app,
+      '/internal/grading-worker/jobs/j1/reset-dispatch',
+      {},
       {}
     );
-    expect(res.status).toBe(200);
-    expect(updateMany.mock.calls[0][0].data.dispatchError).toBeNull();
+    expect(res.status).toBe(500);
   });
 });

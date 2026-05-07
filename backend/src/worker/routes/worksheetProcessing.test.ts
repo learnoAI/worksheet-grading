@@ -15,11 +15,15 @@ const baseR2Env = {
   R2_PUBLIC_BASE_URL: 'https://cdn.example.com',
 };
 
-const queueEnv = {
-  CF_ACCOUNT_ID: 'cf-acct',
-  CF_API_TOKEN: 'cf-token',
-  CF_QUEUE_ID: 'cf-queue',
-};
+// Workflow binding stub used by both /process and /finalize tests. Each
+// test that exercises dispatch passes this in via the env override; the
+// `create` mock returns an instance whose id matches the jobId, mirroring
+// what the CF runtime does (workflow id = grading job id).
+function makeWorkflowBindingStub() {
+  const create = vi.fn(async ({ id }: { id: string }) => ({ id }));
+  const get = vi.fn();
+  return { binding: { create, get }, create, get };
+}
 
 function mountApp(prisma: unknown) {
   const app = new Hono<AppBindings>();
@@ -537,16 +541,13 @@ describe('POST /api/worksheet-processing/process', () => {
     expect(res.status).toBe(400);
   });
 
-  it('creates a GradingJob, uploads images to R2, publishes to queue, returns 202', async () => {
+  it('creates a GradingJob, uploads images to R2, dispatches a workflow, returns 202', async () => {
     const { bucket, puts } = makeR2Bucket();
     const gradingJobCreate = vi.fn().mockResolvedValue({ id: 'job-1' });
     const gradingJobImageCreate = vi.fn().mockResolvedValue({});
     const gradingJobUpdate = vi.fn().mockResolvedValue({});
     const userFindUnique = vi.fn().mockResolvedValue({ name: 'Alice' });
-
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
-    ) as unknown as typeof fetch;
+    const wf = makeWorkflowBindingStub();
 
     const prisma = {
       user: { findUnique: userFindUnique },
@@ -572,7 +573,7 @@ describe('POST /api/worksheet-processing/process', () => {
         JWT_SECRET: SECRET,
         WORKSHEET_FILES: bucket as never,
         R2_PUBLIC_BASE_URL: 'https://cdn.example.com',
-        ...queueEnv,
+        GRADING_WORKFLOW: wf.binding,
       }
     );
     expect(res.status).toBe(202);
@@ -582,8 +583,19 @@ describe('POST /api/worksheet-processing/process', () => {
     expect(puts.length).toBe(1);
     expect(puts[0].key).toMatch(/^worksheets\/job-1\/\d+-page1-a\.png$/);
     expect(gradingJobImageCreate).toHaveBeenCalled();
-    // Queue publish fetch
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    // Workflow created exactly once with the job id as both the
+    // instance id and the params.jobId.
+    expect(wf.create).toHaveBeenCalledTimes(1);
+    const createArgs = wf.create.mock.calls[0][0] as {
+      id: string;
+      params: { jobId: string };
+    };
+    expect(createArgs.id).toBe('job-1');
+    expect(createArgs.params.jobId).toBe('job-1');
+    // The dispatch path also stamps workflowInstanceId on the row.
+    const updateData = gradingJobUpdate.mock.calls[0][0].data;
+    expect(updateData.workflowInstanceId).toBe('job-1');
+    expect(updateData.enqueuedAt).toBeInstanceOf(Date);
   });
 });
 
@@ -674,10 +686,7 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
     const batchUpdate = vi.fn().mockResolvedValue({});
     const itemCount = vi.fn().mockResolvedValue(0);
 
-    // Mock fetch for the queue publish
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
-    ) as unknown as typeof fetch;
+    const wf = makeWorkflowBindingStub();
 
     // The finalize handler now scopes to affected items via findMany
     // (loadUploadItems) instead of re-reading the entire batch.
@@ -731,7 +740,7 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
         },
         body: JSON.stringify({ uploadedImageIds: ['img-1'] }),
       },
-      { JWT_SECRET: SECRET, ...queueEnv }
+      { JWT_SECRET: SECRET, GRADING_WORKFLOW: wf.binding }
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -745,8 +754,10 @@ describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () =
     expect(body.queued[0].dispatchState).toBe('DISPATCHED');
     expect(body.status).toBe('FINALIZED'); // because itemCount returns 0
 
-    // Queue was hit with the job payload
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    // One workflow per job, with the job id used as both the instance
+    // id and the params.jobId.
+    expect(wf.create).toHaveBeenCalledTimes(1);
+    expect(wf.create.mock.calls[0][0].id).toBe('job-1');
   });
 
   it('reports pending when an affected item still has missing images on a partial upload', async () => {

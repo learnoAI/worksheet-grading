@@ -326,16 +326,17 @@ model GradingJob {
   class           Class             @relation(fields: [classId], references: [id])
   teacherId       String
   teacher         User              @relation("TeacherGradingJobs", fields: [teacherId], references: [id])
-  status          GradingJobStatus  @default(QUEUED)
-  worksheetId     String? // Set after worksheet created/updated
-  errorMessage    String?
-  dispatchError   String?
-  leaseId         String?
-  attemptCount    Int               @default(0)
-  enqueuedAt      DateTime?
-  startedAt       DateTime?
-  lastHeartbeatAt DateTime?
-  lastErrorAt     DateTime?
+  status              GradingJobStatus  @default(QUEUED)
+  worksheetId         String? // Set after worksheet created/updated
+  errorMessage        String?
+  dispatchError       String?
+  leaseId             String?
+  attemptCount        Int               @default(0)
+  enqueuedAt          DateTime?
+  startedAt           DateTime?
+  lastHeartbeatAt     DateTime?
+  lastErrorAt         DateTime?
+  workflowInstanceId  String? // Cloudflare Workflows instance id; set when dispatch creates the workflow.
   submittedOn     DateTime // The date the worksheet was submitted for
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -348,6 +349,7 @@ model GradingJob {
   @@index([status, createdAt])
   @@index([status, enqueuedAt])
   @@index([status, lastHeartbeatAt])
+  @@index([workflowInstanceId])
 }
 
 model WorksheetUploadBatch {

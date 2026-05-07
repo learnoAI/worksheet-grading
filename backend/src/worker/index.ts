@@ -23,10 +23,7 @@ import internalGradingWorkerRoutes from './routes/internalGradingWorker';
 import gradingJobRoutes from './routes/gradingJobs';
 import worksheetGenerationRoutes from './routes/worksheetGeneration';
 import { expressFallback } from './fallback';
-import { createPrismaClient } from './db';
-import { dispatchPendingJobs } from './dispatch';
-import { capturePosthogEvent, capturePosthogException } from './adapters/posthog';
-import type { WorkerEnv } from './types';
+import { capturePosthogException } from './adapters/posthog';
 
 /**
  * Hono app. Exported as `app` so tests can call `app.request(...)` without
@@ -101,84 +98,12 @@ app.onError((err, c) => {
   return c.json({ message: 'An unexpected error occurred' }, 500);
 });
 
-/**
- * Minimal shape of the `scheduled` event + execution context the Workers
- * runtime passes in. Kept inline to avoid a hard dependency on
- * `@cloudflare/workers-types` — the runtime supplies whatever fields the
- * underlying spec requires, and we only use `waitUntil`.
- */
-interface ScheduledEvent {
-  cron?: string;
-  scheduledTime: number;
-}
-
-interface ExecutionContext {
-  waitUntil(promise: Promise<unknown>): void;
-}
-
-/**
- * Cron-triggered tick: runs the grading dispatch loop every minute (see
- * `[triggers] crons` in `wrangler.toml`). Replaces the in-process
- * `setInterval` loop the Express backend used. Any structural failure
- * fires a `dispatch_loop_crashed` PostHog event so a silently-dead loop
- * is alertable.
- */
-async function runScheduledDispatch(env: WorkerEnv): Promise<void> {
-  let prisma;
-  try {
-    prisma = createPrismaClient(env);
-  } catch (error) {
-    console.error('[dispatch-loop] cannot build prisma client:', error);
-    await capturePosthogEvent(env, 'dispatch_loop_crashed', 'dispatch-loop', {
-      errorName: error instanceof Error ? error.name : 'UnknownError',
-      errorMessage: error instanceof Error ? error.message : String(error),
-      stage: 'prisma_init',
-    });
-    return;
-  }
-
-  try {
-    const result = await dispatchPendingJobs(prisma, env);
-    await capturePosthogEvent(env, 'dispatch_loop_tick', 'dispatch-loop', {
-      staleRequeued: result.staleRequeued,
-      orphanRequeued: result.orphanRequeued,
-      attempted: result.attempted,
-      dispatched: result.dispatched,
-      failed: result.failed,
-      skippedByBackoff: result.skippedByBackoff,
-    });
-  } catch (error) {
-    // A silently-dead dispatch loop is the worst failure mode in this
-    // queue system — every queued job stalls. Emit an explicit event so
-    // the first crash is alertable, not just a buried log line.
-    console.error('[dispatch-loop] tick crashed:', error);
-    await capturePosthogEvent(env, 'dispatch_loop_crashed', 'dispatch-loop', {
-      errorName: error instanceof Error ? error.name : 'UnknownError',
-      errorMessage: error instanceof Error ? error.message : String(error),
-    });
-    await capturePosthogException(env, error, {
-      distinctId: 'dispatch-loop',
-      stage: 'dispatch_loop_crashed',
-    });
-  } finally {
-    // Release the per-tick pg.Pool. The cron fires every minute; without
-    // this, a warm Worker isolate accumulates pools across ticks and
-    // re-introduces the stale-connection issue we explicitly designed the
-    // fresh-per-request HTTP path to avoid (see middleware/db.ts and
-    // commit 3b47c15). Failures here are non-fatal — log and move on.
-    await prisma.$disconnect().catch((err) => {
-      console.error('[dispatch-loop] prisma disconnect failed:', err);
-    });
-  }
-}
-
-// Default export combines the HTTP handler (Hono) with the Cron handler.
-// Workers routes HTTP requests through `fetch` and scheduled events
-// through `scheduled`. Keeping both in the same worker lets us reuse the
-// Prisma + adapter stack without spinning up a second deployment.
+// Default export — HTTP handler only. The grading dispatch loop and its
+// cron trigger were removed when the queue path was replaced by
+// Cloudflare Workflows: dispatch is synchronous from /finalize via
+// `env.GRADING_WORKFLOW.create()`, retries are workflow-managed, and
+// orphan-recovery is no longer needed (workflows are durable and report
+// back via `/internal/grading-worker/jobs/:id/{complete,fail}`).
 export default {
   fetch: app.fetch.bind(app),
-  async scheduled(_event: ScheduledEvent, env: WorkerEnv, ctx: ExecutionContext) {
-    ctx.waitUntil(runScheduledDispatch(env));
-  },
 };

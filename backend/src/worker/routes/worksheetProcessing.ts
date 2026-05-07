@@ -12,7 +12,7 @@ import {
   createPresignedPutUrl,
   publicObjectUrl,
 } from '../adapters/storage';
-import { publishToQueue, QueueError } from '../adapters/queues';
+import { dispatchGradingWorkflow } from '../adapters/gradingDispatch';
 import { uploadObject } from '../adapters/storage';
 import { parseMultipartFiles, imageOnlyFilter, UploadError } from '../uploads';
 import {
@@ -205,10 +205,15 @@ async function serializeUploadBatch(env: WorkerEnv, batch: LoadedBatch) {
 }
 
 /**
- * Dispatch a grading job by publishing a message to CF Queues. On success
- * stamps `enqueuedAt` on the job row. On failure, records `dispatchError`
- * so the dispatch loop picks it up on the next pass. Errors are never
- * rethrown — the caller moves on to the next item in the batch.
+ * Dispatch a grading job by creating a Cloudflare Workflow instance. On
+ * success stamps `enqueuedAt` and `workflowInstanceId` on the job row. On
+ * failure, records `dispatchError` so support can decide whether to
+ * retry. Errors are never rethrown — the caller moves on to the next
+ * item in the batch.
+ *
+ * Idempotency: the workflow instance id IS the jobId, so a duplicate
+ * dispatch (e.g. /finalize retried by client) collides on workflow id.
+ * The adapter swallows that case and returns success.
  */
 async function dispatchJob(
   prisma: PrismaClient,
@@ -217,38 +222,40 @@ async function dispatchJob(
 ): Promise<{ dispatchState: 'DISPATCHED' | 'PENDING_DISPATCH'; queuedAt?: string }> {
   await capturePosthogEvent(env, 'dispatch_attempt', jobId, {
     jobId,
-    queueMode: 'cloudflare',
+    queueMode: 'workflow',
   });
 
   const queuedAt = new Date().toISOString();
   try {
-    // Field name is `v`, not `version` — matches the GradingQueueMessageV1
-    // schema in Express (`services/queue/gradingQueue.ts`) and the
-    // grading-consumer's `parseQueueMessage`. See dispatch.ts for the
-    // matching publish in the cron path.
-    await publishToQueue(env, 'CF_QUEUE_ID', {
-      v: 1,
-      jobId,
-      enqueuedAt: queuedAt,
-    });
+    const { instanceId } = await dispatchGradingWorkflow(env, jobId);
     await prisma.gradingJob.update({
       where: { id: jobId },
-      data: { enqueuedAt: new Date(queuedAt), dispatchError: null },
+      data: {
+        enqueuedAt: new Date(queuedAt),
+        dispatchError: null,
+        workflowInstanceId: instanceId,
+      },
     });
     await capturePosthogEvent(env, 'dispatch_succeeded', jobId, {
       jobId,
-      queueMode: 'cloudflare',
+      queueMode: 'workflow',
       dispatchState: 'DISPATCHED',
       queuedAt,
+      workflowInstanceId: instanceId,
     });
     return { dispatchState: 'DISPATCHED', queuedAt };
   } catch (error) {
-    const dispatchError =
-      error instanceof QueueError
-        ? `${error.code}: ${error.message}`
-        : error instanceof Error
-        ? error.message
-        : 'Queue publish failed';
+    const dispatchError = error instanceof Error ? error.message : 'Workflow create failed';
+    // Pull whatever the adapter / CF runtime gave us so triage can
+    // distinguish "binding misconfigured" from "API timeout" from a
+    // race against an instance that already exists somewhere upstream.
+    const errorName = error instanceof Error ? error.name : undefined;
+    const errorCode = (error as { code?: string } | undefined)?.code;
+    // `Error.cause` is ES2022 — backend tsconfig targets es2016, so read
+    // through a structural cast.
+    const cause = (error as { cause?: unknown } | undefined)?.cause;
+    const causeMessage = cause instanceof Error ? cause.message : undefined;
+    const causeName = cause instanceof Error ? cause.name : undefined;
     await prisma.gradingJob
       .update({
         where: { id: jobId },
@@ -261,13 +268,17 @@ async function dispatchJob(
     await capturePosthogException(env, error, {
       distinctId: jobId,
       stage: 'grading_dispatch',
-      extra: { jobId },
+      extra: { jobId, errorName, errorCode, causeName, causeMessage },
     });
     await capturePosthogEvent(env, 'dispatch_failed', jobId, {
       jobId,
-      queueMode: 'cloudflare',
+      queueMode: 'workflow',
       dispatchState: 'PENDING_DISPATCH',
       error: dispatchError,
+      errorName,
+      errorCode,
+      causeName,
+      causeMessage,
     });
     return { dispatchState: 'PENDING_DISPATCH' };
   }

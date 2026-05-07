@@ -6,7 +6,6 @@ import {
   touchGradingJobHeartbeat,
   markGradingJobCompleted,
   markGradingJobFailed,
-  resetQueuedJobDispatch,
 } from './gradingLifecycle';
 
 function mockPrisma(updateManyResult: { count: number }) {
@@ -119,38 +118,6 @@ describe('requeueGradingJobForRetry', () => {
   });
 });
 
-describe('resetQueuedJobDispatch', () => {
-  it('clears enqueuedAt and dispatch fields on a QUEUED + leaseId:null job', async () => {
-    const { prisma, updateMany } = mockPrisma({ count: 1 });
-    const ok = await resetQueuedJobDispatch(prisma, 'job-1', 'cf_queue_exhausted');
-    expect(ok).toBe(true);
-    const call = updateMany.mock.calls[0][0];
-    // Where-clause must be scoped so a job that's already been picked up
-    // (PROCESSING) cannot be reset out from under the holding worker.
-    expect(call.where).toEqual({
-      id: 'job-1',
-      status: 'QUEUED',
-      leaseId: null,
-    });
-    // All listed fields must null out so the dispatch loop's next tick
-    // republishes a fresh CF queue message.
-    expect(call.data.enqueuedAt).toBeNull();
-    expect(call.data.startedAt).toBeNull();
-    expect(call.data.lastHeartbeatAt).toBeNull();
-    expect(call.data.completedAt).toBeNull();
-    expect(call.data.errorMessage).toBeNull();
-    expect(call.data.dispatchError).toBe('cf_queue_exhausted');
-    expect(call.data.lastErrorAt).toBeInstanceOf(Date);
-  });
-
-  it('treats missing reason as null dispatchError', async () => {
-    const { prisma, updateMany } = mockPrisma({ count: 1 });
-    await resetQueuedJobDispatch(prisma, 'job-1');
-    expect(updateMany.mock.calls[0][0].data.dispatchError).toBeNull();
-  });
-
-  it('returns false when no row matches (job not QUEUED, or already leased)', async () => {
-    const { prisma } = mockPrisma({ count: 0 });
-    expect(await resetQueuedJobDispatch(prisma, 'job-1', 'x')).toBe(false);
-  });
-});
+// Note: `resetQueuedJobDispatch` was removed in the workflows migration.
+// Recovery is now `env.GRADING_WORKFLOW.get(id).restart()` driven from
+// the /reset-dispatch route directly. See `internalGradingWorker.ts`.

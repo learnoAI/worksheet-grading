@@ -56,6 +56,7 @@ const jobSelect = {
   completedAt: true,
   submittedOn: true,
   classId: true,
+  workflowInstanceId: true,
 } as const;
 
 type RecoverableJob = {
@@ -69,6 +70,7 @@ type RecoverableJob = {
   enqueuedAt: Date | null;
   startedAt: Date | null;
   lastHeartbeatAt: Date | null;
+  workflowInstanceId: string | null;
 };
 
 type SelectedGradingJob = RecoverableJob & {
@@ -92,6 +94,7 @@ function toRecoverableJob(job: SelectedGradingJob): RecoverableJob {
     status: job.status,
     enqueuedAt: job.enqueuedAt,
     startedAt: job.startedAt,
+    workflowInstanceId: job.workflowInstanceId,
     lastHeartbeatAt: job.lastHeartbeatAt,
   };
 }
@@ -161,10 +164,20 @@ async function recoverStuckJob(
   }
 
   if (job.status === GradingJobStatus.PROCESSING) {
+    // Workflow-driven jobs: defer to the workflow's own watchdog. The
+    // workflow can run for ~50 min worst-case (3-tier fallback + persist
+    // retries) and does NOT heartbeat between steps — null-ing its lease
+    // here would race the workflow's persist step and surface as a 409
+    // lease-mismatch on /complete or /fail. Skip stale recovery for any
+    // job that has a workflowInstanceId; the workflow either persists
+    // (success/failure) or ends in `errored` state (visible in the CF
+    // dashboard, recoverable via /reset-dispatch). Legacy queue-driven
+    // jobs (workflowInstanceId null, still possible during the cutover
+    // drain window) keep the original heartbeat-based recovery.
     const heartbeatTime = job.lastHeartbeatAt || job.startedAt || job.createdAt;
     const stale = Date.now() - heartbeatTime.getTime() > staleMs;
 
-    if (stale) {
+    if (stale && !job.workflowInstanceId) {
       await prisma.gradingJob.update({
         where: { id: job.id },
         data: {
