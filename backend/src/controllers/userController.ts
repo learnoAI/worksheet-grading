@@ -296,7 +296,12 @@ export const getUsers = async (req: Request, res: Response) => {
                 role: true,
                 isArchived: true,
                 createdAt: true,
-                updatedAt: true
+                updatedAt: true,
+                teacherSchools: {
+                    select: {
+                        school: { select: { id: true, name: true } }
+                    }
+                }
             },
             orderBy: { name: 'asc' }
         });
