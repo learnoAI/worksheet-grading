@@ -571,6 +571,48 @@ describe('POST /api/worksheet-processing/process', () => {
     expect(body.error).toMatch(/Maximum 4 pages/);
   });
 
+  it('emits image_upload_rejected with normalised reason+multerCode when filter rejects non-image', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER', 't1');
+    // Mock fetch to capture the PostHog payload.
+    const originalFetch = globalThis.fetch;
+    // Typing args against `Parameters<typeof fetch>` so `mock.calls[N]`
+    // comes back as `[input, init?]` rather than the default `[]`.
+    const fetchMock = vi.fn(
+      async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      const init = makeMultipart(
+        {
+          token_no: 'T1',
+          worksheet_name: 'W',
+          classId: 'c1',
+          studentId: 'st1',
+          worksheetNumber: '5',
+        },
+        // text/plain triggers the imageOnlyFilter → FILTER_REJECTED
+        [{ name: 'a.txt', type: 'text/plain', size: 10 }]
+      );
+      const res = await app.request(
+        '/api/worksheet-processing/process',
+        { ...init, headers: { Authorization: `Bearer ${token}` } },
+        { JWT_SECRET: SECRET, POSTHOG_API_KEY: 'k' }
+      );
+      expect(res.status).toBe(400);
+      // Find the image_upload_rejected emission among any other PostHog calls.
+      const calls = fetchMock.mock.calls
+        .map((call) => JSON.parse((call[1] as RequestInit).body as string))
+        .filter((b) => b.event === 'image_upload_rejected');
+      expect(calls).toHaveLength(1);
+      expect(calls[0].properties.reason).toBe('mime');
+      expect(calls[0].properties.multerCode).toBe('FILTER_REJECTED');
+      expect(calls[0].properties.path).toBe('/api/worksheet-processing/process');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('honors GRADING_FAST_MAX_PAGES env override', async () => {
     const app = mountApp({});
     const token = await tokenAs('TEACHER', 't1');

@@ -14,7 +14,12 @@ import {
 } from '../adapters/storage';
 import { dispatchGradingWorkflow } from '../adapters/gradingDispatch';
 import { uploadObject } from '../adapters/storage';
-import { parseMultipartFiles, imageOnlyFilter, UploadError } from '../uploads';
+import {
+  parseMultipartFiles,
+  imageOnlyFilter,
+  UploadError,
+  mapUploadRejectReason,
+} from '../uploads';
 import {
   capturePosthogEvent,
   captureGradingPipelineEvent,
@@ -956,12 +961,19 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
     if (err instanceof UploadError) {
       // image_upload_rejected stays as a direct event — Express emits it
       // verbatim (services/posthogService.ts captureUploadFailureEvent), not
-      // under the grading_pipeline umbrella.
+      // under the grading_pipeline umbrella. The `reason` is normalised to
+      // Express's analytics vocabulary (size/count/mime/unknown) so
+      // existing dashboards keep matching; the raw multer-style code is
+      // preserved in `multerCode` for forensics.
       await capturePosthogEvent(
         c.env ?? {},
         'image_upload_rejected',
         submittedById,
-        { reason: err.code, path: '/api/worksheet-processing/process' }
+        {
+          reason: mapUploadRejectReason(err.code),
+          multerCode: err.code,
+          path: '/api/worksheet-processing/process',
+        }
       );
       return c.json({ success: false, error: err.message }, 400);
     }
