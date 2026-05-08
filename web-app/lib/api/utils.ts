@@ -2,6 +2,20 @@
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5100/api';
 
+// Thrown by fetchAPI on non-2xx responses. `status` is the HTTP code and
+// `data` is the parsed JSON body (when the response was JSON), letting
+// callers branch on structured failure detail like a 409 blocked-payload.
+export class ApiError extends Error {
+    readonly status: number;
+    readonly data: unknown;
+    constructor(message: string, status: number, data: unknown) {
+        super(message);
+        this.name = 'ApiError';
+        this.status = status;
+        this.data = data;
+    }
+}
+
 // Retry configuration types
 export interface RetryConfig {
     retries?: number;          // number of retry attempts (excluding first attempt)
@@ -100,11 +114,14 @@ export async function fetchAPI<T>(endpoint: string, options: FetchAPIOptions = {
 
     if (!response.ok) {
         let message = `Request failed (${response.status})`;
+        let body: unknown = undefined;
         try {
-            const body = await response.json();
-            if (body?.message) message = body.message;
+            body = await response.json();
+            if (body && typeof body === 'object' && 'message' in body && typeof (body as any).message === 'string') {
+                message = (body as { message: string }).message;
+            }
         } catch {/* ignore */}
-        throw new Error(message);
+        throw new ApiError(message, response.status, body);
     }
 
     if (response.status === 204) return undefined as T;

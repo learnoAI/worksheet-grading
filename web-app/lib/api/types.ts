@@ -32,6 +32,7 @@ export interface User {
     notifications?: Notification[];
     studentClasses?: StudentClass[];
     teacherClasses?: TeacherClass[];
+    teacherSchools?: Array<{ school: { id: string; name: string } }>;
     worksheets?: Worksheet[];
     studentWorksheets?: Worksheet[];
 }
