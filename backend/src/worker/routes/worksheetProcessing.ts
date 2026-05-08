@@ -29,6 +29,7 @@ import {
   requireString,
   DIRECT_UPLOAD_URL_TTL_SECONDS,
 } from '../lib/directUpload';
+import { safeWaitUntil } from '../lib/safeWaitUntil';
 import type { AppBindings, WorkerEnv } from '../types';
 
 /**
@@ -401,7 +402,22 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
       prisma,
       user,
       classId,
-      items.map((i) => i.studentId)
+      items.map((i) => i.studentId),
+      // request_rejected_ownership fires on every rejection branch so the
+      // upload-funnel dashboards can attribute drops to STUDENT-role,
+      // teacher-not-assigned, or missing-student-enrollment causes.
+      // Mirrors Express controller L231-288.
+      async (event) => {
+        await safeWaitUntil(
+          c,
+          captureGradingPipelineEvent(
+            c.env ?? {},
+            'request_rejected_ownership',
+            user.userId,
+            { ...event }
+          )
+        );
+      }
     );
 
     // Stale prior batches for this teacher/class/date are abandoned
