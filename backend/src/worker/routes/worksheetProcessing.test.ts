@@ -541,6 +541,64 @@ describe('POST /api/worksheet-processing/process', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects with 400 when files exceed GRADING_FAST_MAX_PAGES (default 4)', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER', 't1');
+    // 5 files > 4 default cap → 400 with "Too many images"
+    const init = makeMultipart(
+      {
+        token_no: 'T1',
+        worksheet_name: 'W',
+        classId: 'c1',
+        studentId: 'st1',
+        worksheetNumber: '5',
+      },
+      Array.from({ length: 5 }, (_, i) => ({
+        name: `p${i}.png`,
+        type: 'image/png',
+        size: 10,
+      }))
+    );
+    const res = await app.request(
+      '/api/worksheet-processing/process',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { success: boolean; error: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/Too many images/);
+    expect(body.error).toMatch(/Maximum 4 pages/);
+  });
+
+  it('honors GRADING_FAST_MAX_PAGES env override', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER', 't1');
+    // 3 files > 2 override cap → 400
+    const init = makeMultipart(
+      {
+        token_no: 'T1',
+        worksheet_name: 'W',
+        classId: 'c1',
+        studentId: 'st1',
+        worksheetNumber: '5',
+      },
+      Array.from({ length: 3 }, (_, i) => ({
+        name: `p${i}.png`,
+        type: 'image/png',
+        size: 10,
+      }))
+    );
+    const res = await app.request(
+      '/api/worksheet-processing/process',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET, GRADING_FAST_MAX_PAGES: '2' }
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/Maximum 2 pages/);
+  });
+
   it('creates a GradingJob, uploads images to R2, dispatches a workflow, returns 202', async () => {
     const { bucket, puts } = makeR2Bucket();
     const gradingJobCreate = vi.fn().mockResolvedValue({ id: 'job-1' });

@@ -1005,6 +1005,34 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
     return c.json({ success: false, error: 'Missing required fields' }, 400);
   }
 
+  // Express enforces a per-request page cap on the queue-mode fast path
+  // (see backend/src/config/env.ts `grading.fastMaxPages`, default 4).
+  // Without this cap, very large multi-page uploads can blow Gemini's
+  // input window and burn budget on jobs that are guaranteed to fail.
+  // Hono mirrors the limit so the user-facing 400 surfaces the same way
+  // pre- and post-cutover; the threshold is env-tunable.
+  const fastMaxPagesRaw = Number.parseInt(c.env?.GRADING_FAST_MAX_PAGES ?? '', 10);
+  const fastMaxPages = Number.isFinite(fastMaxPagesRaw) && fastMaxPagesRaw > 0 ? fastMaxPagesRaw : 4;
+  if (files.length > fastMaxPages) {
+    await captureGradingPipelineEvent(
+      c.env ?? {},
+      'request_rejected_validation',
+      submittedById,
+      {
+        reason: 'too_many_pages_fast_path',
+        filesCount: files.length,
+        maxPages: fastMaxPages,
+      }
+    );
+    return c.json(
+      {
+        success: false,
+        error: `Too many images. Maximum ${fastMaxPages} pages are supported in queue mode right now.`,
+      },
+      400
+    );
+  }
+
   await captureGradingPipelineEvent(c.env ?? {}, 'request_received', submittedById, {
     tokenNo,
     worksheetName,

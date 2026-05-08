@@ -102,6 +102,10 @@ export interface WorkerEnv {
   // /upload-session for the same teacher/class/date supersedes its
   // PENDING items as abandoned (default 5 min). See `b9a3303`.
   GRADING_STALE_UPLOAD_BATCH_MS?: string;
+  // Per-request page cap on the queue-mode fast path of /process
+  // (default 4). Mirrors Express's `config.grading.fastMaxPages` —
+  // protects Gemini's input window from very large multi-page uploads.
+  GRADING_FAST_MAX_PAGES?: string;
 
   // Index signature so `WorkerEnv` is structurally assignable to adapter
   // env contracts that read dynamic keys (e.g. `QueuePublishEnv` does
