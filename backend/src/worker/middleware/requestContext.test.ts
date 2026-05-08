@@ -254,4 +254,65 @@ describe('requestContext — diagnostics emission', () => {
     await app.request('/server-error', undefined, {});
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('emits both $exception (onError) and backend_request_diagnostic (middleware) when a route throws', async () => {
+    // When a route throws an uncaught exception, Hono's app.onError
+    // catches it and replies 500. The requestContext middleware's
+    // post-next code then sees status=500 and emits the diagnostic.
+    // This test locks in BOTH events firing so a regression in either
+    // code path is caught — pre-cutover, dashboards keyed on either
+    // event must keep populating.
+    const fetchMock = mockFetchOK();
+
+    const app = new Hono<AppBindings>();
+    app.use('*', requestContext);
+    app.get('/boom', () => {
+      throw new TypeError('handler exploded');
+    });
+    // Mirror the production onError at worker/index.ts:80-99 so the
+    // test exercises the same observability contract. Use safeWaitUntil
+    // (the same helper production uses) so the fetch lands awaited
+    // when no Workers ctx is bound.
+    const { capturePosthogException } = await import('../adapters/posthog');
+    const { safeWaitUntil } = await import('../lib/safeWaitUntil');
+    app.onError((err, c) => {
+      const env = c.env ?? {};
+      const requestId = c.get('requestId');
+      void safeWaitUntil(
+        c,
+        capturePosthogException(env, err, {
+          distinctId: requestId ?? 'unknown',
+          stage: 'worker_unhandled_error',
+          extra: {
+            method: c.req.method,
+            path: new URL(c.req.url).pathname,
+            requestId,
+          },
+        })
+      );
+      return c.json({ message: 'An unexpected error occurred' }, 500);
+    });
+
+    const res = await app.request('/boom', undefined, PH_ENV);
+    expect(res.status).toBe(500);
+    // Two fetches: $exception from onError, backend_request_diagnostic
+    // from the middleware's post-next emit.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const bodies = fetchMock.mock.calls.map(
+      (call) => JSON.parse((call[1] as RequestInit).body as string)
+    );
+    const exception = bodies.find((b) => b.event === '$exception');
+    const diagnostic = bodies.find((b) => b.event === 'backend_request_diagnostic');
+
+    expect(exception).toBeDefined();
+    expect(exception.properties.$exception_message).toBe('handler exploded');
+    expect(exception.properties.stage).toBe('worker_unhandled_error');
+
+    expect(diagnostic).toBeDefined();
+    expect(diagnostic.properties.diagnosticType).toBe('server_error');
+    expect(diagnostic.properties.statusCode).toBe(500);
+    expect(diagnostic.properties.path).toBe('/boom');
+    expect(diagnostic.properties.method).toBe('GET');
+  });
 });
