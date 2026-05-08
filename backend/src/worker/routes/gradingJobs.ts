@@ -1,10 +1,7 @@
 import { Hono } from 'hono';
 import { GradingJobStatus, UserRole, type PrismaClient } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
-import {
-  capturePosthogException,
-  captureControllerError,
-} from '../adapters/posthog';
+import { captureControllerError } from '../adapters/posthog';
 import type { AppBindings, WorkerEnv } from '../types';
 
 /**
@@ -424,10 +421,11 @@ gradingJobs.get('/teacher/today', async (c) => {
       jobs,
     });
   } catch (error) {
-    console.error('[grading-jobs] getTeacherJobsToday error:', error);
-    await capturePosthogException(c.env ?? {}, error, {
+    await captureControllerError(c.env ?? {}, 'gradingJobs.getTeacherJobsToday', error, {
       distinctId: user.userId,
-      stage: 'gradingJobs.getTeacherJobsToday',
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      userId: user.userId,
     });
     return c.json({ message: 'Server error' }, 500);
   }
@@ -826,10 +824,11 @@ gradingJobs.get('/class/:classId', async (c) => {
       jobs: updatedJobs,
     });
   } catch (error) {
-    console.error('[grading-jobs] getJobsByClass error:', error);
-    await capturePosthogException(c.env ?? {}, error, {
+    await captureControllerError(c.env ?? {}, 'gradingJobs.getJobsByClass', error, {
       distinctId: user.userId,
-      stage: 'gradingJobs.getJobsByClass',
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      userId: user.userId,
     });
     return c.json({ message: 'Server error' }, 500);
   }
@@ -853,10 +852,11 @@ gradingJobs.get('/:jobId', async (c) => {
     const recovered = await recoverJobForResponse(prisma, job, staleMs);
     return c.json({ success: true, job: recovered });
   } catch (error) {
-    console.error('[grading-jobs] getJobStatus error:', error);
-    await capturePosthogException(c.env ?? {}, error, {
+    await captureControllerError(c.env ?? {}, 'gradingJobs.getJobStatus', error, {
       distinctId: user.userId,
-      stage: 'gradingJobs.getJobStatus',
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      userId: user.userId,
     });
     return c.json({ message: 'Server error' }, 500);
   }
@@ -893,10 +893,11 @@ gradingJobs.post('/batch-status', async (c) => {
 
     return c.json({ success: true, jobs: recovered });
   } catch (error) {
-    console.error('[grading-jobs] getBatchJobStatus error:', error);
-    await capturePosthogException(c.env ?? {}, error, {
+    await captureControllerError(c.env ?? {}, 'gradingJobs.getBatchJobStatus', error, {
       distinctId: user.userId,
-      stage: 'gradingJobs.getBatchJobStatus',
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      userId: user.userId,
     });
     return c.json({ message: 'Server error' }, 500);
   }
