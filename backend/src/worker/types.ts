@@ -71,6 +71,14 @@ export interface WorkerEnv {
   GIT_SHA?: string;
   RELEASE?: string;
 
+  // Request-diagnostics middleware tunables. Mirror the Express
+  // `config.diagnostics.*` shape so dashboards stay portable. When
+  // REQUEST_DIAGNOSTICS_ENABLED is the literal string 'false' the
+  // middleware skips all PostHog emissions; any other value (or unset)
+  // keeps it on. Threshold defaults: slow=1500ms.
+  REQUEST_DIAGNOSTICS_ENABLED?: string;
+  REQUEST_DIAGNOSTICS_SLOW_MS?: string;
+
   // Object storage — native R2 binding (preferred) and S3-compatible
   // endpoint config used by aws4fetch for presigned URLs.
   WORKSHEET_FILES?: R2Bucket;
