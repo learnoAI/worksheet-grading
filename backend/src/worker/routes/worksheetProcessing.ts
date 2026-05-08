@@ -17,6 +17,7 @@ import { uploadObject } from '../adapters/storage';
 import { parseMultipartFiles, imageOnlyFilter, UploadError } from '../uploads';
 import {
   capturePosthogEvent,
+  captureGradingPipelineEvent,
   capturePosthogException,
 } from '../adapters/posthog';
 import {
@@ -220,7 +221,7 @@ async function dispatchJob(
   env: WorkerEnv,
   jobId: string
 ): Promise<{ dispatchState: 'DISPATCHED' | 'PENDING_DISPATCH'; queuedAt?: string }> {
-  await capturePosthogEvent(env, 'dispatch_attempt', jobId, {
+  await captureGradingPipelineEvent(env, 'dispatch_attempt', jobId, {
     jobId,
     queueMode: 'workflow',
   });
@@ -236,7 +237,7 @@ async function dispatchJob(
         workflowInstanceId: instanceId,
       },
     });
-    await capturePosthogEvent(env, 'dispatch_succeeded', jobId, {
+    await captureGradingPipelineEvent(env, 'dispatch_succeeded', jobId, {
       jobId,
       queueMode: 'workflow',
       dispatchState: 'DISPATCHED',
@@ -270,7 +271,7 @@ async function dispatchJob(
       stage: 'grading_dispatch',
       extra: { jobId, errorName, errorCode, causeName, causeMessage },
     });
-    await capturePosthogEvent(env, 'dispatch_failed', jobId, {
+    await captureGradingPipelineEvent(env, 'dispatch_failed', jobId, {
       jobId,
       queueMode: 'workflow',
       dispatchState: 'PENDING_DISPATCH',
@@ -549,7 +550,7 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
       return { ...batch, items: uploadItems };
     });
 
-    await capturePosthogEvent(
+    await captureGradingPipelineEvent(
       c.env ?? {},
       'direct_upload_session_created',
       created.id,
@@ -564,7 +565,7 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
     );
 
     if (supersededItemCount > 0 || supersededBatchCount > 0) {
-      await capturePosthogEvent(
+      await captureGradingPipelineEvent(
         c.env ?? {},
         'direct_upload_session_superseded_prior',
         created.id,
@@ -583,7 +584,7 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
     try {
       serialized = await serializeUploadBatch(c.env ?? {}, created);
     } catch (presignErr) {
-      await capturePosthogEvent(c.env ?? {}, 'direct_upload_presign_failed', created.id, {
+      await captureGradingPipelineEvent(c.env ?? {}, 'direct_upload_presign_failed', created.id, {
         batchId: created.id,
         classId,
         teacherId,
@@ -867,7 +868,7 @@ worksheetProcessing.post(
         return remaining;
       });
 
-      await capturePosthogEvent(c.env ?? {}, 'direct_upload_session_finalized', batch.id, {
+      await captureGradingPipelineEvent(c.env ?? {}, 'direct_upload_session_finalized', batch.id, {
         batchId: batch.id,
         queuedCount: queued.length,
         pendingCount: pending.length,
@@ -937,6 +938,9 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
     });
   } catch (err) {
     if (err instanceof UploadError) {
+      // image_upload_rejected stays as a direct event — Express emits it
+      // verbatim (services/posthogService.ts captureUploadFailureEvent), not
+      // under the grading_pipeline umbrella.
       await capturePosthogEvent(
         c.env ?? {},
         'image_upload_rejected',
@@ -959,7 +963,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
   const isRepeatedField = fields.isRepeated;
 
   if (!tokenNo || !worksheetName || files.length === 0) {
-    await capturePosthogEvent(
+    await captureGradingPipelineEvent(
       c.env ?? {},
       'request_rejected_validation',
       submittedById,
@@ -971,7 +975,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
     return c.json({ success: false, error: 'Missing required fields' }, 400);
   }
   if (!classId || !studentId || !worksheetNumberRaw) {
-    await capturePosthogEvent(
+    await captureGradingPipelineEvent(
       c.env ?? {},
       'request_rejected_validation',
       submittedById,
@@ -985,7 +989,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
     return c.json({ success: false, error: 'Missing required fields' }, 400);
   }
 
-  await capturePosthogEvent(c.env ?? {}, 'request_received', submittedById, {
+  await captureGradingPipelineEvent(c.env ?? {}, 'request_received', submittedById, {
     tokenNo,
     worksheetName,
     worksheetNumber: worksheetNumberRaw,
@@ -1028,7 +1032,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
     });
     jobId = job.id;
 
-    await capturePosthogEvent(c.env ?? {}, 'job_created', job.id, {
+    await captureGradingPipelineEvent(c.env ?? {}, 'job_created', job.id, {
       jobId: job.id,
       studentId,
       classId,
@@ -1063,7 +1067,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
       });
     }
 
-    await capturePosthogEvent(c.env ?? {}, 'images_stored', job.id, {
+    await captureGradingPipelineEvent(c.env ?? {}, 'images_stored', job.id, {
       jobId: job.id,
       filesCount: files.length,
       totalBytes: files.reduce((acc, file) => acc + file.size, 0),
@@ -1072,7 +1076,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
 
     const dispatchResult = await dispatchJob(prisma, c.env ?? {}, job.id);
 
-    await capturePosthogEvent(c.env ?? {}, 'request_accepted', job.id, {
+    await captureGradingPipelineEvent(c.env ?? {}, 'request_accepted', job.id, {
       jobId: job.id,
       dispatchState: dispatchResult.dispatchState,
       queuedAt: dispatchResult.queuedAt,

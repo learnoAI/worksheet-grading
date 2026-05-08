@@ -27,7 +27,7 @@ import {
   summarizeGradingJobContext,
   summarizeGradingResponse,
 } from './gradingDiagnostics';
-import { capturePosthogEvent, capturePosthogException } from './posthog';
+import { captureGradingPipelineEvent, capturePosthogException } from './posthog';
 import type { WorkerEnv } from '../types';
 
 export interface PersistWorksheetResult {
@@ -124,7 +124,7 @@ export async function persistWorksheetForGradingJob(
       '[worksheet-persist] rejected unsuccessful grading response',
       baseDiagnostics
     );
-    await capturePosthogEvent(
+    await captureGradingPipelineEvent(
       env ?? {},
       'worksheet_persist_rejected_response',
       distinctId,
@@ -222,7 +222,7 @@ export async function persistWorksheetForGradingJob(
         '[worksheet-persist] upsert fell back (missing unique index)',
         errorDiagnostics
       );
-      await capturePosthogEvent(
+      await captureGradingPipelineEvent(
         env ?? {},
         'worksheet_persist_fallback_missing_unique_index',
         distinctId,
@@ -295,7 +295,7 @@ export async function persistWorksheetForGradingJob(
         errorDiagnostics,
         error
       );
-      await capturePosthogEvent(
+      await captureGradingPipelineEvent(
         env ?? {},
         'worksheet_persist_failed',
         distinctId,
@@ -319,7 +319,7 @@ export async function persistWorksheetForGradingJob(
       action: wasCreated ? 'CREATED' : 'UPDATED',
     };
     console.warn('[worksheet-persist] slow', slowDiagnostics);
-    await capturePosthogEvent(
+    await captureGradingPipelineEvent(
       env ?? {},
       'worksheet_persist_slow',
       distinctId,
