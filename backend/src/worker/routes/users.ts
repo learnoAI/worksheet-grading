@@ -143,13 +143,39 @@ users.get('/', async (c) => {
   if (!prisma) return c.json({ message: 'Database is not available' }, 500);
 
   const roleParam = c.req.query('role');
+  // Preserve historical default (archived users included); callers opt in
+  // to filtering with ?includeArchived=false. The reassign UI passes that.
+  const includeArchived = c.req.query('includeArchived') !== 'false';
+  // teacherSchools is a SUPERADMIN-only relation. Other roles get the
+  // base list without school assignments.
+  const isSuperadmin = c.get('user')?.role === UserRole.SUPERADMIN;
+
   const where: Prisma.UserWhereInput = {};
   if (isUserRole(roleParam)) where.role = roleParam;
+  if (!includeArchived) where.isArchived = false;
+
+  const baseSelect = {
+    id: true,
+    name: true,
+    username: true,
+    role: true,
+    isArchived: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
 
   try {
     const rows = await prisma.user.findMany({
       where,
-      select: USER_SELECT,
+      select: isSuperadmin
+        ? {
+            ...baseSelect,
+            teacherSchools: {
+              select: { school: { select: { id: true, name: true } } },
+            },
+          }
+        : baseSelect,
+      orderBy: { name: 'asc' },
     });
     return c.json(rows, 200);
   } catch (error) {
