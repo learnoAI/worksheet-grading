@@ -336,7 +336,22 @@ model GradingJob {
   startedAt           DateTime?
   lastHeartbeatAt     DateTime?
   lastErrorAt         DateTime?
-  workflowInstanceId  String? // Cloudflare Workflows instance id; set when dispatch creates the workflow.
+  // Cloudflare Workflows instance id; set by `dispatchGradingWorkflow`
+  // (`backend/src/worker/adapters/gradingDispatch.ts`) when the workflow
+  // path drives this job. Equal to `id` by convention — we reuse jobId as
+  // the workflow instance id for free idempotency on duplicate dispatch.
+  // Strictly redundant given that convention, but kept because:
+  //   1. `recoverStuckJob` (hot polling path in
+  //      `backend/src/worker/routes/gradingJobs.ts`) checks IS NULL to
+  //      decide whether to run heartbeat-stale recovery — without this
+  //      column we'd need a CF Workflows API hop per poll.
+  //   2. Operational handle: `SELECT * FROM "GradingJob" WHERE
+  //      "workflowInstanceId" IS NOT NULL` returns every workflow-driven
+  //      row, and the value is the dashboard id you'd plug into the CF
+  //      Workflows UI for support investigations.
+  // Drop only after Express retires AND the instance-id-eq-jobId
+  // convention is locked.
+  workflowInstanceId  String?
   submittedOn     DateTime // The date the worksheet was submitted for
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
