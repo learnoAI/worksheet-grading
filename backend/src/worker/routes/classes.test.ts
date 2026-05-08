@@ -703,3 +703,251 @@ describe('POST /api/classes/upload-student-classes', () => {
     expect(body.results.errors[0]).toContain('Class not found');
   });
 });
+
+async function saPost(
+  path: string,
+  body: unknown,
+  prisma: unknown,
+  token?: string,
+  envExtra: Record<string, unknown> = {},
+) {
+  const app = mountApp(prisma);
+  const t = token ?? (await tokenAs('SUPERADMIN'));
+  return app.request(
+    path,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    { JWT_SECRET: SECRET, ...envExtra },
+  );
+}
+
+describe('GET /api/classes/by-teacher/:teacherId', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 404 when user is not a TEACHER', async () => {
+    const userFindUnique = vi.fn().mockResolvedValue({ id: 't1', role: 'STUDENT' });
+    const res = await sa('/api/classes/by-teacher/t1', { user: { findUnique: userFindUnique } });
+    expect(res.status).toBe(404);
+  });
+
+  it('returns the teacher with an empty list when no classes assigned', async () => {
+    const prisma = {
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 't1', role: 'TEACHER' }) },
+      teacherClass: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    const res = await sa('/api/classes/by-teacher/t1', prisma);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { teacherId: string; classes: unknown[] };
+    expect(body.teacherId).toBe('t1');
+    expect(body.classes).toEqual([]);
+  });
+
+  it('flags blocked classes with the correct reasons', async () => {
+    const prisma = {
+      user: { findUnique: vi.fn().mockResolvedValue({ id: 't1', role: 'TEACHER' }) },
+      teacherClass: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            classId: 'c1',
+            class: {
+              id: 'c1',
+              name: 'A',
+              academicYear: '2026',
+              school: { id: 's1', name: 'School 1' },
+            },
+          },
+          {
+            classId: 'c2',
+            class: {
+              id: 'c2',
+              name: 'B',
+              academicYear: '2026',
+              school: { id: 's1', name: 'School 1' },
+            },
+          },
+        ]),
+      },
+      worksheetUploadBatch: { findMany: vi.fn().mockResolvedValue([{ classId: 'c1' }]) },
+      worksheet: { findMany: vi.fn().mockResolvedValue([{ classId: 'c2' }]) },
+      gradingJob: { findMany: vi.fn().mockResolvedValue([{ classId: 'c1' }]) },
+    };
+    const res = await sa('/api/classes/by-teacher/t1', prisma);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      classes: Array<{ classId: string; blockReasons: string[] }>;
+    };
+    const c1 = body.classes.find((c) => c.classId === 'c1')!;
+    const c2 = body.classes.find((c) => c.classId === 'c2')!;
+    expect(c1.blockReasons.sort()).toEqual(['grading_job_in_flight', 'upload_in_progress']);
+    expect(c2.blockReasons).toEqual(['worksheet_not_graded']);
+  });
+});
+
+describe('POST /api/classes/reassign', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('rejects when source and target are the same teacher', async () => {
+    const res = await saPost(
+      '/api/classes/reassign',
+      { fromTeacherId: 't1', toTeacherId: 't1', classIds: ['c1'] },
+      {},
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/different/);
+  });
+
+  it('rejects when source teacher missing or archived', async () => {
+    const userFindUnique = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 't1', role: 'TEACHER', isArchived: true, name: 'src' })
+      .mockResolvedValueOnce({ id: 't2', role: 'TEACHER', isArchived: false, name: 'tgt' });
+    const res = await saPost(
+      '/api/classes/reassign',
+      { fromTeacherId: 't1', toTeacherId: 't2', classIds: ['c1'] },
+      {
+        user: { findUnique: userFindUnique },
+        class: { findMany: vi.fn().mockResolvedValue([]) },
+      },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 409 when any class has an in-flight upload batch', async () => {
+    const userFindUnique = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 't1', role: 'TEACHER', isArchived: false, name: 'src' })
+      .mockResolvedValueOnce({ id: 't2', role: 'TEACHER', isArchived: false, name: 'tgt' });
+    const prisma = {
+      user: { findUnique: userFindUnique },
+      class: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'c1', name: 'A', academicYear: '2026', isArchived: false, schoolId: 's1', school: { id: 's1', name: 'School 1' } },
+        ]),
+      },
+      worksheetUploadBatch: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'b1', classId: 'c1', status: 'UPLOADING' }]),
+      },
+      worksheet: { findMany: vi.fn().mockResolvedValue([]) },
+      gradingJob: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    const res = await saPost(
+      '/api/classes/reassign',
+      { fromTeacherId: 't1', toTeacherId: 't2', classIds: ['c1'] },
+      prisma,
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { blocked: Array<{ reason: string }> };
+    expect(body.blocked[0].reason).toBe('upload_in_progress');
+  });
+
+  it('moves a fresh class and emits sr_class_reassigned per moved class', async () => {
+    const userFindUnique = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 't1', role: 'TEACHER', isArchived: false, name: 'src' })
+      .mockResolvedValueOnce({ id: 't2', role: 'TEACHER', isArchived: false, name: 'tgt' });
+    const teacherClassFindMany = vi
+      .fn()
+      // first call: source links — has c1
+      .mockResolvedValueOnce([{ classId: 'c1' }])
+      // second call: target links — has nothing
+      .mockResolvedValueOnce([]);
+    const teacherClassDeleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const teacherClassCreateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const teacherSchoolUpsert = vi.fn().mockResolvedValue({});
+    const transaction = vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
+      cb({
+        teacherClass: { deleteMany: teacherClassDeleteMany, createMany: teacherClassCreateMany },
+        teacherSchool: { upsert: teacherSchoolUpsert },
+      }),
+    );
+    const prisma = {
+      user: { findUnique: userFindUnique },
+      class: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'c1',
+            name: 'A',
+            academicYear: '2026',
+            isArchived: false,
+            schoolId: 's1',
+            school: { id: 's1', name: 'School 1' },
+          },
+        ]),
+      },
+      worksheetUploadBatch: { findMany: vi.fn().mockResolvedValue([]) },
+      worksheet: { findMany: vi.fn().mockResolvedValue([]) },
+      gradingJob: { findMany: vi.fn().mockResolvedValue([]) },
+      teacherClass: { findMany: teacherClassFindMany },
+      $transaction: transaction,
+    };
+    const res = await saPost(
+      '/api/classes/reassign',
+      { fromTeacherId: 't1', toTeacherId: 't2', classIds: ['c1'] },
+      prisma,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      batchId: string;
+      moved: string[];
+      skipped: Array<{ classId: string; reason: string }>;
+    };
+    expect(body.moved).toEqual(['c1']);
+    expect(body.skipped).toEqual([]);
+    expect(body.batchId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(teacherClassDeleteMany).toHaveBeenCalledWith({
+      where: { teacherId: 't1', classId: { in: ['c1'] } },
+    });
+    expect(teacherClassCreateMany).toHaveBeenCalledWith({
+      data: [{ teacherId: 't2', classId: 'c1' }],
+      skipDuplicates: true,
+    });
+    expect(teacherSchoolUpsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips classes the source no longer owns and classes the target already has', async () => {
+    const userFindUnique = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 't1', role: 'TEACHER', isArchived: false, name: 'src' })
+      .mockResolvedValueOnce({ id: 't2', role: 'TEACHER', isArchived: false, name: 'tgt' });
+    const teacherClassFindMany = vi
+      .fn()
+      // source links: has c1 only (not c2 → 'source_no_longer_assigned')
+      .mockResolvedValueOnce([{ classId: 'c1' }])
+      // target links: has c1 already → 'already_assigned'
+      .mockResolvedValueOnce([{ classId: 'c1' }]);
+    const transaction = vi.fn();
+    const prisma = {
+      user: { findUnique: userFindUnique },
+      class: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'c1', name: 'A', academicYear: '2026', isArchived: false, schoolId: 's1', school: { id: 's1', name: 'School 1' } },
+          { id: 'c2', name: 'B', academicYear: '2026', isArchived: false, schoolId: 's1', school: { id: 's1', name: 'School 1' } },
+        ]),
+      },
+      worksheetUploadBatch: { findMany: vi.fn().mockResolvedValue([]) },
+      worksheet: { findMany: vi.fn().mockResolvedValue([]) },
+      gradingJob: { findMany: vi.fn().mockResolvedValue([]) },
+      teacherClass: { findMany: teacherClassFindMany },
+      $transaction: transaction,
+    };
+    const res = await saPost(
+      '/api/classes/reassign',
+      { fromTeacherId: 't1', toTeacherId: 't2', classIds: ['c1', 'c2'] },
+      prisma,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      moved: string[];
+      skipped: Array<{ classId: string; reason: string }>;
+    };
+    expect(body.moved).toEqual([]);
+    expect(body.skipped).toContainEqual({ classId: 'c1', reason: 'already_assigned' });
+    expect(body.skipped).toContainEqual({ classId: 'c2', reason: 'source_no_longer_assigned' });
+    // Nothing to move, so the transaction should not have been entered.
+    expect(transaction).not.toHaveBeenCalled();
+  });
+});
