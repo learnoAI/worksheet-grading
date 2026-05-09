@@ -579,6 +579,7 @@ describe('POST /api/worksheet-processing/process', () => {
     // Typing args against `Parameters<typeof fetch>` so `mock.calls[N]`
     // comes back as `[input, init?]` rather than the default `[]`.
     const fetchMock = vi.fn(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
       async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
     );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -718,6 +719,7 @@ describe('POST /api/worksheet-processing/process', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
       async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
     );
     globalThis.fetch = fetchMock as unknown as typeof fetch;

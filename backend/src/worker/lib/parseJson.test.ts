@@ -18,6 +18,10 @@ function silenceWarn() {
 
 function mockFetchOK(): ReturnType<typeof vi.fn> {
   const fn = vi.fn(
+    // _args typed against Parameters<typeof fetch> so mock.calls[N] comes
+    // back as [input, init?] rather than []. eslint-disable: the codebase's
+    // existing convention; argsIgnorePattern fix is deferred to its own PR.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
   );
   globalThis.fetch = fn as unknown as typeof fetch;

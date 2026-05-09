@@ -17,8 +17,9 @@ afterEach(() => {
 });
 
 function mockFetchOK(): ReturnType<typeof vi.fn> {
-  const fn = vi.fn(async (..._args: Parameters<typeof fetch>) =>
-    new Response(null, { status: 200 })
+  const fn = vi.fn(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
+    async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
   );
   globalThis.fetch = fn as unknown as typeof fetch;
   return fn;
