@@ -180,6 +180,16 @@ export async function captureGradingPipelineEvent(
  * exception view picks it up) AND a `grading_pipeline` event with
  * `stage = 'controller_error'` so the per-controller error trends keep
  * working. Mirrors Express's `captureControllerError(source, error, req, extra)`.
+ *
+ * NOTE: there is one OUTER catch in `routes/worksheetProcessing.ts`
+ * (the `/process` request_failed handler) that does its OWN dual-write
+ * with `stage = 'request_failed'` — it does NOT use this helper. Express
+ * intentionally chose a separate stage there so the upload-funnel
+ * dashboards can distinguish "controller crashed before dispatch"
+ * (request_failed) from "any-other controller crash" (controller_error).
+ * If you find yourself adding a new outer-catch in /process, mirror that
+ * pattern (manual `captureGradingPipelineEvent('request_failed', …)`)
+ * rather than reaching for this helper.
  */
 export async function captureControllerError(
   env: PosthogEnv,

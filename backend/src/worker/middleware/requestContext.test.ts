@@ -224,6 +224,37 @@ describe('requestContext — diagnostics emission', () => {
     expect(body.properties.category).toBe('grading_jobs_api');
   });
 
+  it('skips body summary when /grading body is non-JSON (clone.json() rejects)', async () => {
+    // The middleware clones c.req.raw before next() and tries to parse
+    // the clone as JSON post-next. If parsing fails (non-JSON content
+    // or malformed payload), the catch swallows and bodyClonePromise
+    // resolves to undefined — the diagnostic event still fires but
+    // omits the requestBodySummary. Lock this fall-through so a future
+    // change to cloneBody can't silently throw out of the middleware.
+    const fetchMock = mockFetchOK();
+    vi.spyOn(Math, 'random').mockReturnValue(0); // force 4xx sample-pass
+    const app = buildEmittingApp();
+    const res = await app.request(
+      '/api/grading-jobs/explode',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: 'this is not JSON at all',
+      },
+      PH_ENV
+    );
+    expect(res.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.event).toBe('backend_request_client_error');
+    // Body parse failed — summary omitted but the event still fires.
+    expect(body.properties.requestBodySummary).toBeUndefined();
+    // Path/category/jobId still present (the summary was the only
+    // body-derived field).
+    expect(body.properties.path).toBe('/api/grading-jobs/explode');
+    expect(body.properties.category).toBe('grading_jobs_api');
+  });
+
   it('summarizes request body shape on /grading paths', async () => {
     const fetchMock = mockFetchOK();
     vi.spyOn(Math, 'random').mockReturnValue(0); // force sample-pass

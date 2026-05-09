@@ -6,7 +6,15 @@ import type { AppBindings } from '../types';
 const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.restoreAllMocks();
 });
+
+// The helper logs malformed bodies via console.warn for oncall log
+// forensics. Silence the spy in tests that exercise the catch path
+// so vitest output stays readable; production behaviour is unchanged.
+function silenceWarn() {
+  return vi.spyOn(console, 'warn').mockImplementation(() => {});
+}
 
 function mockFetchOK(): ReturnType<typeof vi.fn> {
   const fn = vi.fn(
@@ -49,6 +57,7 @@ describe('tryParseJsonBody', () => {
   });
 
   it('returns undefined and fires backend_request_body_parse_error on malformed JSON', async () => {
+    const warnSpy = silenceWarn();
     const fetchMock = mockFetchOK();
     const app = buildApp();
     const res = await app.request(
@@ -72,9 +81,16 @@ describe('tryParseJsonBody', () => {
     expect(sent.properties.path).toBe('/echo');
     expect(sent.properties.method).toBe('POST');
     expect(typeof sent.properties.errorMessage).toBe('string');
+    // console.warn lands too — locked-in oncall log surface.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[parseJson] malformed body',
+      expect.objectContaining({ path: '/echo', method: 'POST' })
+    );
   });
 
   it('skips PostHog emission when POSTHOG_API_KEY is unset', async () => {
+    silenceWarn();
     const fetchMock = mockFetchOK();
     const app = buildApp();
     const res = await app.request(
@@ -91,6 +107,7 @@ describe('tryParseJsonBody', () => {
   });
 
   it('threads the routes /-prefixed path into the event payload', async () => {
+    silenceWarn();
     const fetchMock = mockFetchOK();
     const app = new Hono<AppBindings>();
     app.post('/api/widgets/create', async (c) => {

@@ -35,16 +35,27 @@ export async function tryParseJsonBody<T = unknown>(
   try {
     return (await c.req.json()) as T;
   } catch (err) {
+    const path = new URL(c.req.url).pathname;
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    // Dual surface: PostHog event for dashboards/alerts; console.warn
+    // for the durable log stream oncall greps in `wrangler tail`. Mirrors
+    // Express's logging at the global error middleware in
+    // `backend/src/index.ts:75-105`, which emitted both the PostHog
+    // event AND wrote to the request-diagnostics log.
+    console.warn('[parseJson] malformed body', {
+      path,
+      method: c.req.method,
+      errorMessage,
+    });
     const env = c.env;
     if (env) {
       const requestId = c.get('requestId') ?? 'unknown';
-      const path = new URL(c.req.url).pathname;
       await safeWaitUntil(
         c,
         capturePosthogEvent(env, 'backend_request_body_parse_error', requestId, {
           path,
           method: c.req.method,
-          errorMessage: err instanceof Error ? err.message : String(err),
+          errorMessage,
         })
       );
     }

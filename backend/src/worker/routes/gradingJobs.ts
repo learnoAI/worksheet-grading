@@ -312,6 +312,14 @@ function formatDateOnly(date: Date): string {
 }
 
 function parseDateOnly(value: unknown, fallback: string): string {
+  // NOTE (parity): regex-only validation matches Express
+  // `gradingJobController.ts:85-91`. Inputs like `2026-13-99` PASS the
+  // regex and silently roll over in `Date.UTC(year, month-1, day, ...)`
+  // (e.g. `2026-13-99` → roughly `2027-04-08`). This is the Express
+  // behaviour; preserving it deliberately avoids introducing a new
+  // strictness divergence at cutover. If the dashboard ever surfaces a
+  // need for stricter validation, fix on Express side first so both
+  // runtimes stay aligned.
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return fallback;
   }
