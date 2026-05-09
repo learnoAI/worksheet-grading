@@ -35,6 +35,7 @@ import {
   DIRECT_UPLOAD_URL_TTL_SECONDS,
 } from '../lib/directUpload';
 import { safeWaitUntil } from '../lib/safeWaitUntil';
+import { tryParseJsonBody } from '../lib/parseJson';
 import type { AppBindings, WorkerEnv } from '../types';
 
 /**
@@ -391,10 +392,8 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
   const user = c.get('user')!;
   const teacherId = user.userId;
 
-  let body: Record<string, unknown>;
-  try {
-    body = await c.req.json();
-  } catch {
+  const body = await tryParseJsonBody<Record<string, unknown>>(c);
+  if (body === undefined) {
     return c.json({ success: false, error: 'Request body must be JSON' }, 400);
   }
 
@@ -677,7 +676,11 @@ worksheetProcessing.post(
       try {
         body = await c.req.json();
       } catch {
-        // body is optional
+        // Finalize body is OPTIONAL — clients may POST with no body to
+        // accept all uploaded images. Empty/invalid body silently
+        // collapses to `{}`. Do NOT migrate to tryParseJsonBody here:
+        // a missing body is normal traffic and would create false
+        // backend_request_body_parse_error noise.
       }
       const requestedUploadedIds: string[] = Array.isArray(body.uploadedImageIds)
         ? body.uploadedImageIds.filter((id): id is string => typeof id === 'string')

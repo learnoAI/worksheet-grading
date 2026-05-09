@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { GradingJobStatus, UserRole, type PrismaClient } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth';
 import { captureControllerError } from '../adapters/posthog';
+import { tryParseJsonBody } from '../lib/parseJson';
 import type { AppBindings, WorkerEnv } from '../types';
 
 /**
@@ -869,10 +870,8 @@ gradingJobs.post('/batch-status', async (c) => {
 
   const staleMs = staleProcessingMs(c.env);
 
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
+  const body = await tryParseJsonBody<unknown>(c);
+  if (body === undefined) {
     return c.json({ message: 'jobIds array required' }, 400);
   }
 

@@ -29,6 +29,8 @@ mastery.post('/backfill', authorize([UserRole.SUPERADMIN]), async (c) => {
     body = (await c.req.json()) ?? {};
   } catch {
     // Empty/invalid body is allowed — the Express version treats it the same.
+    // Do NOT migrate to tryParseJsonBody here: a missing body is normal
+    // traffic and would create false backend_request_body_parse_error noise.
   }
 
   const studentIds = Array.isArray(body.studentIds)

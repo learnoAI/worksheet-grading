@@ -22,6 +22,7 @@ import {
   captureGradingPipelineEvent,
   capturePosthogException,
 } from '../adapters/posthog';
+import { tryParseJsonBody } from '../lib/parseJson';
 import type { AppBindings } from '../types';
 
 /**
@@ -332,10 +333,8 @@ internalGradingWorker.post(
     const jobId = c.req.param('jobId');
     const env = c.env ?? {};
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
+    const body = await tryParseJsonBody<unknown>(c);
+    if (body === undefined) {
       return c.json({ success: false, error: 'Request body must be JSON' }, 400);
     }
 
