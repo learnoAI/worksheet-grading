@@ -106,6 +106,14 @@ export interface WorkerEnv {
   // (default 4). Mirrors Express's `config.grading.fastMaxPages` —
   // protects Gemini's input window from very large multi-page uploads.
   GRADING_FAST_MAX_PAGES?: string;
+  // Heartbeat interval (ms) used by the internal grading-worker to
+  // detect lease drift on /heartbeat. Default 10s. Read in
+  // `worker/routes/internalGradingWorker.ts`.
+  GRADING_HEARTBEAT_INTERVAL_MS?: string;
+  // Threshold (ms) above which gradingPersistence emits a
+  // `worksheet_persist_slow` event. Default 750ms. Read in
+  // `worker/adapters/gradingPersistence.ts`.
+  GRADING_PERSISTENCE_SLOW_MS?: string;
 
   // Index signature so `WorkerEnv` is structurally assignable to adapter
   // env contracts that read dynamic keys (e.g. `QueuePublishEnv` does

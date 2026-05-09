@@ -1176,11 +1176,31 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
       classId,
       worksheetNumber: worksheetNumberRaw,
     });
+    const errorDetails = error as
+      | { code?: string; statusCode?: number; requestId?: string; name?: string }
+      | undefined;
     await capturePosthogException(c.env ?? {}, error, {
       distinctId: jobId ?? submittedById,
       stage: 'grading_request',
       extra: { jobId, studentId, classId, worksheetNumber: worksheetNumberRaw },
     });
+    // Mirror Express's outer-catch dual-write: alongside the
+    // $exception above, fire a grading_pipeline event so dashboards
+    // keyed on `stage = 'request_failed'` keep populating after cutover.
+    await captureGradingPipelineEvent(
+      c.env ?? {},
+      'request_failed',
+      String(jobId || submittedById || studentId || 'unknown'),
+      {
+        jobId,
+        studentId: studentId ? String(studentId) : null,
+        classId: classId ? String(classId) : null,
+        worksheetNumber: worksheetNumberRaw ? String(worksheetNumberRaw) : null,
+        error: errorMessage,
+        errorCode: errorDetails?.code,
+        errorStatusCode: errorDetails?.statusCode,
+      }
+    );
     return c.json({ success: false, error: 'Failed to queue grading job' }, 500);
   }
 });

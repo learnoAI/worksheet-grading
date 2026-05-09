@@ -697,6 +697,77 @@ describe('POST /api/worksheet-processing/process', () => {
     expect(updateData.workflowInstanceId).toBe('job-1');
     expect(updateData.enqueuedAt).toBeInstanceOf(Date);
   });
+
+  it('emits both $exception and grading_pipeline.request_failed when the outer catch fires', async () => {
+    // Make gradingJob.create reject so the outer catch path runs. The
+    // catch must fire BOTH a $exception (PostHog exception view) AND a
+    // grading_pipeline.stage=request_failed event so dashboards keyed
+    // on either keep populating after cutover. Mirrors Express's
+    // dual-write at controllers/worksheetProcessingController.ts:1241-1250.
+    const userFindUnique = vi.fn().mockResolvedValue({ name: 'Alice' });
+    const gradingJobCreate = vi.fn().mockRejectedValue(
+      Object.assign(new Error('db down'), { code: 'P1001', statusCode: 500 })
+    );
+    const prisma = {
+      user: { findUnique: userFindUnique },
+      gradingJob: { create: gradingJobCreate, update: vi.fn().mockResolvedValue({}) },
+    };
+    const app = mountApp(prisma);
+    const token = await tokenAs('TEACHER', 't1');
+
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(
+      async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      const init = makeMultipart(
+        {
+          token_no: 'T1',
+          worksheet_name: 'W',
+          classId: 'c1',
+          studentId: 'st1',
+          worksheetNumber: '5',
+        },
+        [{ name: 'a.png', type: 'image/png', size: 100 }]
+      );
+      const res = await app.request(
+        '/api/worksheet-processing/process',
+        { ...init, headers: { Authorization: `Bearer ${token}` } },
+        { JWT_SECRET: SECRET, POSTHOG_API_KEY: 'k' }
+      );
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { success: boolean; error: string };
+      expect(body.success).toBe(false);
+      expect(body.error).toBe('Failed to queue grading job');
+
+      const bodies = fetchMock.mock.calls.map(
+        (call) => JSON.parse((call[1] as RequestInit).body as string)
+      );
+      const exception = bodies.find((b) => b.event === '$exception');
+      const requestFailed = bodies.find(
+        (b) =>
+          b.event === 'grading_pipeline' &&
+          b.properties.stage === 'request_failed'
+      );
+
+      expect(exception).toBeDefined();
+      expect(exception.properties.$exception_message).toBe('db down');
+      expect(exception.properties.stage).toBe('grading_request');
+
+      expect(requestFailed).toBeDefined();
+      expect(requestFailed.properties.error).toBe('db down');
+      expect(requestFailed.properties.errorCode).toBe('P1001');
+      expect(requestFailed.properties.errorStatusCode).toBe(500);
+      expect(requestFailed.properties.studentId).toBe('st1');
+      expect(requestFailed.properties.classId).toBe('c1');
+      expect(requestFailed.properties.worksheetNumber).toBe('5');
+    } finally {
+      globalThis.fetch = originalFetch;
+      consoleSpy.mockRestore();
+    }
+  });
 });
 
 describe('POST /api/worksheet-processing/upload-session/:batchId/finalize', () => {
