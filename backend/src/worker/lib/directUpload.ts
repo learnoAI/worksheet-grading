@@ -5,9 +5,11 @@
  * with two adaptations:
  *   1. `assertDirectUploadAccess` takes a Prisma client + user object instead
  *      of a Node request — the worker supplies these from context.
- *   2. `captureGradingPipelineEvent` is fired through the adapter from the
- *      caller; this module only throws `ValidationError` and lets the
- *      route layer translate them to HTTP responses.
+ *   2. PostHog `request_rejected_ownership` events are fired through an
+ *      optional `onRejection` callback supplied by the route layer. The
+ *      lib stays free of any direct PostHog dependency so it remains
+ *      pure and trivially testable; routes opt in to telemetry by
+ *      passing in an emitter that wraps `captureGradingPipelineEvent`.
  *
  * All numeric constants and validation rules match Express exactly so the
  * frontend contract stays stable during the parallel-run window.
@@ -223,6 +225,26 @@ export function normalizeDirectUploadItems(value: unknown): DirectUploadWorkshee
 }
 
 /**
+ * Structured rejection details fed back to the route's optional emitter.
+ * Property names mirror Express's `captureGradingPipelineEvent(...,
+ * 'request_rejected_ownership', ...)` payload at
+ * `backend/src/controllers/worksheetProcessingController.ts:231-288`.
+ */
+export interface DirectUploadAccessRejection {
+  reason:
+    | 'student_role'
+    | 'teacher_not_assigned_to_class'
+    | 'students_not_in_class';
+  classId: string;
+  role: UserRole;
+  missingStudentCount?: number;
+}
+
+export type DirectUploadRejectionEmitter = (
+  rejection: DirectUploadAccessRejection
+) => void | Promise<void>;
+
+/**
  * Enforce that the caller is allowed to create an upload session for
  * `classId` containing exactly the listed `studentIds`. Rules match
  * Express:
@@ -231,15 +253,21 @@ export function normalizeDirectUploadItems(value: unknown): DirectUploadWorkshee
  *   - ADMIN / SUPERADMIN skip the teacher check.
  *   - Every student must be enrolled in `classId` via StudentClass.
  *
- * On any violation, throws `ValidationError` (which maps to HTTP 400).
+ * On any violation, awaits the optional `onRejection` callback and then
+ * throws `ValidationError` (which maps to HTTP 400). The callback fires
+ * BEFORE the throw so the route layer can emit a `request_rejected_ownership`
+ * PostHog event — Express did the same; ~3 PostHog dashboards depend on
+ * it for the upload-rejection funnel.
  */
 export async function assertDirectUploadAccess(
   prisma: PrismaClient,
   user: { userId: string; role: UserRole },
   classId: string,
-  studentIds: string[]
+  studentIds: string[],
+  onRejection?: DirectUploadRejectionEmitter
 ): Promise<void> {
   if (user.role === 'STUDENT') {
+    await onRejection?.({ reason: 'student_role', classId, role: user.role });
     throw new ValidationError('Students cannot create grading upload sessions');
   }
 
@@ -251,6 +279,11 @@ export async function assertDirectUploadAccess(
       select: { teacherId: true },
     });
     if (!teacherClass) {
+      await onRejection?.({
+        reason: 'teacher_not_assigned_to_class',
+        classId,
+        role: user.role,
+      });
       throw new ValidationError('Teacher is not assigned to this class');
     }
   }
@@ -264,6 +297,12 @@ export async function assertDirectUploadAccess(
   const validStudentIds = new Set(studentClasses.map((sc) => sc.studentId));
   const missingStudentIds = uniqueStudentIds.filter((id) => !validStudentIds.has(id));
   if (missingStudentIds.length > 0) {
+    await onRejection?.({
+      reason: 'students_not_in_class',
+      classId,
+      role: user.role,
+      missingStudentCount: missingStudentIds.length,
+    });
     throw new ValidationError(
       `Some students are not assigned to this class: ${missingStudentIds.join(', ')}`
     );

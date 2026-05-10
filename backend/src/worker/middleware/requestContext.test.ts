@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import { requestContext } from './requestContext';
-import type { AppBindings } from '../types';
+import type { AppBindings, WorkerEnv } from '../types';
 
 function buildApp() {
   const app = new Hono<AppBindings>();
@@ -9,6 +9,26 @@ function buildApp() {
   app.get('/ping', (c) => c.json({ requestId: c.get('requestId') }));
   return app;
 }
+
+const originalFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  vi.useRealTimers();
+});
+
+function mockFetchOK(): ReturnType<typeof vi.fn> {
+  const fn = vi.fn(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
+    async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
+  );
+  globalThis.fetch = fn as unknown as typeof fetch;
+  return fn;
+}
+
+const PH_ENV: Partial<WorkerEnv> = {
+  POSTHOG_API_KEY: 'phc_xyz',
+  NODE_ENV: 'test',
+};
 
 describe('requestContext middleware', () => {
   it('generates a request id and sets it on the response', async () => {
@@ -98,5 +118,233 @@ describe('requestContext middleware', () => {
     const a = await app.request('/ping');
     const b = await app.request('/ping');
     expect(a.headers.get('X-Request-Id')).not.toBe(b.headers.get('X-Request-Id'));
+  });
+});
+
+describe('requestContext — diagnostics emission', () => {
+  function buildEmittingApp() {
+    const app = new Hono<AppBindings>();
+    app.use('*', requestContext);
+    app.get('/api/grading-jobs/:jobId/echo', (c) =>
+      c.json({ ok: true, jobId: c.req.param('jobId') })
+    );
+    app.get('/slow', async (c) => {
+      // Simulated slow handler — surpasses the 50ms threshold below.
+      await new Promise((r) => setTimeout(r, 80));
+      return c.json({ ok: true });
+    });
+    app.get('/server-error', (c) => c.json({ message: 'boom' }, 500));
+    app.get('/client-error', (c) => c.json({ message: 'bad request' }, 400));
+    app.get('/ok', (c) => c.json({ ok: true }));
+    app.post('/api/grading-jobs/explode', (c) =>
+      c.json({ message: 'rejected' }, 400)
+    );
+    return app;
+  }
+
+  it('emits backend_request_diagnostic with diagnosticType=server_error on 5xx', async () => {
+    const fetchMock = mockFetchOK();
+    const app = buildEmittingApp();
+    const res = await app.request('/server-error', undefined, PH_ENV);
+    expect(res.status).toBe(500);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.event).toBe('backend_request_diagnostic');
+    expect(body.properties.diagnosticType).toBe('server_error');
+    expect(body.properties.statusCode).toBe(500);
+    expect(body.properties.path).toBe('/server-error');
+    expect(body.properties.method).toBe('GET');
+    expect(body.properties.aborted).toBe(false);
+    expect(body.properties.category).toBe('other');
+  });
+
+  it('emits backend_request_diagnostic with diagnosticType=slow_request when handler exceeds threshold', async () => {
+    const fetchMock = mockFetchOK();
+    const app = buildEmittingApp();
+    // Set a tight threshold so /slow definitely trips it.
+    const env = { ...PH_ENV, REQUEST_DIAGNOSTICS_SLOW_MS: '50' };
+    const res = await app.request('/slow', undefined, env);
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.event).toBe('backend_request_diagnostic');
+    expect(body.properties.diagnosticType).toBe('slow_request');
+    expect(body.properties.durationMs).toBeGreaterThanOrEqual(50);
+  });
+
+  it('emits backend_request_client_error on 4xx (sampled — randomness mocked)', async () => {
+    const fetchMock = mockFetchOK();
+    // Force the sampler to always pass.
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const app = buildEmittingApp();
+    const res = await app.request('/client-error', undefined, PH_ENV);
+    expect(res.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.event).toBe('backend_request_client_error');
+    expect(body.properties.statusCode).toBe(400);
+    expect(body.properties.sampleRate).toBe(0.1);
+  });
+
+  it('drops 4xx events when the random sampler rejects', async () => {
+    const fetchMock = mockFetchOK();
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    const app = buildEmittingApp();
+    await app.request('/client-error', undefined, PH_ENV);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not emit anything for fast 2xx responses', async () => {
+    const fetchMock = mockFetchOK();
+    const env = { ...PH_ENV, REQUEST_DIAGNOSTICS_SLOW_MS: '5000' };
+    const app = buildEmittingApp();
+    await app.request('/ok', undefined, env);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('respects REQUEST_DIAGNOSTICS_ENABLED=false to skip all emissions', async () => {
+    const fetchMock = mockFetchOK();
+    const env = { ...PH_ENV, REQUEST_DIAGNOSTICS_ENABLED: 'false' };
+    const app = buildEmittingApp();
+    // Even a 5xx should not emit when disabled.
+    await app.request('/server-error', undefined, env);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('threads jobId param into the payload', async () => {
+    const fetchMock = mockFetchOK();
+    const app = buildEmittingApp();
+    // Hit a 5xx-like path that includes a jobId param. We use a route
+    // that returns a non-2xx so an event fires.
+    app.get('/api/grading-jobs/:jobId/fail', (c) => c.json({ x: 1 }, 500));
+    const res = await app.request('/api/grading-jobs/JOB-7/fail', undefined, PH_ENV);
+    expect(res.status).toBe(500);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.properties.jobId).toBe('JOB-7');
+    expect(body.properties.category).toBe('grading_jobs_api');
+  });
+
+  it('skips body summary when /grading body is non-JSON (clone.json() rejects)', async () => {
+    // The middleware clones c.req.raw before next() and tries to parse
+    // the clone as JSON post-next. If parsing fails (non-JSON content
+    // or malformed payload), the catch swallows and bodyClonePromise
+    // resolves to undefined — the diagnostic event still fires but
+    // omits the requestBodySummary. Lock this fall-through so a future
+    // change to cloneBody can't silently throw out of the middleware.
+    const fetchMock = mockFetchOK();
+    vi.spyOn(Math, 'random').mockReturnValue(0); // force 4xx sample-pass
+    const app = buildEmittingApp();
+    const res = await app.request(
+      '/api/grading-jobs/explode',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: 'this is not JSON at all',
+      },
+      PH_ENV
+    );
+    expect(res.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.event).toBe('backend_request_client_error');
+    // Body parse failed — summary omitted but the event still fires.
+    expect(body.properties.requestBodySummary).toBeUndefined();
+    // Path/category/jobId still present (the summary was the only
+    // body-derived field).
+    expect(body.properties.path).toBe('/api/grading-jobs/explode');
+    expect(body.properties.category).toBe('grading_jobs_api');
+  });
+
+  it('summarizes request body shape on /grading paths', async () => {
+    const fetchMock = mockFetchOK();
+    vi.spyOn(Math, 'random').mockReturnValue(0); // force sample-pass
+    const app = buildEmittingApp();
+    const res = await app.request(
+      '/api/grading-jobs/explode',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leaseId: 'l-1', reason: 'because', extra: { a: 1 } }),
+      },
+      PH_ENV
+    );
+    expect(res.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.properties.requestBodySummary).toBeDefined();
+    expect((body.properties.requestBodySummary as Record<string, unknown>).bodyType).toBe('object');
+    expect((body.properties.requestBodySummary as Record<string, unknown>).bodyKeys).toEqual(
+      expect.arrayContaining(['leaseId', 'reason', 'extra'])
+    );
+  });
+
+  it('skips PostHog when POSTHOG_API_KEY is unset (no-op posthog adapter)', async () => {
+    const fetchMock = mockFetchOK();
+    const app = buildEmittingApp();
+    // No api key in env.
+    await app.request('/server-error', undefined, {});
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('emits both $exception (onError) and backend_request_diagnostic (middleware) when a route throws', async () => {
+    // When a route throws an uncaught exception, Hono's app.onError
+    // catches it and replies 500. The requestContext middleware's
+    // post-next code then sees status=500 and emits the diagnostic.
+    // This test locks in BOTH events firing so a regression in either
+    // code path is caught — pre-cutover, dashboards keyed on either
+    // event must keep populating.
+    const fetchMock = mockFetchOK();
+
+    const app = new Hono<AppBindings>();
+    app.use('*', requestContext);
+    app.get('/boom', () => {
+      throw new TypeError('handler exploded');
+    });
+    // Mirror the production onError at worker/index.ts:80-99 so the
+    // test exercises the same observability contract. Use safeWaitUntil
+    // (the same helper production uses) so the fetch lands awaited
+    // when no Workers ctx is bound.
+    const { capturePosthogException } = await import('../adapters/posthog');
+    const { safeWaitUntil } = await import('../lib/safeWaitUntil');
+    app.onError((err, c) => {
+      const env = c.env ?? {};
+      const requestId = c.get('requestId');
+      void safeWaitUntil(
+        c,
+        capturePosthogException(env, err, {
+          distinctId: requestId ?? 'unknown',
+          stage: 'worker_unhandled_error',
+          extra: {
+            method: c.req.method,
+            path: new URL(c.req.url).pathname,
+            requestId,
+          },
+        })
+      );
+      return c.json({ message: 'An unexpected error occurred' }, 500);
+    });
+
+    const res = await app.request('/boom', undefined, PH_ENV);
+    expect(res.status).toBe(500);
+    // Two fetches: $exception from onError, backend_request_diagnostic
+    // from the middleware's post-next emit.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const bodies = fetchMock.mock.calls.map(
+      (call) => JSON.parse((call[1] as RequestInit).body as string)
+    );
+    const exception = bodies.find((b) => b.event === '$exception');
+    const diagnostic = bodies.find((b) => b.event === 'backend_request_diagnostic');
+
+    expect(exception).toBeDefined();
+    expect(exception.properties.$exception_message).toBe('handler exploded');
+    expect(exception.properties.stage).toBe('worker_unhandled_error');
+
+    expect(diagnostic).toBeDefined();
+    expect(diagnostic.properties.diagnosticType).toBe('server_error');
+    expect(diagnostic.properties.statusCode).toBe(500);
+    expect(diagnostic.properties.path).toBe('/boom');
+    expect(diagnostic.properties.method).toBe('GET');
   });
 });

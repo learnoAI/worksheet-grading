@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseMultipartFiles, UploadError, imageOnlyFilter } from './uploads';
+import {
+  parseMultipartFiles,
+  UploadError,
+  imageOnlyFilter,
+  mapUploadRejectReason,
+} from './uploads';
 
 /**
  * Builds a multipart/form-data Request the way the Workers runtime sees it.
@@ -159,5 +164,21 @@ describe('parseMultipartFiles', () => {
       expect(u.code).toBe('LIMIT_FILE_SIZE');
       expect(u.file).toMatchObject({ originalname: 'big.png', mimetype: 'image/png' });
     }
+  });
+});
+
+describe('mapUploadRejectReason — Express analytics-vocabulary normalisation', () => {
+  it('maps LIMIT_FILE_SIZE → size', () => {
+    expect(mapUploadRejectReason('LIMIT_FILE_SIZE')).toBe('size');
+  });
+  it('maps LIMIT_FILE_COUNT → count', () => {
+    expect(mapUploadRejectReason('LIMIT_FILE_COUNT')).toBe('count');
+  });
+  it('maps FILTER_REJECTED → mime', () => {
+    expect(mapUploadRejectReason('FILTER_REJECTED')).toBe('mime');
+  });
+  it('buckets NO_MULTIPART_BODY and NO_FILES_PROVIDED to unknown', () => {
+    expect(mapUploadRejectReason('NO_MULTIPART_BODY')).toBe('unknown');
+    expect(mapUploadRejectReason('NO_FILES_PROVIDED')).toBe('unknown');
   });
 });

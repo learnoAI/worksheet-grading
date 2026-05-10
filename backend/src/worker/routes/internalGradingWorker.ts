@@ -19,9 +19,10 @@ import {
   type GradingApiResponse,
 } from '../adapters/gradingDiagnostics';
 import {
-  capturePosthogEvent,
+  captureGradingPipelineEvent,
   capturePosthogException,
 } from '../adapters/posthog';
+import { tryParseJsonBody } from '../lib/parseJson';
 import type { AppBindings } from '../types';
 
 /**
@@ -141,7 +142,7 @@ internalGradingWorker.post('/jobs/:jobId/acquire', async (c) => {
 
   const jobId = c.req.param('jobId');
   const env = c.env ?? {};
-  await capturePosthogEvent(env, 'worker_acquire_requested', jobId, { jobId });
+  await captureGradingPipelineEvent(env, 'worker_acquire_requested', jobId, { jobId });
 
   // Clock-skew check (best-effort)
   try {
@@ -151,7 +152,7 @@ internalGradingWorker.post('/jobs/:jobId/acquire', async (c) => {
     if (dbNow) {
       const skewMs = Math.abs(workerNow.getTime() - dbNow.getTime());
       if (skewMs > CLOCK_SKEW_THRESHOLD_MS) {
-        await capturePosthogEvent(env, 'worker_clock_skew', jobId, {
+        await captureGradingPipelineEvent(env, 'worker_clock_skew', jobId, {
           jobId,
           skewMs,
           thresholdMs: CLOCK_SKEW_THRESHOLD_MS,
@@ -167,7 +168,7 @@ internalGradingWorker.post('/jobs/:jobId/acquire', async (c) => {
   try {
     const leaseId = await acquireGradingJobLease(prisma, jobId);
     if (!leaseId) {
-      await capturePosthogEvent(env, 'worker_acquire_skipped', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_acquire_skipped', jobId, {
         jobId,
         reason: 'already_processing_or_terminal',
       });
@@ -200,11 +201,11 @@ internalGradingWorker.post('/jobs/:jobId/acquire', async (c) => {
     });
 
     if (!job) {
-      await capturePosthogEvent(env, 'worker_acquire_job_not_found', jobId, { jobId });
+      await captureGradingPipelineEvent(env, 'worker_acquire_job_not_found', jobId, { jobId });
       return c.json({ success: false, error: 'Job not found' }, 404);
     }
 
-    await capturePosthogEvent(env, 'worker_acquire_succeeded', jobId, {
+    await captureGradingPipelineEvent(env, 'worker_acquire_succeeded', jobId, {
       jobId,
       leaseId,
       imagesCount: job.images.length,
@@ -214,7 +215,7 @@ internalGradingWorker.post('/jobs/:jobId/acquire', async (c) => {
     return c.json({ success: true, acquired: true, leaseId, job }, 200);
   } catch (error) {
     console.error('[worker-acquire]', error, { jobId });
-    await capturePosthogEvent(env, 'worker_acquire_failed', jobId, {
+    await captureGradingPipelineEvent(env, 'worker_acquire_failed', jobId, {
       jobId,
       error: error instanceof Error ? error.message : 'Acquire failed',
     });
@@ -260,7 +261,7 @@ internalGradingWorker.post(
     try {
       const updated = await touchGradingJobHeartbeat(prisma, jobId, leaseId);
       if (!updated) {
-        await capturePosthogEvent(env, 'worker_heartbeat_lease_mismatch', jobId, {
+        await captureGradingPipelineEvent(env, 'worker_heartbeat_lease_mismatch', jobId, {
           jobId,
           leaseId,
           phase,
@@ -272,7 +273,7 @@ internalGradingWorker.post(
         const gapMs = Date.now() - previousHeartbeatAt.getTime();
         const expectedIntervalMs = heartbeatIntervalMs(env);
         if (gapMs > expectedIntervalMs * HEARTBEAT_DRIFT_MULTIPLIER) {
-          await capturePosthogEvent(env, 'worker_heartbeat_drift', jobId, {
+          await captureGradingPipelineEvent(env, 'worker_heartbeat_drift', jobId, {
             jobId,
             leaseId,
             gapMs,
@@ -283,7 +284,7 @@ internalGradingWorker.post(
       }
 
       if (phase === 'initial') {
-        await capturePosthogEvent(env, 'worker_heartbeat_initial', jobId, {
+        await captureGradingPipelineEvent(env, 'worker_heartbeat_initial', jobId, {
           jobId,
           leaseId,
         });
@@ -291,7 +292,7 @@ internalGradingWorker.post(
       return c.json({ success: true }, 200);
     } catch (error) {
       console.error('[worker-heartbeat]', error, { jobId });
-      await capturePosthogEvent(env, 'worker_heartbeat_failed', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_heartbeat_failed', jobId, {
         jobId,
         leaseId,
         phase,
@@ -332,10 +333,8 @@ internalGradingWorker.post(
     const jobId = c.req.param('jobId');
     const env = c.env ?? {};
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
+    const body = await tryParseJsonBody<unknown>(c);
+    if (body === undefined) {
       return c.json({ success: false, error: 'Request body must be JSON' }, 400);
     }
 
@@ -354,7 +353,7 @@ internalGradingWorker.post(
         leaseIdProvided: Boolean(leaseId),
         requestBodySummary,
       });
-      await capturePosthogEvent(env, 'worker_complete_invalid_payload', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_complete_invalid_payload', jobId, {
         jobId,
         leaseIdProvided: Boolean(leaseId),
         requestBodySummary,
@@ -363,7 +362,7 @@ internalGradingWorker.post(
     }
 
     try {
-      await capturePosthogEvent(env, 'worker_complete_requested', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_complete_requested', jobId, {
         jobId,
         leaseId,
       });
@@ -439,7 +438,7 @@ internalGradingWorker.post(
       });
 
       if (!persisted) {
-        await capturePosthogEvent(env, 'worker_complete_job_not_found', jobId, {
+        await captureGradingPipelineEvent(env, 'worker_complete_job_not_found', jobId, {
           jobId,
           leaseId,
         });
@@ -471,7 +470,7 @@ internalGradingWorker.post(
         console.error('[mastery] update failed (non-fatal):', err);
       }
 
-      await capturePosthogEvent(env, 'worker_complete_succeeded', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_complete_succeeded', jobId, {
         jobId,
         leaseId,
         worksheetId: persisted.worksheetId,
@@ -496,7 +495,7 @@ internalGradingWorker.post(
       const gradingResponseSummary = summarizeGradingResponse(gradingResponse);
 
       if (code === 'LEASE_MISMATCH') {
-        await capturePosthogEvent(env, 'worker_complete_lease_mismatch', jobId, {
+        await captureGradingPipelineEvent(env, 'worker_complete_lease_mismatch', jobId, {
           jobId,
           leaseId,
         });
@@ -509,7 +508,7 @@ internalGradingWorker.post(
         errorSummary,
         gradingResponseSummary,
       });
-      await capturePosthogEvent(env, 'worker_complete_failed', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_complete_failed', jobId, {
         jobId,
         leaseId,
         error: message,
@@ -548,7 +547,7 @@ internalGradingWorker.post(
     try {
       const failed = await markGradingJobFailed(prisma, jobId, leaseId, errorMessage);
       if (!failed) {
-        await capturePosthogEvent(env, 'worker_fail_lease_mismatch', jobId, {
+        await captureGradingPipelineEvent(env, 'worker_fail_lease_mismatch', jobId, {
           jobId,
           leaseId,
         });
@@ -570,7 +569,7 @@ internalGradingWorker.post(
         });
       }
 
-      await capturePosthogEvent(env, 'worker_fail_succeeded', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_fail_succeeded', jobId, {
         jobId,
         leaseId,
         errorMessage,
@@ -580,7 +579,7 @@ internalGradingWorker.post(
       return c.json({ success: true }, 200);
     } catch (error) {
       console.error('[worker-fail]', error, { jobId });
-      await capturePosthogEvent(env, 'worker_fail_failed', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_fail_failed', jobId, {
         jobId,
         leaseId,
         error: error instanceof Error ? error.message : 'Fail handler failed',
@@ -614,14 +613,14 @@ internalGradingWorker.post(
     try {
       const updated = await requeueGradingJobForRetry(prisma, jobId, leaseId, reason);
       if (!updated) {
-        await capturePosthogEvent(env, 'worker_requeue_lease_mismatch', jobId, {
+        await captureGradingPipelineEvent(env, 'worker_requeue_lease_mismatch', jobId, {
           jobId,
           leaseId,
         });
         return c.json({ success: false, error: 'Lease mismatch' }, 409);
       }
 
-      await capturePosthogEvent(env, 'worker_requeue_succeeded', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_requeue_succeeded', jobId, {
         jobId,
         leaseId,
         reason,
@@ -629,7 +628,7 @@ internalGradingWorker.post(
       return c.json({ success: true }, 200);
     } catch (error) {
       console.error('[worker-requeue]', error, { jobId });
-      await capturePosthogEvent(env, 'worker_requeue_failed', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_requeue_failed', jobId, {
         jobId,
         leaseId,
         error: error instanceof Error ? error.message : 'Requeue failed',
@@ -680,7 +679,7 @@ internalGradingWorker.post(
         return c.json({ success: false, error: 'Job not found' }, 404);
       }
       if (job.status === GradingJobStatus.COMPLETED || job.status === GradingJobStatus.FAILED) {
-        await capturePosthogEvent(env, 'worker_reset_dispatch_mismatch', jobId, {
+        await captureGradingPipelineEvent(env, 'worker_reset_dispatch_mismatch', jobId, {
           jobId,
           status: job.status,
         });
@@ -745,7 +744,7 @@ internalGradingWorker.post(
         },
       });
 
-      await capturePosthogEvent(env, 'worker_reset_dispatch_succeeded', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_reset_dispatch_succeeded', jobId, {
         jobId,
         reason,
         workflowInstanceId: instanceId,
@@ -754,7 +753,7 @@ internalGradingWorker.post(
       return c.json({ success: true }, 200);
     } catch (error) {
       console.error('[worker-reset-dispatch]', error, { jobId });
-      await capturePosthogEvent(env, 'worker_reset_dispatch_failed', jobId, {
+      await captureGradingPipelineEvent(env, 'worker_reset_dispatch_failed', jobId, {
         jobId,
         error: error instanceof Error ? error.message : 'Reset dispatch failed',
       });

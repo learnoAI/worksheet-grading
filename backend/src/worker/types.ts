@@ -71,6 +71,14 @@ export interface WorkerEnv {
   GIT_SHA?: string;
   RELEASE?: string;
 
+  // Request-diagnostics middleware tunables. Mirror the Express
+  // `config.diagnostics.*` shape so dashboards stay portable. When
+  // REQUEST_DIAGNOSTICS_ENABLED is the literal string 'false' the
+  // middleware skips all PostHog emissions; any other value (or unset)
+  // keeps it on. Threshold defaults: slow=1500ms.
+  REQUEST_DIAGNOSTICS_ENABLED?: string;
+  REQUEST_DIAGNOSTICS_SLOW_MS?: string;
+
   // Object storage — native R2 binding (preferred) and S3-compatible
   // endpoint config used by aws4fetch for presigned URLs.
   WORKSHEET_FILES?: R2Bucket;
@@ -94,6 +102,18 @@ export interface WorkerEnv {
   // /upload-session for the same teacher/class/date supersedes its
   // PENDING items as abandoned (default 5 min). See `b9a3303`.
   GRADING_STALE_UPLOAD_BATCH_MS?: string;
+  // Per-request page cap on the queue-mode fast path of /process
+  // (default 4). Mirrors Express's `config.grading.fastMaxPages` —
+  // protects Gemini's input window from very large multi-page uploads.
+  GRADING_FAST_MAX_PAGES?: string;
+  // Heartbeat interval (ms) used by the internal grading-worker to
+  // detect lease drift on /heartbeat. Default 10s. Read in
+  // `worker/routes/internalGradingWorker.ts`.
+  GRADING_HEARTBEAT_INTERVAL_MS?: string;
+  // Threshold (ms) above which gradingPersistence emits a
+  // `worksheet_persist_slow` event. Default 750ms. Read in
+  // `worker/adapters/gradingPersistence.ts`.
+  GRADING_PERSISTENCE_SLOW_MS?: string;
 
   // Index signature so `WorkerEnv` is structurally assignable to adapter
   // env contracts that read dynamic keys (e.g. `QueuePublishEnv` does

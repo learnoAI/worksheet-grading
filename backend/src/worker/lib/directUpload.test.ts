@@ -257,4 +257,92 @@ describe('assertDirectUploadAccess', () => {
     );
     expect(teacherFindUnique).not.toHaveBeenCalled();
   });
+
+  it('fires onRejection with reason=student_role before throwing for STUDENT', async () => {
+    const prisma = {
+      teacherClass: { findUnique: vi.fn() },
+      studentClass: { findMany: vi.fn() },
+    } as unknown as PrismaClient;
+    const onRejection = vi.fn();
+    await expect(
+      assertDirectUploadAccess(
+        prisma,
+        { userId: 'u1', role: 'STUDENT' },
+        'class-7',
+        ['st1'],
+        onRejection
+      )
+    ).rejects.toThrow(/Students cannot/);
+    expect(onRejection).toHaveBeenCalledTimes(1);
+    expect(onRejection).toHaveBeenCalledWith({
+      reason: 'student_role',
+      classId: 'class-7',
+      role: 'STUDENT',
+    });
+  });
+
+  it('fires onRejection with reason=teacher_not_assigned_to_class for unassigned TEACHER', async () => {
+    const prisma = {
+      teacherClass: { findUnique: vi.fn().mockResolvedValue(null) },
+      studentClass: { findMany: vi.fn() },
+    } as unknown as PrismaClient;
+    const onRejection = vi.fn();
+    await expect(
+      assertDirectUploadAccess(
+        prisma,
+        { userId: 't9', role: 'TEACHER' },
+        'class-7',
+        ['st1'],
+        onRejection
+      )
+    ).rejects.toThrow(/not assigned to this class/);
+    expect(onRejection).toHaveBeenCalledWith({
+      reason: 'teacher_not_assigned_to_class',
+      classId: 'class-7',
+      role: 'TEACHER',
+    });
+  });
+
+  it('fires onRejection with reason=students_not_in_class + missingStudentCount when students missing', async () => {
+    const prisma = {
+      teacherClass: { findUnique: vi.fn().mockResolvedValue({ teacherId: 't1' }) },
+      studentClass: {
+        findMany: vi.fn().mockResolvedValue([{ studentId: 'st1' }]),
+      },
+    } as unknown as PrismaClient;
+    const onRejection = vi.fn();
+    await expect(
+      assertDirectUploadAccess(
+        prisma,
+        { userId: 't1', role: 'TEACHER' },
+        'class-7',
+        ['st1', 'st2', 'st3'],
+        onRejection
+      )
+    ).rejects.toThrow(/not assigned to this class: st2, st3/);
+    expect(onRejection).toHaveBeenCalledWith({
+      reason: 'students_not_in_class',
+      classId: 'class-7',
+      role: 'TEACHER',
+      missingStudentCount: 2,
+    });
+  });
+
+  it('does not call onRejection on the happy path', async () => {
+    const prisma = {
+      teacherClass: { findUnique: vi.fn().mockResolvedValue({ teacherId: 't1' }) },
+      studentClass: {
+        findMany: vi.fn().mockResolvedValue([{ studentId: 'st1' }]),
+      },
+    } as unknown as PrismaClient;
+    const onRejection = vi.fn();
+    await assertDirectUploadAccess(
+      prisma,
+      { userId: 't1', role: 'TEACHER' },
+      'class-7',
+      ['st1'],
+      onRejection
+    );
+    expect(onRejection).not.toHaveBeenCalled();
+  });
 });

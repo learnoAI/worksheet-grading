@@ -6,6 +6,7 @@ import {
   createClassBatch,
   createStudentBatch,
 } from '../adapters/worksheetGeneration';
+import { tryParseJsonBody } from '../lib/parseJson';
 import type { AppBindings } from '../types';
 
 /**
@@ -40,10 +41,8 @@ worksheetGeneration.post('/generate', async (c) => {
   const prisma = c.get('prisma');
   if (!prisma) return c.json({ message: 'Database is not available' }, 500);
 
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
+  const body = await tryParseJsonBody<unknown>(c);
+  if (body === undefined) {
     return c.json(
       { success: false, error: 'studentId, days, and startDate required' },
       400
@@ -109,10 +108,8 @@ worksheetGeneration.post('/generate-class', async (c) => {
   const prisma = c.get('prisma');
   if (!prisma) return c.json({ message: 'Database is not available' }, 500);
 
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
+  const body = await tryParseJsonBody<unknown>(c);
+  if (body === undefined) {
     return c.json(
       { success: false, error: 'classId, days, and startDate required' },
       400

@@ -24,6 +24,7 @@ import gradingJobRoutes from './routes/gradingJobs';
 import worksheetGenerationRoutes from './routes/worksheetGeneration';
 import { expressFallback } from './fallback';
 import { capturePosthogException } from './adapters/posthog';
+import { safeWaitUntil } from './lib/safeWaitUntil';
 
 /**
  * Hono app. Exported as `app` so tests can call `app.request(...)` without
@@ -84,7 +85,12 @@ app.onError((err, c) => {
   // capturePosthogException handles its own failures (no rethrow) and
   // no-ops when POSTHOG_API_KEY is unset, so this is safe to leave
   // unawaited — we don't want a slow PostHog hop to delay the 500.
-  c.executionCtx?.waitUntil(
+  // `safeWaitUntil` is the workers-runtime-and-test-safe waitUntil
+  // wrapper (raw `c.executionCtx?.waitUntil(...)` THROWS in unit tests
+  // because reading `executionCtx` itself throws when no Workers ctx is
+  // bound — optional chaining doesn't catch it).
+  void safeWaitUntil(
+    c,
     capturePosthogException(env, err, {
       distinctId: requestId ?? 'unknown',
       stage: 'worker_unhandled_error',

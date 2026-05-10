@@ -49,6 +49,40 @@ export class UploadError extends Error {
   }
 }
 
+/**
+ * Normalised PostHog `image_upload_rejected.reason` values used by Express's
+ * upload-failure dashboards. Hono's UploadError.code is more granular (it
+ * mirrors multer's enum); this map flattens it to Express's analytics
+ * vocabulary so insights filtered on `reason='size'` etc. keep working.
+ *
+ * | UploadError.code     | reason  | rationale                                      |
+ * |----------------------|---------|------------------------------------------------|
+ * | LIMIT_FILE_SIZE      | size    | direct equivalent                              |
+ * | LIMIT_FILE_COUNT     | count   | Express also mapped LIMIT_UNEXPECTED_FILE here |
+ * | FILTER_REJECTED      | mime    | imageOnlyFilter rejection                      |
+ * | NO_MULTIPART_BODY    | unknown | multer parsed multipart for Express; n/a       |
+ * | NO_FILES_PROVIDED    | unknown | multer never threw this; bucket as 'unknown'   |
+ *
+ * The original `code` is preserved as the `multerCode` field on every
+ * emission so forensics can still distinguish e.g. NO_MULTIPART_BODY vs
+ * NO_FILES_PROVIDED post-hoc.
+ */
+export type ImageUploadRejectReason = 'size' | 'count' | 'mime' | 'unknown';
+
+export function mapUploadRejectReason(code: UploadErrorCode): ImageUploadRejectReason {
+  switch (code) {
+    case 'LIMIT_FILE_SIZE':
+      return 'size';
+    case 'LIMIT_FILE_COUNT':
+      return 'count';
+    case 'FILTER_REJECTED':
+      return 'mime';
+    case 'NO_MULTIPART_BODY':
+    case 'NO_FILES_PROVIDED':
+      return 'unknown';
+  }
+}
+
 export interface ParseUploadOptions {
   fieldName: string;
   maxCount?: number;

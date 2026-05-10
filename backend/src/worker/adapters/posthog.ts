@@ -155,3 +155,75 @@ export async function capturePosthogException(
     ...(context.extra ?? {}),
   });
 }
+
+/**
+ * Wrap a stage event under the `grading_pipeline` umbrella so the dashboards
+ * built on `event = 'grading_pipeline' AND properties.stage = X` keep working
+ * after the Express → Hono cutover. Mirrors Express's
+ * `captureGradingPipelineEvent(stage, ...)` helper from
+ * `services/posthogService.ts`.
+ */
+export async function captureGradingPipelineEvent(
+  env: PosthogEnv,
+  stage: string,
+  distinctId: string,
+  properties: Record<string, unknown> = {}
+): Promise<void> {
+  await capturePosthogEvent(env, 'grading_pipeline', distinctId, {
+    stage,
+    ...properties,
+  });
+}
+
+/**
+ * Dual-write a controller error: emits both `$exception` (so PostHog's
+ * exception view picks it up) AND a `grading_pipeline` event with
+ * `stage = 'controller_error'` so the per-controller error trends keep
+ * working. Mirrors Express's `captureControllerError(source, error, req, extra)`.
+ *
+ * NOTE: there is one OUTER catch in `routes/worksheetProcessing.ts`
+ * (the `/process` request_failed handler) that does its OWN dual-write
+ * with `stage = 'request_failed'` — it does NOT use this helper. Express
+ * intentionally chose a separate stage there so the upload-funnel
+ * dashboards can distinguish "controller crashed before dispatch"
+ * (request_failed) from "any-other controller crash" (controller_error).
+ * If you find yourself adding a new outer-catch in /process, mirror that
+ * pattern (manual `captureGradingPipelineEvent('request_failed', …)`)
+ * rather than reaching for this helper.
+ */
+export async function captureControllerError(
+  env: PosthogEnv,
+  source: string,
+  error: unknown,
+  ctx: {
+    distinctId: string;
+    method?: string;
+    path?: string;
+    userId?: string;
+    extra?: Record<string, unknown>;
+  }
+): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  // Surface the error in worker logs too — Express did the same via console.error.
+  console.error(`[${source}]`, message, error);
+  await Promise.all([
+    capturePosthogException(env, error, {
+      distinctId: ctx.distinctId,
+      stage: source,
+      extra: {
+        path: ctx.path,
+        method: ctx.method,
+        userId: ctx.userId,
+        ...(ctx.extra ?? {}),
+      },
+    }),
+    captureGradingPipelineEvent(env, 'controller_error', ctx.distinctId, {
+      source,
+      error: message,
+      path: ctx.path,
+      method: ctx.method,
+      userId: ctx.userId,
+      ...(ctx.extra ?? {}),
+    }),
+  ]);
+}

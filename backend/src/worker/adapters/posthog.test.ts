@@ -1,5 +1,10 @@
 import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
-import { capturePosthogEvent, capturePosthogException } from './posthog';
+import {
+  capturePosthogEvent,
+  capturePosthogException,
+  captureGradingPipelineEvent,
+  captureControllerError,
+} from './posthog';
 
 const originalFetch = globalThis.fetch;
 
@@ -179,5 +184,98 @@ describe('capturePosthogException', () => {
     );
     expect(body.properties.$exception_message).toBe('string error');
     expect(body.properties.$exception_stack_trace_raw).toBeUndefined();
+  });
+});
+
+describe('captureGradingPipelineEvent — back-compat shim', () => {
+  it('wraps stage events under the grading_pipeline event name', async () => {
+    const fetchMock = mockFetch(() => new Response(null, { status: 200 }));
+    await captureGradingPipelineEvent(
+      { POSTHOG_API_KEY: 'k' },
+      'worker_acquire_succeeded',
+      'job-1',
+      { jobId: 'job-1', leaseId: 'l-9' }
+    );
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string
+    );
+    expect(body.event).toBe('grading_pipeline');
+    expect(body.properties.stage).toBe('worker_acquire_succeeded');
+    expect(body.properties.jobId).toBe('job-1');
+    expect(body.properties.leaseId).toBe('l-9');
+    expect(body.distinct_id).toBe('job-1');
+  });
+
+  it('skips fetch when POSTHOG_API_KEY is unset', async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await captureGradingPipelineEvent({}, 'dispatch_attempt', 'u-1', { jobId: 'j-1' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('captureControllerError — dual-write helper', () => {
+  it('emits both $exception and grading_pipeline.controller_error', async () => {
+    const fetchMock = mockFetch(() => new Response(null, { status: 200 }));
+    // Silence the console.error mirror so test output stays clean.
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await captureControllerError(
+      { POSTHOG_API_KEY: 'k' },
+      'getAdminGradingJobsDashboard',
+      new Error('boom'),
+      {
+        distinctId: 'req-42',
+        method: 'GET',
+        path: '/api/grading-jobs/admin/dashboard',
+        userId: 'u-1',
+        extra: { rangeDays: 7 },
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const bodies = fetchMock.mock.calls.map(
+      (call) => JSON.parse((call[1] as RequestInit).body as string)
+    );
+    const exceptionBody = bodies.find((b) => b.event === '$exception')!;
+    const pipelineBody = bodies.find((b) => b.event === 'grading_pipeline')!;
+
+    expect(exceptionBody.properties.$exception_message).toBe('boom');
+    expect(exceptionBody.properties.stage).toBe('getAdminGradingJobsDashboard');
+    expect(exceptionBody.properties.path).toBe('/api/grading-jobs/admin/dashboard');
+    expect(exceptionBody.properties.method).toBe('GET');
+    expect(exceptionBody.properties.userId).toBe('u-1');
+    expect(exceptionBody.properties.rangeDays).toBe(7);
+
+    expect(pipelineBody.properties.stage).toBe('controller_error');
+    expect(pipelineBody.properties.source).toBe('getAdminGradingJobsDashboard');
+    expect(pipelineBody.properties.error).toBe('boom');
+    expect(pipelineBody.properties.path).toBe('/api/grading-jobs/admin/dashboard');
+    expect(pipelineBody.properties.method).toBe('GET');
+    expect(pipelineBody.properties.userId).toBe('u-1');
+    expect(pipelineBody.properties.rangeDays).toBe(7);
+
+    consoleSpy.mockRestore();
+  });
+
+  it('handles non-Error throws (string / unknown)', async () => {
+    const fetchMock = mockFetch(() => new Response(null, { status: 200 }));
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await captureControllerError(
+      { POSTHOG_API_KEY: 'k' },
+      'someController',
+      'not an Error',
+      { distinctId: 'req-1' }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const bodies = fetchMock.mock.calls.map(
+      (call) => JSON.parse((call[1] as RequestInit).body as string)
+    );
+    const pipelineBody = bodies.find((b) => b.event === 'grading_pipeline')!;
+    expect(pipelineBody.properties.error).toBe('not an Error');
+
+    consoleSpy.mockRestore();
   });
 });

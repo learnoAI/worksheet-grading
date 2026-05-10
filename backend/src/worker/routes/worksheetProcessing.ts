@@ -14,9 +14,15 @@ import {
 } from '../adapters/storage';
 import { dispatchGradingWorkflow } from '../adapters/gradingDispatch';
 import { uploadObject } from '../adapters/storage';
-import { parseMultipartFiles, imageOnlyFilter, UploadError } from '../uploads';
+import {
+  parseMultipartFiles,
+  imageOnlyFilter,
+  UploadError,
+  mapUploadRejectReason,
+} from '../uploads';
 import {
   capturePosthogEvent,
+  captureGradingPipelineEvent,
   capturePosthogException,
 } from '../adapters/posthog';
 import {
@@ -28,6 +34,8 @@ import {
   requireString,
   DIRECT_UPLOAD_URL_TTL_SECONDS,
 } from '../lib/directUpload';
+import { safeWaitUntil } from '../lib/safeWaitUntil';
+import { tryParseJsonBody } from '../lib/parseJson';
 import type { AppBindings, WorkerEnv } from '../types';
 
 /**
@@ -220,7 +228,7 @@ async function dispatchJob(
   env: WorkerEnv,
   jobId: string
 ): Promise<{ dispatchState: 'DISPATCHED' | 'PENDING_DISPATCH'; queuedAt?: string }> {
-  await capturePosthogEvent(env, 'dispatch_attempt', jobId, {
+  await captureGradingPipelineEvent(env, 'dispatch_attempt', jobId, {
     jobId,
     queueMode: 'workflow',
   });
@@ -236,7 +244,7 @@ async function dispatchJob(
         workflowInstanceId: instanceId,
       },
     });
-    await capturePosthogEvent(env, 'dispatch_succeeded', jobId, {
+    await captureGradingPipelineEvent(env, 'dispatch_succeeded', jobId, {
       jobId,
       queueMode: 'workflow',
       dispatchState: 'DISPATCHED',
@@ -270,7 +278,7 @@ async function dispatchJob(
       stage: 'grading_dispatch',
       extra: { jobId, errorName, errorCode, causeName, causeMessage },
     });
-    await capturePosthogEvent(env, 'dispatch_failed', jobId, {
+    await captureGradingPipelineEvent(env, 'dispatch_failed', jobId, {
       jobId,
       queueMode: 'workflow',
       dispatchState: 'PENDING_DISPATCH',
@@ -384,10 +392,8 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
   const user = c.get('user')!;
   const teacherId = user.userId;
 
-  let body: Record<string, unknown>;
-  try {
-    body = await c.req.json();
-  } catch {
+  const body = await tryParseJsonBody<Record<string, unknown>>(c);
+  if (body === undefined) {
     return c.json({ success: false, error: 'Request body must be JSON' }, 400);
   }
 
@@ -400,7 +406,22 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
       prisma,
       user,
       classId,
-      items.map((i) => i.studentId)
+      items.map((i) => i.studentId),
+      // request_rejected_ownership fires on every rejection branch so the
+      // upload-funnel dashboards can attribute drops to STUDENT-role,
+      // teacher-not-assigned, or missing-student-enrollment causes.
+      // Mirrors Express controller L231-288.
+      async (event) => {
+        await safeWaitUntil(
+          c,
+          captureGradingPipelineEvent(
+            c.env ?? {},
+            'request_rejected_ownership',
+            user.userId,
+            { ...event }
+          )
+        );
+      }
     );
 
     // Stale prior batches for this teacher/class/date are abandoned
@@ -549,7 +570,7 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
       return { ...batch, items: uploadItems };
     });
 
-    await capturePosthogEvent(
+    await captureGradingPipelineEvent(
       c.env ?? {},
       'direct_upload_session_created',
       created.id,
@@ -564,7 +585,7 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
     );
 
     if (supersededItemCount > 0 || supersededBatchCount > 0) {
-      await capturePosthogEvent(
+      await captureGradingPipelineEvent(
         c.env ?? {},
         'direct_upload_session_superseded_prior',
         created.id,
@@ -583,7 +604,7 @@ worksheetProcessing.post('/upload-session', requireAuthoringRole, async (c) => {
     try {
       serialized = await serializeUploadBatch(c.env ?? {}, created);
     } catch (presignErr) {
-      await capturePosthogEvent(c.env ?? {}, 'direct_upload_presign_failed', created.id, {
+      await captureGradingPipelineEvent(c.env ?? {}, 'direct_upload_presign_failed', created.id, {
         batchId: created.id,
         classId,
         teacherId,
@@ -655,7 +676,11 @@ worksheetProcessing.post(
       try {
         body = await c.req.json();
       } catch {
-        // body is optional
+        // Finalize body is OPTIONAL — clients may POST with no body to
+        // accept all uploaded images. Empty/invalid body silently
+        // collapses to `{}`. Do NOT migrate to tryParseJsonBody here:
+        // a missing body is normal traffic and would create false
+        // backend_request_body_parse_error noise.
       }
       const requestedUploadedIds: string[] = Array.isArray(body.uploadedImageIds)
         ? body.uploadedImageIds.filter((id): id is string => typeof id === 'string')
@@ -867,7 +892,7 @@ worksheetProcessing.post(
         return remaining;
       });
 
-      await capturePosthogEvent(c.env ?? {}, 'direct_upload_session_finalized', batch.id, {
+      await captureGradingPipelineEvent(c.env ?? {}, 'direct_upload_session_finalized', batch.id, {
         batchId: batch.id,
         queuedCount: queued.length,
         pendingCount: pending.length,
@@ -937,11 +962,21 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
     });
   } catch (err) {
     if (err instanceof UploadError) {
+      // image_upload_rejected stays as a direct event — Express emits it
+      // verbatim (services/posthogService.ts captureUploadFailureEvent), not
+      // under the grading_pipeline umbrella. The `reason` is normalised to
+      // Express's analytics vocabulary (size/count/mime/unknown) so
+      // existing dashboards keep matching; the raw multer-style code is
+      // preserved in `multerCode` for forensics.
       await capturePosthogEvent(
         c.env ?? {},
         'image_upload_rejected',
         submittedById,
-        { reason: err.code, path: '/api/worksheet-processing/process' }
+        {
+          reason: mapUploadRejectReason(err.code),
+          multerCode: err.code,
+          path: '/api/worksheet-processing/process',
+        }
       );
       return c.json({ success: false, error: err.message }, 400);
     }
@@ -959,7 +994,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
   const isRepeatedField = fields.isRepeated;
 
   if (!tokenNo || !worksheetName || files.length === 0) {
-    await capturePosthogEvent(
+    await captureGradingPipelineEvent(
       c.env ?? {},
       'request_rejected_validation',
       submittedById,
@@ -971,7 +1006,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
     return c.json({ success: false, error: 'Missing required fields' }, 400);
   }
   if (!classId || !studentId || !worksheetNumberRaw) {
-    await capturePosthogEvent(
+    await captureGradingPipelineEvent(
       c.env ?? {},
       'request_rejected_validation',
       submittedById,
@@ -985,7 +1020,35 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
     return c.json({ success: false, error: 'Missing required fields' }, 400);
   }
 
-  await capturePosthogEvent(c.env ?? {}, 'request_received', submittedById, {
+  // Express enforces a per-request page cap on the queue-mode fast path
+  // (see backend/src/config/env.ts `grading.fastMaxPages`, default 4).
+  // Without this cap, very large multi-page uploads can blow Gemini's
+  // input window and burn budget on jobs that are guaranteed to fail.
+  // Hono mirrors the limit so the user-facing 400 surfaces the same way
+  // pre- and post-cutover; the threshold is env-tunable.
+  const fastMaxPagesRaw = Number.parseInt(c.env?.GRADING_FAST_MAX_PAGES ?? '', 10);
+  const fastMaxPages = Number.isFinite(fastMaxPagesRaw) && fastMaxPagesRaw > 0 ? fastMaxPagesRaw : 4;
+  if (files.length > fastMaxPages) {
+    await captureGradingPipelineEvent(
+      c.env ?? {},
+      'request_rejected_validation',
+      submittedById,
+      {
+        reason: 'too_many_pages_fast_path',
+        filesCount: files.length,
+        maxPages: fastMaxPages,
+      }
+    );
+    return c.json(
+      {
+        success: false,
+        error: `Too many images. Maximum ${fastMaxPages} pages are supported in queue mode right now.`,
+      },
+      400
+    );
+  }
+
+  await captureGradingPipelineEvent(c.env ?? {}, 'request_received', submittedById, {
     tokenNo,
     worksheetName,
     worksheetNumber: worksheetNumberRaw,
@@ -1028,7 +1091,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
     });
     jobId = job.id;
 
-    await capturePosthogEvent(c.env ?? {}, 'job_created', job.id, {
+    await captureGradingPipelineEvent(c.env ?? {}, 'job_created', job.id, {
       jobId: job.id,
       studentId,
       classId,
@@ -1063,7 +1126,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
       });
     }
 
-    await capturePosthogEvent(c.env ?? {}, 'images_stored', job.id, {
+    await captureGradingPipelineEvent(c.env ?? {}, 'images_stored', job.id, {
       jobId: job.id,
       filesCount: files.length,
       totalBytes: files.reduce((acc, file) => acc + file.size, 0),
@@ -1072,7 +1135,7 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
 
     const dispatchResult = await dispatchJob(prisma, c.env ?? {}, job.id);
 
-    await capturePosthogEvent(c.env ?? {}, 'request_accepted', job.id, {
+    await captureGradingPipelineEvent(c.env ?? {}, 'request_accepted', job.id, {
       jobId: job.id,
       dispatchState: dispatchResult.dispatchState,
       queuedAt: dispatchResult.queuedAt,
@@ -1116,11 +1179,31 @@ worksheetProcessing.post('/process', requireAuthoringRole, async (c) => {
       classId,
       worksheetNumber: worksheetNumberRaw,
     });
+    const errorDetails = error as
+      | { code?: string; statusCode?: number; requestId?: string; name?: string }
+      | undefined;
     await capturePosthogException(c.env ?? {}, error, {
       distinctId: jobId ?? submittedById,
       stage: 'grading_request',
       extra: { jobId, studentId, classId, worksheetNumber: worksheetNumberRaw },
     });
+    // Mirror Express's outer-catch dual-write: alongside the
+    // $exception above, fire a grading_pipeline event so dashboards
+    // keyed on `stage = 'request_failed'` keep populating after cutover.
+    await captureGradingPipelineEvent(
+      c.env ?? {},
+      'request_failed',
+      String(jobId || submittedById || studentId || 'unknown'),
+      {
+        jobId,
+        studentId: studentId ? String(studentId) : null,
+        classId: classId ? String(classId) : null,
+        worksheetNumber: worksheetNumberRaw ? String(worksheetNumberRaw) : null,
+        error: errorMessage,
+        errorCode: errorDetails?.code,
+        errorStatusCode: errorDetails?.statusCode,
+      }
+    );
     return c.json({ success: false, error: 'Failed to queue grading job' }, 500);
   }
 });

@@ -541,6 +541,107 @@ describe('POST /api/worksheet-processing/process', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects with 400 when files exceed GRADING_FAST_MAX_PAGES (default 4)', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER', 't1');
+    // 5 files > 4 default cap → 400 with "Too many images"
+    const init = makeMultipart(
+      {
+        token_no: 'T1',
+        worksheet_name: 'W',
+        classId: 'c1',
+        studentId: 'st1',
+        worksheetNumber: '5',
+      },
+      Array.from({ length: 5 }, (_, i) => ({
+        name: `p${i}.png`,
+        type: 'image/png',
+        size: 10,
+      }))
+    );
+    const res = await app.request(
+      '/api/worksheet-processing/process',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET }
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { success: boolean; error: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/Too many images/);
+    expect(body.error).toMatch(/Maximum 4 pages/);
+  });
+
+  it('emits image_upload_rejected with normalised reason+multerCode when filter rejects non-image', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER', 't1');
+    // Mock fetch to capture the PostHog payload.
+    const originalFetch = globalThis.fetch;
+    // Typing args against `Parameters<typeof fetch>` so `mock.calls[N]`
+    // comes back as `[input, init?]` rather than the default `[]`.
+    const fetchMock = vi.fn(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
+      async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      const init = makeMultipart(
+        {
+          token_no: 'T1',
+          worksheet_name: 'W',
+          classId: 'c1',
+          studentId: 'st1',
+          worksheetNumber: '5',
+        },
+        // text/plain triggers the imageOnlyFilter → FILTER_REJECTED
+        [{ name: 'a.txt', type: 'text/plain', size: 10 }]
+      );
+      const res = await app.request(
+        '/api/worksheet-processing/process',
+        { ...init, headers: { Authorization: `Bearer ${token}` } },
+        { JWT_SECRET: SECRET, POSTHOG_API_KEY: 'k' }
+      );
+      expect(res.status).toBe(400);
+      // Find the image_upload_rejected emission among any other PostHog calls.
+      const calls = fetchMock.mock.calls
+        .map((call) => JSON.parse((call[1] as RequestInit).body as string))
+        .filter((b) => b.event === 'image_upload_rejected');
+      expect(calls).toHaveLength(1);
+      expect(calls[0].properties.reason).toBe('mime');
+      expect(calls[0].properties.multerCode).toBe('FILTER_REJECTED');
+      expect(calls[0].properties.path).toBe('/api/worksheet-processing/process');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('honors GRADING_FAST_MAX_PAGES env override', async () => {
+    const app = mountApp({});
+    const token = await tokenAs('TEACHER', 't1');
+    // 3 files > 2 override cap → 400
+    const init = makeMultipart(
+      {
+        token_no: 'T1',
+        worksheet_name: 'W',
+        classId: 'c1',
+        studentId: 'st1',
+        worksheetNumber: '5',
+      },
+      Array.from({ length: 3 }, (_, i) => ({
+        name: `p${i}.png`,
+        type: 'image/png',
+        size: 10,
+      }))
+    );
+    const res = await app.request(
+      '/api/worksheet-processing/process',
+      { ...init, headers: { Authorization: `Bearer ${token}` } },
+      { JWT_SECRET: SECRET, GRADING_FAST_MAX_PAGES: '2' }
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/Maximum 2 pages/);
+  });
+
   it('creates a GradingJob, uploads images to R2, dispatches a workflow, returns 202', async () => {
     const { bucket, puts } = makeR2Bucket();
     const gradingJobCreate = vi.fn().mockResolvedValue({ id: 'job-1' });
@@ -596,6 +697,78 @@ describe('POST /api/worksheet-processing/process', () => {
     const updateData = gradingJobUpdate.mock.calls[0][0].data;
     expect(updateData.workflowInstanceId).toBe('job-1');
     expect(updateData.enqueuedAt).toBeInstanceOf(Date);
+  });
+
+  it('emits both $exception and grading_pipeline.request_failed when the outer catch fires', async () => {
+    // Make gradingJob.create reject so the outer catch path runs. The
+    // catch must fire BOTH a $exception (PostHog exception view) AND a
+    // grading_pipeline.stage=request_failed event so dashboards keyed
+    // on either keep populating after cutover. Mirrors Express's
+    // dual-write at controllers/worksheetProcessingController.ts:1241-1250.
+    const userFindUnique = vi.fn().mockResolvedValue({ name: 'Alice' });
+    const gradingJobCreate = vi.fn().mockRejectedValue(
+      Object.assign(new Error('db down'), { code: 'P1001', statusCode: 500 })
+    );
+    const prisma = {
+      user: { findUnique: userFindUnique },
+      gradingJob: { create: gradingJobCreate, update: vi.fn().mockResolvedValue({}) },
+    };
+    const app = mountApp(prisma);
+    const token = await tokenAs('TEACHER', 't1');
+
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
+      async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      const init = makeMultipart(
+        {
+          token_no: 'T1',
+          worksheet_name: 'W',
+          classId: 'c1',
+          studentId: 'st1',
+          worksheetNumber: '5',
+        },
+        [{ name: 'a.png', type: 'image/png', size: 100 }]
+      );
+      const res = await app.request(
+        '/api/worksheet-processing/process',
+        { ...init, headers: { Authorization: `Bearer ${token}` } },
+        { JWT_SECRET: SECRET, POSTHOG_API_KEY: 'k' }
+      );
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { success: boolean; error: string };
+      expect(body.success).toBe(false);
+      expect(body.error).toBe('Failed to queue grading job');
+
+      const bodies = fetchMock.mock.calls.map(
+        (call) => JSON.parse((call[1] as RequestInit).body as string)
+      );
+      const exception = bodies.find((b) => b.event === '$exception');
+      const requestFailed = bodies.find(
+        (b) =>
+          b.event === 'grading_pipeline' &&
+          b.properties.stage === 'request_failed'
+      );
+
+      expect(exception).toBeDefined();
+      expect(exception.properties.$exception_message).toBe('db down');
+      expect(exception.properties.stage).toBe('grading_request');
+
+      expect(requestFailed).toBeDefined();
+      expect(requestFailed.properties.error).toBe('db down');
+      expect(requestFailed.properties.errorCode).toBe('P1001');
+      expect(requestFailed.properties.errorStatusCode).toBe(500);
+      expect(requestFailed.properties.studentId).toBe('st1');
+      expect(requestFailed.properties.classId).toBe('c1');
+      expect(requestFailed.properties.worksheetNumber).toBe('5');
+    } finally {
+      globalThis.fetch = originalFetch;
+      consoleSpy.mockRestore();
+    }
   });
 });
 
