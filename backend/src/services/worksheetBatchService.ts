@@ -167,15 +167,47 @@ async function createBatchForStudents(
 
 /**
  * Called after question generation completes for a skill.
+ *
+ * **Idempotent under CF Queue at-least-once delivery.** The
+ * question-generator Worker can re-deliver a `/store` message after a
+ * successful but un-acked first call (or transient 5xx). Without a
+ * dedup record, every replay double-increments `completedSkills`. We
+ * insert into `BatchSkillProgress` first; the composite PK
+ * `(batchId, mathSkillId)` makes the operation atomic — a duplicate raises
+ * P2002, the caller skips the counter update, and returns `idempotent: true`.
+ *
+ * Mirrors the Hono adapter at `worker/adapters/batchProgress.ts` so both
+ * runtimes write to the same dedup table during the parallel-run window.
+ *
  * Checks if all skills for the batch are done, then assembles worksheets and enqueues PDFs.
  */
-export async function onSkillQuestionsReady(batchId: string): Promise<void> {
+export async function onSkillQuestionsReady(
+    batchId: string,
+    mathSkillId: string
+): Promise<{ idempotent: boolean }> {
+    // 1. Atomic dedup insert. Composite PK fails on the second call for
+    //    the same (batchId, mathSkillId) pair — that's our "already
+    //    counted" signal.
+    try {
+        await prisma.batchSkillProgress.create({
+            data: { batchId, mathSkillId }
+        });
+    } catch (err) {
+        if ((err as { code?: string })?.code === 'P2002') {
+            // Already counted on a prior call (likely CF Queue redelivery).
+            // Skip the counter update + assembly trigger.
+            return { idempotent: true };
+        }
+        throw err;
+    }
+
+    // 2. First time — safe to increment.
     const batch = await prisma.worksheetBatch.update({
         where: { id: batchId },
         data: { completedSkills: { increment: 1 } }
     });
 
-    if (batch.completedSkills < batch.pendingSkills) return;
+    if (batch.completedSkills < batch.pendingSkills) return { idempotent: false };
 
     await prisma.worksheetBatch.update({
         where: { id: batchId },
@@ -183,6 +215,7 @@ export async function onSkillQuestionsReady(batchId: string): Promise<void> {
     });
 
     await assembleAndEnqueuePdfs(batchId);
+    return { idempotent: false };
 }
 
 /**

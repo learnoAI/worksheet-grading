@@ -19,16 +19,28 @@ export async function storeQuestions(req: Request, res: Response): Promise<Respo
         data: questions.map((q: any) => buildQuestionBankRow(mathSkillId, q))
     });
 
-    // If part of a batch, notify batch service
+    // If part of a batch, notify batch service. The `idempotent` flag in
+    // the response tells the caller whether THIS call advanced the
+    // batch counter — false on first delivery, true on CF Queue
+    // redelivery of the same (batchId, mathSkillId). Useful for the
+    // redelivery-rate dashboard. Omitted entirely when no batchId was
+    // provided (no counter to track).
+    let idempotent: boolean | undefined;
     if (batchId) {
         try {
-            await onSkillQuestionsReady(batchId);
+            const result = await onSkillQuestionsReady(batchId, mathSkillId);
+            idempotent = result.idempotent;
         } catch (err) {
             console.error(`[question-bank] onSkillQuestionsReady error for batch ${batchId}:`, err);
         }
     }
 
-    return res.json({ success: true, stored: created.count });
+    const responseBody: { success: true; stored: number; idempotent?: boolean } = {
+        success: true,
+        stored: created.count
+    };
+    if (idempotent !== undefined) responseBody.idempotent = idempotent;
+    return res.json(responseBody);
 }
 
 /**
