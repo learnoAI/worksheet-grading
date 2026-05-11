@@ -5,7 +5,17 @@ import type { AppBindings } from '../types';
 
 const WORKER_TOKEN = 'worker-secret';
 
-function mountApp(prisma: unknown) {
+function mountApp(prismaRaw: unknown) {
+  // Routes wrap their writes in `prisma.$transaction(cb)`. Mocks pass a
+  // bag of model methods rather than a full Prisma client, so inject a
+  // pass-through `$transaction` that invokes the callback with the same
+  // bag — preserves the per-model mock identity so test assertions still
+  // see the same `updateMany` / `update` spies.
+  const prisma = prismaRaw as Record<string, unknown>;
+  if (typeof prisma.$transaction !== 'function') {
+    prisma.$transaction = async (cb: (tx: unknown) => unknown) => cb(prisma);
+  }
+
   const app = new Hono<AppBindings>();
   app.use('*', async (c, next) => {
     c.set('prisma', prisma as never);
@@ -187,20 +197,43 @@ describe('POST /internal/worksheet-generation/:id/complete — first-time transi
     });
   });
 
-  it('still returns 200 when the batch callback fails (non-fatal)', async () => {
+  it('rolls back when the batch counter throws — returns 500 so CF Queue retries', async () => {
+    // Regression for the leak that S28's idempotency fix narrowed but
+    // did not eliminate: if `onWorksheetPdfComplete` throws AFTER the
+    // row went terminal, the row would have stayed terminal forever
+    // while the counter never moved — subsequent retries would find
+    // the row already terminal and skip the counter, leaving the
+    // batch stuck on RENDERING_PDFS. Wrapping both writes in
+    // $transaction means a counter failure rolls back the status
+    // flip too. The route surfaces a 5xx so the CF Queue redelivers.
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn().mockRejectedValue(new Error('db down'));
-    // Silence console.error so test output stays readable.
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const app = mountApp({
+
+    // Custom $transaction that mirrors Prisma's rollback contract:
+    // run the callback; if it throws, the caller sees the throw and
+    // the writes are conceptually rolled back. The mock objects can't
+    // actually undo their state — but `updateMany` is a vi.fn so
+    // there's nothing to undo. The contract being asserted is that
+    // the route SURFACES the throw (no swallow), which means a real
+    // Postgres transaction would have rolled the row update back.
+    const prisma: Record<string, unknown> = {
       generatedWorksheet: { updateMany, findUnique: vi.fn() },
       worksheetBatch: { update: batchUpdate },
-    });
+    };
+    prisma.$transaction = async (cb: (tx: unknown) => unknown) => cb(prisma);
+    const app = mountApp(prisma);
+
     const res = await postJson(app, '/internal/worksheet-generation/w1/complete', {
       pdfUrl: 'https://cdn/x.pdf',
       batchId: 'b1',
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      success: false,
+      error: 'Failed to record completion',
+    });
+    expect(batchUpdate).toHaveBeenCalledTimes(1);
     errSpy.mockRestore();
   });
 });
