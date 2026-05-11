@@ -23,6 +23,15 @@ interface QueueMessageV1 {
 
 export default {
     async queue(batch: any, env: Env): Promise<void> {
+        // Fail fast on a misconfigured deploy. Without this guard we would
+        // emit `undefined/${key}` as the PDF URL and the backend would
+        // persist a broken link — students see 404s with no log trail.
+        // Throwing here forces a retry (so the misconfig is visible in
+        // wrangler tail) instead of corrupting downstream rows.
+        if (!env.R2_PUBLIC_BASE_URL) {
+            throw new Error('R2_PUBLIC_BASE_URL not configured');
+        }
+
         const backend = new BackendClient(env);
         const messages = (batch.messages || []) as any[];
 
