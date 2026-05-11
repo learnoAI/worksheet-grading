@@ -119,7 +119,10 @@ internalQuestionBank.post(
             // event for dashboard parity. Stays under the
             // `grading_pipeline` umbrella so existing wrap-keyed
             // insights pick it up.
-            console.warn('[question-bank] idempotent replay', {
+            // Prefix `[ws-batch]` is shared with the Express service
+            // (services/worksheetBatchService.ts) so oncall only needs
+            // one grep pattern across both runtimes.
+            console.warn('[ws-batch] idempotent replay', {
               batchId,
               mathSkillId,
             });

@@ -228,8 +228,10 @@ describe('POST /internal/question-bank/store', () => {
       expect(batchUpdate).not.toHaveBeenCalled();
       expect(skillProgressCreate).toHaveBeenCalledTimes(1);
       // Observability: warn fires + PostHog event lands.
+      // Prefix shared with the Express service (`[ws-batch]`) so oncall
+      // greps one pattern across both runtimes during parallel-run.
       expect(warnSpy).toHaveBeenCalledWith(
-        '[question-bank] idempotent replay',
+        '[ws-batch] idempotent replay',
         expect.objectContaining({ batchId: 'b-1', mathSkillId: 's1' })
       );
       const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
