@@ -99,9 +99,15 @@ internalQuestionBank.post(
         }),
       });
 
+      let idempotent: boolean | undefined;
       if (batchId) {
         try {
-          const progress = await incrementBatchCompletedSkills(prisma, batchId);
+          const progress = await incrementBatchCompletedSkills(
+            prisma,
+            batchId,
+            mathSkillId
+          );
+          idempotent = progress.idempotent;
           if (progress.flipped) {
             // All skills ready — assemble PDFs for worksheets in this batch.
             const assembleResult = await assembleAndEnqueuePdfs(prisma, c.env ?? {}, batchId);
@@ -122,7 +128,19 @@ internalQuestionBank.post(
         }
       }
 
-      return c.json({ success: true, stored: created.count }, 200);
+      // The questions themselves are inserted on every call (the AI is
+      // non-deterministic so retries produce different rows — those are
+      // a small storage cost, not a correctness issue). The `idempotent`
+      // flag is emitted only when a batchId was provided; it signals
+      // whether THIS call advanced the batch counter. For the no-batch
+      // flow there's no counter to track, so we omit the field rather
+      // than emit a misleading `false`.
+      const responseBody: { success: true; stored: number; idempotent?: boolean } = {
+        success: true,
+        stored: created.count,
+      };
+      if (idempotent !== undefined) responseBody.idempotent = idempotent;
+      return c.json(responseBody, 200);
     } catch (error) {
       console.error('[question-bank-store]', error);
       await capturePosthogException(c.env ?? {}, error, {

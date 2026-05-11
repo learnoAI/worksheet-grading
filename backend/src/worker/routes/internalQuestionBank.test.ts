@@ -107,16 +107,17 @@ describe('POST /internal/question-bank/store', () => {
     expect(call.data[1].renderSpec).toBeUndefined();
   });
 
-  it('increments batch completedSkills when batchId is provided', async () => {
+  it('records BatchSkillProgress AND increments batch completedSkills when batchId is provided', async () => {
     const createMany = vi.fn().mockResolvedValue({ count: 1 });
-    // Mock for incrementBatchCompletedSkills:
     const batchUpdate = vi
       .fn()
       .mockResolvedValueOnce({ completedSkills: 1, pendingSkills: 3 })
       .mockResolvedValue({});
+    const skillProgressCreate = vi.fn().mockResolvedValue({});
     const app = mountApp({
       questionBank: { createMany },
       worksheetBatch: { update: batchUpdate },
+      batchSkillProgress: { create: skillProgressCreate },
     });
     const res = await authed(app, '/internal/question-bank/store', {
       mathSkillId: 's1',
@@ -124,10 +125,53 @@ describe('POST /internal/question-bank/store', () => {
       batchId: 'b-1',
     });
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, stored: 1, idempotent: false });
+    // Dedup record inserted with the composite PK.
+    expect(skillProgressCreate).toHaveBeenCalledWith({
+      data: { batchId: 'b-1', mathSkillId: 's1' },
+    });
     expect(batchUpdate).toHaveBeenCalledWith({
       where: { id: 'b-1' },
       data: { completedSkills: { increment: 1 } },
     });
+  });
+
+  it('returns idempotent:true and SKIPS counter increment when BatchSkillProgress.create raises P2002', async () => {
+    // CF Queue redelivery scenario: the worker delivered the same
+    // (batchId, mathSkillId) message twice. The first call inserted the
+    // dedup row. The second call (this one) gets P2002.
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const batchUpdate = vi.fn();
+    const batchFindUnique = vi.fn().mockResolvedValue({
+      completedSkills: 1,
+      pendingSkills: 3,
+    });
+    const p2002 = Object.assign(new Error('Unique constraint failed'), {
+      code: 'P2002',
+    });
+    const skillProgressCreate = vi.fn().mockRejectedValueOnce(p2002);
+    const app = mountApp({
+      questionBank: { createMany },
+      worksheetBatch: { update: batchUpdate, findUnique: batchFindUnique },
+      batchSkillProgress: { create: skillProgressCreate },
+    });
+    const res = await authed(app, '/internal/question-bank/store', {
+      mathSkillId: 's1',
+      questions: [{ question: 'Q', answer: 'A' }],
+      batchId: 'b-1',
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean; stored: number; idempotent: boolean };
+    // The questions themselves are still stored (the AI is non-deterministic
+    // so retries produce different rows; small storage cost, not a
+    // correctness issue). What the flag tells the caller is: this call did
+    // NOT advance the batch counter.
+    expect(body.success).toBe(true);
+    expect(body.stored).toBe(1);
+    expect(body.idempotent).toBe(true);
+    // CRITICAL: the batch counter MUST NOT have been touched.
+    expect(batchUpdate).not.toHaveBeenCalled();
+    expect(skillProgressCreate).toHaveBeenCalledTimes(1);
   });
 
   it('kicks off PDF assembly when batch completes (completedSkills reaches pendingSkills)', async () => {
@@ -167,6 +211,7 @@ describe('POST /internal/question-bank/store', () => {
       worksheetBatch: { update: batchUpdate },
       generatedWorksheet: { findMany: generatedWsFindMany, update: generatedWsUpdate },
       mathSkill: { findUnique: mathSkillFindUnique },
+      batchSkillProgress: { create: vi.fn().mockResolvedValue({}) },
     });
     const res = await authed(
       app,
@@ -190,9 +235,11 @@ describe('POST /internal/question-bank/store', () => {
   it('still returns 200 even if batch progress fails (non-fatal)', async () => {
     const createMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn().mockRejectedValue(new Error('db down'));
+    const skillProgressCreate = vi.fn().mockResolvedValue({});
     const app = mountApp({
       questionBank: { createMany },
       worksheetBatch: { update: batchUpdate },
+      batchSkillProgress: { create: skillProgressCreate },
     });
     const res = await authed(app, '/internal/question-bank/store', {
       mathSkillId: 's1',
