@@ -144,6 +144,7 @@ model MathSkill {
   worksheetSkillMaps WorksheetSkillMap[]
   studentMastery     StudentSkillMastery[]
   questionBank       QuestionBank[]
+  batchSkillProgress BatchSkillProgress[]
 
   @@unique([name, mainTopicId], name: "math_skill_name_main_topic_unique")
   @@index([mainTopicId])
@@ -531,9 +532,32 @@ model WorksheetBatch {
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   worksheets          GeneratedWorksheet[]
+  skillProgress       BatchSkillProgress[]
 
   @@index([classId])
   @@index([status])
+}
+
+/// Idempotency record for the per-skill batch counter.
+///
+/// The question-generator CF Worker uses CF Queues with at-least-once
+/// delivery semantics. When `POST /internal/question-bank/store` is
+/// re-delivered (either after a successful but un-acked first call, or
+/// after a transient 5xx), the second call must NOT double-increment
+/// `WorksheetBatch.completedSkills`. We insert a row here gated on the
+/// composite PK; a duplicate `(batchId, mathSkillId)` raises `P2002` and
+/// the caller skips the counter update.
+///
+/// `recordedAt` is informational only — the dedup key is the PK.
+model BatchSkillProgress {
+  batchId     String
+  mathSkillId String
+  recordedAt  DateTime       @default(now())
+  batch       WorksheetBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  mathSkill   MathSkill      @relation(fields: [mathSkillId], references: [id])
+
+  @@id([batchId, mathSkillId])
+  @@index([batchId])
 }
 
 model GeneratedWorksheet {
