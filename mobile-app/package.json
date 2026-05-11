@@ -19,6 +19,7 @@
     "@react-navigation/native-stack": "^7.14.10",
     "expo": "~54.0.33",
     "expo-blur": "~15.0.8",
+    "expo-constants": "~18.0.13",
     "expo-dev-client": "~6.0.20",
     "expo-file-system": "~19.0.21",
     "expo-image-manipulator": "~14.0.8",
