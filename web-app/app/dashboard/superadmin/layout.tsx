@@ -133,7 +133,7 @@ export default function SuperAdminLayout({
                                 Math Skills
                             </Link>
 
-                            <Link href="/dashboard/superadmin/notifications" className="flex items-center justify-between p-2 rounded hover:bg-gray-100">
+                            <Link href="/dashboard/notifications" className="flex items-center justify-between p-2 rounded hover:bg-gray-100">
                                 <span>Notifications</span>
                                 {unreadCount > 0 && (
                                     <span className="bg-blue-500 text-white text-xs rounded-full px-2 py-1">
