@@ -232,7 +232,7 @@ describe('POST /internal/worksheet-generation/:id/complete — idempotent replay
     const batchUpdate = vi.fn();
     // Capture PostHog calls for the new redelivery-observability assertion.
     const fetchSpy = vi.fn(
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
+      // _args needed to type mock.calls as [input, init?].
       async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
     );
     const originalFetch = globalThis.fetch;
@@ -376,7 +376,7 @@ describe('POST /internal/worksheet-generation/:id/fail — first-time + replays'
     const findUnique = vi.fn().mockResolvedValue({ id: 'w1' });
     const batchUpdate = vi.fn();
     const fetchSpy = vi.fn(
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
+      // _args needed to type mock.calls as [input, init?].
       async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
     );
     const originalFetch = globalThis.fetch;

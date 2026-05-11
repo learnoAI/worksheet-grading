@@ -7,6 +7,11 @@ interface Env {
     PDF_BUCKET: R2Bucket;
     WORKSHEET_CREATION_BACKEND_BASE_URL: string;
     WORKSHEET_CREATION_WORKER_TOKEN: string;
+    // Origin (scheme + host, no trailing slash) of the public R2 endpoint
+    // for `PDF_BUCKET`. The worker emits `${R2_PUBLIC_BASE_URL}/${key}`
+    // back to the backend, so it MUST match the bucket bound above —
+    // a mismatch silently serves 404s to students fetching the PDF.
+    R2_PUBLIC_BASE_URL: string;
 }
 
 interface QueueMessageV1 {
@@ -18,6 +23,15 @@ interface QueueMessageV1 {
 
 export default {
     async queue(batch: any, env: Env): Promise<void> {
+        // Fail fast on a misconfigured deploy. Without this guard we would
+        // emit `undefined/${key}` as the PDF URL and the backend would
+        // persist a broken link — students see 404s with no log trail.
+        // Throwing here forces a retry (so the misconfig is visible in
+        // wrangler tail) instead of corrupting downstream rows.
+        if (!env.R2_PUBLIC_BASE_URL) {
+            throw new Error('R2_PUBLIC_BASE_URL not configured');
+        }
+
         const backend = new BackendClient(env);
         const messages = (batch.messages || []) as any[];
 
@@ -68,7 +82,7 @@ export default {
                 });
 
                 // 5. Construct public URL and notify backend
-                const pdfUrl = `https://pub-c3c6a680b09a42b8aaa905a95ab0b07c.r2.dev/${key}`;
+                const pdfUrl = `${env.R2_PUBLIC_BASE_URL}/${key}`;
 
                 await backend.markComplete(worksheetId, pdfUrl, batchId);
                 message.ack();
