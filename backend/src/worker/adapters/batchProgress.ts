@@ -61,15 +61,24 @@ export async function onWorksheetPdfComplete(
  * successful but un-acked first call (or a transient 5xx). Without a
  * dedup record, every replay double-increments `completedSkills` and
  * the batch flips to `RENDERING_PDFS` while only N-1 skills are actually
- * ready. We insert into `BatchSkillProgress` first; the composite PK
- * `(batchId, mathSkillId)` makes the operation atomic — a duplicate raises
- * P2002, and we return `idempotent: true` without touching the counter.
+ * ready.
+ *
+ * The dedup insert + counter increment run together inside
+ * `prisma.$transaction(...)`. If either step fails, both roll back —
+ * critical because otherwise a partial failure (dedup written, counter
+ * write timed out) would poison future retries: P2002 would short-
+ * circuit them and the counter would be permanently short. The
+ * transaction guarantees we either advance the dedup AND the counter,
+ * or neither.
  *
  * Intentionally does **not** call `assembleAndEnqueuePdfs` — that helper
  * depends on the worksheet generation + PDF rendering queues and will ship
- * with the full `/internal/question-bank/*` port. Callers must run the
- * follow-up step themselves (or, for now, leave batches stuck on
- * `RENDERING_PDFS` until the Express dispatch loop picks them up).
+ * with the full `/internal/question-bank/*` port. The status flip itself
+ * is gated on `status: 'GENERATING_QUESTIONS'` via `updateMany` so that
+ * if two concurrent first-time-skill writers both observe
+ * `completedSkills >= pendingSkills` and race to flip, only one wins
+ * (returns `flipped: true`); the other gets `flipped: false` and skips
+ * the downstream `assembleAndEnqueuePdfs` so we don't enqueue PDFs twice.
  */
 export async function incrementBatchCompletedSkills(
   prisma: PrismaClient,
@@ -81,37 +90,51 @@ export async function incrementBatchCompletedSkills(
   flipped: boolean;
   idempotent: boolean;
 }> {
-  // 1. Atomic dedup insert. Composite PK fails on second call for the
-  //    same (batchId, mathSkillId) pair — that's our "already counted"
-  //    signal.
+  // 1. Atomic dedup-insert + counter-increment. Either both commit or
+  //    both roll back (Postgres transaction). On P2002 inside the
+  //    transaction, the rollback is implicit — Prisma surfaces the
+  //    constraint error to the outer catch and the transaction is
+  //    aborted server-side.
+  let batch: { completedSkills: number; pendingSkills: number };
   try {
-    await prisma.batchSkillProgress.create({
-      data: { batchId, mathSkillId },
+    batch = await prisma.$transaction(async (tx) => {
+      await tx.batchSkillProgress.create({
+        data: { batchId, mathSkillId },
+      });
+      return tx.worksheetBatch.update({
+        where: { id: batchId },
+        data: { completedSkills: { increment: 1 } },
+        select: { completedSkills: true, pendingSkills: true },
+      });
     });
   } catch (err) {
     if (isUniqueConstraintError(err)) {
       // Already counted on a prior call (likely CF Queue redelivery).
-      // Skip the counter update. Read the current state so the caller
-      // can still respond with consistent figures.
-      const batch = await prisma.worksheetBatch.findUnique({
+      // Read current state so the caller can still respond with
+      // consistent figures. The batch MUST exist (the dedup row's FK is
+      // ON DELETE CASCADE on batch, so a stranded BatchSkillProgress
+      // row is impossible) — surface integrity issues rather than
+      // hiding them behind `?? 0`.
+      const current = await prisma.worksheetBatch.findUnique({
         where: { id: batchId },
         select: { completedSkills: true, pendingSkills: true },
       });
+      if (!current) {
+        throw new Error(
+          `BatchSkillProgress hit P2002 for batch '${batchId}' but the ` +
+            `batch row is missing. Integrity violation — FK should ` +
+            `prevent this.`
+        );
+      }
       return {
-        completedSkills: batch?.completedSkills ?? 0,
-        pendingSkills: batch?.pendingSkills ?? 0,
+        completedSkills: current.completedSkills,
+        pendingSkills: current.pendingSkills,
         flipped: false,
         idempotent: true,
       };
     }
     throw err;
   }
-
-  // 2. First time — safe to increment.
-  const batch = await prisma.worksheetBatch.update({
-    where: { id: batchId },
-    data: { completedSkills: { increment: 1 } },
-  });
 
   if (batch.completedSkills < batch.pendingSkills) {
     return {
@@ -122,15 +145,20 @@ export async function incrementBatchCompletedSkills(
     };
   }
 
-  await prisma.worksheetBatch.update({
-    where: { id: batchId },
+  // 2. Threshold reached. Race-safe flip: only the first caller whose
+  //    increment crossed the threshold wins (count: 1). Concurrent
+  //    callers that observed the same post-increment value but raced
+  //    to flip will see status already RENDERING_PDFS and get count: 0,
+  //    so they skip `assembleAndEnqueuePdfs` downstream.
+  const flip = await prisma.worksheetBatch.updateMany({
+    where: { id: batchId, status: 'GENERATING_QUESTIONS' },
     data: { status: 'RENDERING_PDFS' },
   });
 
   return {
     completedSkills: batch.completedSkills,
     pendingSkills: batch.pendingSkills,
-    flipped: true,
+    flipped: flip.count > 0,
     idempotent: false,
   };
 }

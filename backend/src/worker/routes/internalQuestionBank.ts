@@ -5,7 +5,11 @@ import { requireWorksheetCreationToken } from '../middleware/workerTokens';
 import { validateJson } from '../validation';
 import { incrementBatchCompletedSkills } from '../adapters/batchProgress';
 import { assembleAndEnqueuePdfs } from '../adapters/worksheetSections';
-import { capturePosthogException } from '../adapters/posthog';
+import {
+  capturePosthogException,
+  captureGradingPipelineEvent,
+} from '../adapters/posthog';
+import { safeWaitUntil } from '../lib/safeWaitUntil';
 import type { AppBindings } from '../types';
 
 /**
@@ -108,8 +112,33 @@ internalQuestionBank.post(
             mathSkillId
           );
           idempotent = progress.idempotent;
+          if (progress.idempotent) {
+            // Observability for CF Queue redelivery rate. Logged at
+            // `warn` level so oncall can grep `wrangler tail`; PostHog
+            // event mirrors S28's `worksheet_pdf_callback_replayed`
+            // event for dashboard parity. Stays under the
+            // `grading_pipeline` umbrella so existing wrap-keyed
+            // insights pick it up.
+            console.warn('[question-bank] idempotent replay', {
+              batchId,
+              mathSkillId,
+            });
+            await safeWaitUntil(
+              c,
+              captureGradingPipelineEvent(
+                c.env ?? {},
+                'question_bank_store_replayed',
+                batchId,
+                { batchId, mathSkillId }
+              )
+            );
+          }
           if (progress.flipped) {
             // All skills ready — assemble PDFs for worksheets in this batch.
+            // The flip itself is race-safe (updateMany gated on
+            // status='GENERATING_QUESTIONS' inside the adapter), so only
+            // one caller reaches this branch even if two first-time
+            // skills race to cross the threshold.
             const assembleResult = await assembleAndEnqueuePdfs(prisma, c.env ?? {}, batchId);
             if (assembleResult.errors.length > 0) {
               console.error(
