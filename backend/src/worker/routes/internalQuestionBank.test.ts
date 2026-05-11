@@ -15,6 +15,25 @@ function mountApp(prisma: unknown) {
   return app;
 }
 
+/**
+ * Wire `$transaction(cb)` to a tx proxy that re-uses the outer
+ * worksheetBatch + batchSkillProgress mocks (so call counts on those
+ * mocks remain visible to the test). Propagates callback rejections so
+ * the caller's outer P2002 catch still fires.
+ */
+function makeTransactionMock(
+  batchUpdate: ReturnType<typeof vi.fn>,
+  skillProgressCreate: ReturnType<typeof vi.fn>
+) {
+  return vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => {
+    const tx = {
+      worksheetBatch: { update: batchUpdate },
+      batchSkillProgress: { create: skillProgressCreate },
+    };
+    return cb(tx);
+  });
+}
+
 async function authed(
   app: Hono<AppBindings>,
   path: string,
@@ -107,16 +126,20 @@ describe('POST /internal/question-bank/store', () => {
     expect(call.data[1].renderSpec).toBeUndefined();
   });
 
-  it('increments batch completedSkills when batchId is provided', async () => {
+  it('records BatchSkillProgress AND increments batch completedSkills inside a $transaction', async () => {
     const createMany = vi.fn().mockResolvedValue({ count: 1 });
-    // Mock for incrementBatchCompletedSkills:
     const batchUpdate = vi
       .fn()
       .mockResolvedValueOnce({ completedSkills: 1, pendingSkills: 3 })
       .mockResolvedValue({});
+    const batchUpdateMany = vi.fn();
+    const skillProgressCreate = vi.fn().mockResolvedValue({});
+    const transaction = makeTransactionMock(batchUpdate, skillProgressCreate);
     const app = mountApp({
       questionBank: { createMany },
-      worksheetBatch: { update: batchUpdate },
+      worksheetBatch: { update: batchUpdate, updateMany: batchUpdateMany },
+      batchSkillProgress: { create: skillProgressCreate },
+      $transaction: transaction,
     });
     const res = await authed(app, '/internal/question-bank/store', {
       mathSkillId: 's1',
@@ -124,19 +147,117 @@ describe('POST /internal/question-bank/store', () => {
       batchId: 'b-1',
     });
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, stored: 1, idempotent: false });
+    // Atomicity: BOTH writes happen inside the same transactional
+    // callback (one $transaction call).
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(skillProgressCreate).toHaveBeenCalledWith({
+      data: { batchId: 'b-1', mathSkillId: 's1' },
+    });
     expect(batchUpdate).toHaveBeenCalledWith({
       where: { id: 'b-1' },
       data: { completedSkills: { increment: 1 } },
+      select: { completedSkills: true, pendingSkills: true },
     });
+  });
+
+  it('returns idempotent:true and SKIPS counter increment when BatchSkillProgress.create raises P2002', async () => {
+    // CF Queue redelivery scenario: the worker delivered the same
+    // (batchId, mathSkillId) message twice. The first call inserted the
+    // dedup row. The second call (this one) gets P2002 from the tx
+    // callback, the transaction aborts, and the route returns idempotent.
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const batchUpdate = vi.fn();
+    const batchFindUnique = vi.fn().mockResolvedValue({
+      completedSkills: 1,
+      pendingSkills: 3,
+    });
+    const p2002 = Object.assign(new Error('Unique constraint failed'), {
+      code: 'P2002',
+    });
+    const skillProgressCreate = vi.fn().mockRejectedValueOnce(p2002);
+    const transaction = makeTransactionMock(batchUpdate, skillProgressCreate);
+    // Silence the new redelivery-rate log.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Mock fetch for the PostHog event the route now fires on idempotent
+    // replays.
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(
+      async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
+    ) as unknown as typeof fetch;
+    try {
+      const app = mountApp({
+        questionBank: { createMany },
+        worksheetBatch: {
+          update: batchUpdate,
+          updateMany: vi.fn(),
+          findUnique: batchFindUnique,
+        },
+        batchSkillProgress: { create: skillProgressCreate },
+        $transaction: transaction,
+      });
+      const res = await app.request(
+        '/internal/question-bank/store',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Worksheet-Creation-Token': WORKER_TOKEN,
+          },
+          body: JSON.stringify({
+            mathSkillId: 's1',
+            questions: [{ question: 'Q', answer: 'A' }],
+            batchId: 'b-1',
+          }),
+        },
+        {
+          WORKSHEET_CREATION_WORKER_TOKEN: WORKER_TOKEN,
+          POSTHOG_API_KEY: 'phc-test',
+        }
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        success: boolean;
+        stored: number;
+        idempotent: boolean;
+      };
+      expect(body.success).toBe(true);
+      expect(body.stored).toBe(1);
+      expect(body.idempotent).toBe(true);
+      // CRITICAL: the batch counter MUST NOT have been touched.
+      expect(batchUpdate).not.toHaveBeenCalled();
+      expect(skillProgressCreate).toHaveBeenCalledTimes(1);
+      // Observability: warn fires + PostHog event lands.
+      // Prefix shared with the Express service (`[ws-batch]`) so oncall
+      // greps one pattern across both runtimes during parallel-run.
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[ws-batch] idempotent replay',
+        expect.objectContaining({ batchId: 'b-1', mathSkillId: 's1' })
+      );
+      const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+      const calls = fetchMock.mock.calls
+        .map((call) => JSON.parse((call[1] as RequestInit).body as string))
+        .filter((b) => b.event === 'grading_pipeline');
+      expect(calls).toHaveLength(1);
+      expect(calls[0].properties.stage).toBe('question_bank_store_replayed');
+      expect(calls[0].properties.batchId).toBe('b-1');
+      expect(calls[0].properties.mathSkillId).toBe('s1');
+    } finally {
+      globalThis.fetch = originalFetch;
+      warnSpy.mockRestore();
+    }
   });
 
   it('kicks off PDF assembly when batch completes (completedSkills reaches pendingSkills)', async () => {
     const createMany = vi.fn().mockResolvedValue({ count: 1 });
     // Counter reaches the pending threshold → adapter flips status.
+    // The flip itself is now a race-safe updateMany gated on
+    // `status='GENERATING_QUESTIONS'`, returning count: 1 when we win
+    // the race (so assembly fires) or count: 0 otherwise.
     const batchUpdate = vi
       .fn()
-      .mockResolvedValueOnce({ completedSkills: 3, pendingSkills: 3 })
-      .mockResolvedValueOnce({}); // status flip to RENDERING_PDFS
+      .mockResolvedValueOnce({ completedSkills: 3, pendingSkills: 3 });
+    const batchUpdateMany = vi.fn().mockResolvedValueOnce({ count: 1 });
 
     const generatedWsFindMany = vi
       .fn()
@@ -158,15 +279,19 @@ describe('POST /internal/question-bank/store', () => {
       new Response(JSON.stringify({ success: true, result: {} }), { status: 200 })
     ) as unknown as typeof fetch;
 
+    const skillProgressCreate = vi.fn().mockResolvedValue({});
+    const transaction = makeTransactionMock(batchUpdate, skillProgressCreate);
     const app = mountApp({
       questionBank: {
         createMany,
         findMany: questionBankFindMany,
         updateMany: questionBankUpdateMany,
       },
-      worksheetBatch: { update: batchUpdate },
+      worksheetBatch: { update: batchUpdate, updateMany: batchUpdateMany },
       generatedWorksheet: { findMany: generatedWsFindMany, update: generatedWsUpdate },
       mathSkill: { findUnique: mathSkillFindUnique },
+      batchSkillProgress: { create: skillProgressCreate },
+      $transaction: transaction,
     });
     const res = await authed(
       app,
@@ -190,9 +315,16 @@ describe('POST /internal/question-bank/store', () => {
   it('still returns 200 even if batch progress fails (non-fatal)', async () => {
     const createMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn().mockRejectedValue(new Error('db down'));
+    const skillProgressCreate = vi.fn().mockResolvedValue({});
+    // The $transaction internally fails because batchUpdate rejects
+    // (simulating the partial-failure / DB blip scenario). Postgres
+    // rolls back the dedup row; the route layer catches and returns 200.
+    const transaction = makeTransactionMock(batchUpdate, skillProgressCreate);
     const app = mountApp({
       questionBank: { createMany },
-      worksheetBatch: { update: batchUpdate },
+      worksheetBatch: { update: batchUpdate, updateMany: vi.fn() },
+      batchSkillProgress: { create: skillProgressCreate },
+      $transaction: transaction,
     });
     const res = await authed(app, '/internal/question-bank/store', {
       mathSkillId: 's1',

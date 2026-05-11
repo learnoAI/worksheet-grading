@@ -5,7 +5,11 @@ import { requireWorksheetCreationToken } from '../middleware/workerTokens';
 import { validateJson } from '../validation';
 import { incrementBatchCompletedSkills } from '../adapters/batchProgress';
 import { assembleAndEnqueuePdfs } from '../adapters/worksheetSections';
-import { capturePosthogException } from '../adapters/posthog';
+import {
+  capturePosthogException,
+  captureGradingPipelineEvent,
+} from '../adapters/posthog';
+import { safeWaitUntil } from '../lib/safeWaitUntil';
 import type { AppBindings } from '../types';
 
 /**
@@ -99,11 +103,45 @@ internalQuestionBank.post(
         }),
       });
 
+      let idempotent: boolean | undefined;
       if (batchId) {
         try {
-          const progress = await incrementBatchCompletedSkills(prisma, batchId);
+          const progress = await incrementBatchCompletedSkills(
+            prisma,
+            batchId,
+            mathSkillId
+          );
+          idempotent = progress.idempotent;
+          if (progress.idempotent) {
+            // Observability for CF Queue redelivery rate. Logged at
+            // `warn` level so oncall can grep `wrangler tail`; PostHog
+            // event mirrors S28's `worksheet_pdf_callback_replayed`
+            // event for dashboard parity. Stays under the
+            // `grading_pipeline` umbrella so existing wrap-keyed
+            // insights pick it up.
+            // Prefix `[ws-batch]` is shared with the Express service
+            // (services/worksheetBatchService.ts) so oncall only needs
+            // one grep pattern across both runtimes.
+            console.warn('[ws-batch] idempotent replay', {
+              batchId,
+              mathSkillId,
+            });
+            await safeWaitUntil(
+              c,
+              captureGradingPipelineEvent(
+                c.env ?? {},
+                'question_bank_store_replayed',
+                batchId,
+                { batchId, mathSkillId }
+              )
+            );
+          }
           if (progress.flipped) {
             // All skills ready — assemble PDFs for worksheets in this batch.
+            // The flip itself is race-safe (updateMany gated on
+            // status='GENERATING_QUESTIONS' inside the adapter), so only
+            // one caller reaches this branch even if two first-time
+            // skills race to cross the threshold.
             const assembleResult = await assembleAndEnqueuePdfs(prisma, c.env ?? {}, batchId);
             if (assembleResult.errors.length > 0) {
               console.error(
@@ -122,7 +160,19 @@ internalQuestionBank.post(
         }
       }
 
-      return c.json({ success: true, stored: created.count }, 200);
+      // The questions themselves are inserted on every call (the AI is
+      // non-deterministic so retries produce different rows — those are
+      // a small storage cost, not a correctness issue). The `idempotent`
+      // flag is emitted only when a batchId was provided; it signals
+      // whether THIS call advanced the batch counter. For the no-batch
+      // flow there's no counter to track, so we omit the field rather
+      // than emit a misleading `false`.
+      const responseBody: { success: true; stored: number; idempotent?: boolean } = {
+        success: true,
+        stored: created.count,
+      };
+      if (idempotent !== undefined) responseBody.idempotent = idempotent;
+      return c.json(responseBody, 200);
     } catch (error) {
       console.error('[question-bank-store]', error);
       await capturePosthogException(c.env ?? {}, error, {
