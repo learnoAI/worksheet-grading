@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { requireWorksheetCreationToken } from '../middleware/workerTokens';
 import { validateJson } from '../validation';
 import { onWorksheetPdfComplete } from '../adapters/batchProgress';
+import { captureGradingPipelineEvent } from '../adapters/posthog';
+import { safeWaitUntil } from '../lib/safeWaitUntil';
 import type { AppBindings } from '../types';
 
 /**
@@ -22,6 +24,18 @@ import type { AppBindings } from '../types';
  * skips the WorksheetBatch counter increment. See the matching Express
  * controller at `internalWorksheetGenerationController.ts` for the full
  * rationale + cross-runtime invariants.
+ *
+ * Replays fire a PostHog `grading_pipeline.stage=worksheet_pdf_callback_replayed`
+ * event so the dashboard captures the CF Queue redelivery rate — the
+ * whole point of this fix is to absorb redelivery silently, but we
+ * still want to *measure* it so an unexpected spike (e.g., consumer
+ * regression) is visible.
+ *
+ * **First-write wins on `pdfUrl`** — a replay with a different
+ * `pdfUrl` value silently drops the second value (the conditional
+ * WHERE excludes terminal rows from the update). Consumers that
+ * regenerate to a new R2 key on retry MUST treat the first persisted
+ * value as authoritative; do not assume `pdfUrl` is the most-recent.
  *
  * Batch progress tracking goes through `adapters/batchProgress`, a
  * prisma-injected copy of the matching helper in `worksheetBatchService`.
@@ -101,7 +115,17 @@ internalWorksheetGeneration.post(
       }
       // Row exists and was already terminal — idempotent replay. Skip
       // the batch counter increment (it fired on the first call) so
-      // we don't double-count CF Queue redeliveries.
+      // we don't double-count CF Queue redeliveries. Fire a PostHog
+      // event so the redelivery rate is observable on the dashboard.
+      await safeWaitUntil(
+        c,
+        captureGradingPipelineEvent(
+          c.env ?? {},
+          'worksheet_pdf_callback_replayed',
+          id,
+          { route: 'complete', batchId: batchId ?? null }
+        )
+      );
       return c.json({ success: true, idempotent: true }, 200);
     }
 
@@ -147,6 +171,15 @@ internalWorksheetGeneration.post(
       if (!exists) {
         return c.json({ success: false, error: 'Worksheet not found' }, 404);
       }
+      await safeWaitUntil(
+        c,
+        captureGradingPipelineEvent(
+          c.env ?? {},
+          'worksheet_pdf_callback_replayed',
+          id,
+          { route: 'fail', batchId: batchId ?? null }
+        )
+      );
       return c.json({ success: true, idempotent: true }, 200);
     }
 

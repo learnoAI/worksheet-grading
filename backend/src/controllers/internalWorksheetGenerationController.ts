@@ -2,11 +2,10 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { onWorksheetPdfComplete } from '../services/worksheetBatchService';
 
-// Prisma's `notIn` typing wants a mutable array — declaring as a const
-// readonly tuple and spreading at call-sites is cleaner than the
-// `as unknown as` cast we'd otherwise need.
-const TERMINAL_STATUSES = ['COMPLETED', 'FAILED'] as const;
-type TerminalStatus = typeof TERMINAL_STATUSES[number];
+// Statuses considered terminal — replays of /complete or /fail on rows
+// in these states no-op idempotently. Same shape as the matching
+// constant in `backend/src/worker/routes/internalWorksheetGeneration.ts`.
+const TERMINAL_STATUSES: ('COMPLETED' | 'FAILED')[] = ['COMPLETED', 'FAILED'];
 
 /**
  * GET /internal/worksheet-generation/:id/data
@@ -47,8 +46,17 @@ export async function getWorksheetData(req: Request, res: Response): Promise<Res
  * can flip the batch to `COMPLETED` before all worksheets are done.
  *
  * Replays of an already-terminal worksheet return
- * `{ success: true, idempotent: true }` so the consumer can ack and the
- * caller can monitor redelivery rate via PostHog.
+ * `{ success: true, idempotent: true }` and log a structured warning
+ * for redelivery-rate monitoring (oncall can grep `wrangler tail` /
+ * app_logs on `[ws-gen] idempotent replay`; the worker mirror also
+ * fires a PostHog `worksheet_pdf_callback_replayed` event for the
+ * dashboard).
+ *
+ * **First-write wins on `pdfUrl`** — a replay with a different
+ * `pdfUrl` value silently drops the second value (the conditional
+ * WHERE excludes terminal rows from the update). Consumers that
+ * regenerate to a new R2 key on retry MUST treat the first persisted
+ * value as authoritative; do not assume `pdfUrl` is the most-recent.
  */
 export async function completeWorksheet(req: Request, res: Response): Promise<Response> {
     const { id } = req.params;
@@ -64,7 +72,7 @@ export async function completeWorksheet(req: Request, res: Response): Promise<Re
     // status was already terminal — differentiate with a follow-up
     // findUnique so legitimate 404s still surface.
     const result = await prisma.generatedWorksheet.updateMany({
-        where: { id, status: { notIn: [...TERMINAL_STATUSES] as TerminalStatus[] } },
+        where: { id, status: { notIn: TERMINAL_STATUSES } },
         data: { pdfUrl, status: 'COMPLETED' }
     });
 
@@ -78,7 +86,14 @@ export async function completeWorksheet(req: Request, res: Response): Promise<Re
         }
         // Row exists and was already terminal — idempotent replay. Skip
         // the batch counter increment (it fired on the first call) so
-        // we don't double-count.
+        // we don't double-count. The structured log is the
+        // observability signal for CF Queue redelivery rate; the worker
+        // mirror fires a PostHog event for the dashboard.
+        console.warn('[ws-gen] idempotent replay', {
+            id,
+            route: 'complete',
+            batchId: batchId ?? null,
+        });
         return res.json({ success: true, idempotent: true });
     }
 
@@ -116,7 +131,7 @@ export async function failWorksheet(req: Request, res: Response): Promise<Respon
     const { batchId } = req.body;
 
     const result = await prisma.generatedWorksheet.updateMany({
-        where: { id, status: { notIn: [...TERMINAL_STATUSES] as TerminalStatus[] } },
+        where: { id, status: { notIn: TERMINAL_STATUSES } },
         data: { status: 'FAILED' }
     });
 
@@ -128,6 +143,11 @@ export async function failWorksheet(req: Request, res: Response): Promise<Respon
         if (!exists) {
             return res.status(404).json({ success: false, error: 'Worksheet not found' });
         }
+        console.warn('[ws-gen] idempotent replay', {
+            id,
+            route: 'fail',
+            batchId: batchId ?? null,
+        });
         return res.json({ success: true, idempotent: true });
     }
 

@@ -230,18 +230,45 @@ describe('POST /internal/worksheet-generation/:id/complete — idempotent replay
     const updateMany = vi.fn().mockResolvedValue({ count: 0 });
     const findUnique = vi.fn().mockResolvedValue({ id: 'w1' });
     const batchUpdate = vi.fn();
-    const app = mountApp({
-      generatedWorksheet: { updateMany, findUnique },
-      worksheetBatch: { update: batchUpdate },
-    });
-    const res = await postJson(app, '/internal/worksheet-generation/w1/complete', {
-      pdfUrl: 'https://cdn/x.pdf',
-      batchId: 'b1',
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ success: true, idempotent: true });
-    // CRITICAL: replays must NOT increment the batch counter.
-    expect(batchUpdate).not.toHaveBeenCalled();
+    // Capture PostHog calls for the new redelivery-observability assertion.
+    const fetchSpy = vi.fn(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
+      async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    try {
+      const app = mountApp({
+        generatedWorksheet: { updateMany, findUnique },
+        worksheetBatch: { update: batchUpdate },
+      });
+      const res = await app.request(
+        '/internal/worksheet-generation/w1/complete',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Worksheet-Creation-Token': WORKER_TOKEN,
+          },
+          body: JSON.stringify({ pdfUrl: 'https://cdn/x.pdf', batchId: 'b1' }),
+        },
+        { WORKSHEET_CREATION_WORKER_TOKEN: WORKER_TOKEN, POSTHOG_API_KEY: 'phc-test' }
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true, idempotent: true });
+      // CRITICAL: replays must NOT increment the batch counter.
+      expect(batchUpdate).not.toHaveBeenCalled();
+      // Observability: PostHog event fires so the dashboard can plot
+      // CF Queue redelivery rate.
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+      expect(body.event).toBe('grading_pipeline');
+      expect(body.properties.stage).toBe('worksheet_pdf_callback_replayed');
+      expect(body.properties.route).toBe('complete');
+      expect(body.properties.batchId).toBe('b1');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('three replayed /complete calls increment the batch counter exactly once', async () => {
@@ -337,25 +364,52 @@ describe('POST /internal/worksheet-generation/:id/fail — first-time + replays'
     });
   });
 
-  it('cross-state replay: /fail after the row already went COMPLETED → idempotent, no counter', async () => {
+  it('cross-state replay: /fail after the row already went COMPLETED → idempotent, no counter, observability event fires', async () => {
     // updateMany returns count=0 because the row is COMPLETED (terminal).
     // findUnique returns the row → idempotent reply, no failedWorksheets bump.
     // Protects against the "transient 503 on /complete made the consumer
     // fall back to /fail even though /complete actually succeeded
-    // server-side" scenario.
+    // server-side" scenario. Also asserts the PostHog observability event
+    // fires with route='fail' so the dashboard can distinguish
+    // /complete-replay vs /fail-replay.
     const updateMany = vi.fn().mockResolvedValue({ count: 0 });
     const findUnique = vi.fn().mockResolvedValue({ id: 'w1' });
     const batchUpdate = vi.fn();
-    const app = mountApp({
-      generatedWorksheet: { updateMany, findUnique },
-      worksheetBatch: { update: batchUpdate },
-    });
-    const res = await postJson(app, '/internal/worksheet-generation/w1/fail', {
-      batchId: 'b1',
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ success: true, idempotent: true });
-    expect(batchUpdate).not.toHaveBeenCalled();
+    const fetchSpy = vi.fn(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
+      async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    try {
+      const app = mountApp({
+        generatedWorksheet: { updateMany, findUnique },
+        worksheetBatch: { update: batchUpdate },
+      });
+      const res = await app.request(
+        '/internal/worksheet-generation/w1/fail',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Worksheet-Creation-Token': WORKER_TOKEN,
+          },
+          body: JSON.stringify({ batchId: 'b1' }),
+        },
+        { WORKSHEET_CREATION_WORKER_TOKEN: WORKER_TOKEN, POSTHOG_API_KEY: 'phc-test' }
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true, idempotent: true });
+      expect(batchUpdate).not.toHaveBeenCalled();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+      expect(body.event).toBe('grading_pipeline');
+      expect(body.properties.stage).toBe('worksheet_pdf_callback_replayed');
+      expect(body.properties.route).toBe('fail');
+      expect(body.properties.batchId).toBe('b1');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('returns 404 when /fail is called for a row that does not exist', async () => {

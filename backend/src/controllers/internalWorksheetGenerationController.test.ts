@@ -138,6 +138,7 @@ describe('completeWorksheet — idempotent replays + 404', () => {
     it('returns {success:true, idempotent:true} when count=0 AND the row exists (replay of COMPLETED/FAILED)', async () => {
         prismaMocks.generatedWorksheet.updateMany.mockResolvedValueOnce({ count: 0 });
         prismaMocks.generatedWorksheet.findUnique.mockResolvedValueOnce({ id: 'ws-1' });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
         const res = makeRes();
         await completeWorksheet(makeReq({ id: 'ws-1' }, { pdfUrl: 'x', batchId: 'b-1' }), asExpressRes(res));
@@ -146,6 +147,13 @@ describe('completeWorksheet — idempotent replays + 404', () => {
         expect(res.body).toEqual({ success: true, idempotent: true });
         // CRITICAL: counter must NOT fire on replay.
         expect(batchServiceMocks.onWorksheetPdfComplete).not.toHaveBeenCalled();
+        // Observability: structured warn so oncall can grep app_logs
+        // for CF Queue redelivery rate.
+        expect(warnSpy).toHaveBeenCalledWith(
+            '[ws-gen] idempotent replay',
+            expect.objectContaining({ id: 'ws-1', route: 'complete', batchId: 'b-1' })
+        );
+        warnSpy.mockRestore();
     });
 
     it('three replayed /complete calls increment the batch counter exactly once', async () => {
@@ -158,6 +166,9 @@ describe('completeWorksheet — idempotent replays + 404', () => {
         prismaMocks.generatedWorksheet.findUnique
             .mockResolvedValueOnce({ id: 'ws-1' })
             .mockResolvedValueOnce({ id: 'ws-1' });
+        // Silence the idempotent-replay warn so test output stays clean;
+        // we already verify the warn shape in the dedicated replay test.
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
         for (let i = 0; i < 3; i++) {
             const res = makeRes();
@@ -166,6 +177,9 @@ describe('completeWorksheet — idempotent replays + 404', () => {
         }
         expect(batchServiceMocks.onWorksheetPdfComplete).toHaveBeenCalledTimes(1);
         expect(batchServiceMocks.onWorksheetPdfComplete).toHaveBeenCalledWith('b-1', false);
+        // 2 replays → exactly 2 warns.
+        expect(warnSpy).toHaveBeenCalledTimes(2);
+        warnSpy.mockRestore();
     });
 });
 
@@ -188,6 +202,7 @@ describe('failWorksheet — first-time + replays', () => {
     it('replay of /fail after the worksheet is already FAILED → idempotent + no counter', async () => {
         prismaMocks.generatedWorksheet.updateMany.mockResolvedValueOnce({ count: 0 });
         prismaMocks.generatedWorksheet.findUnique.mockResolvedValueOnce({ id: 'ws-1' });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
         const res = makeRes();
         await failWorksheet(makeReq({ id: 'ws-1' }, { batchId: 'b-1' }), asExpressRes(res));
@@ -195,13 +210,15 @@ describe('failWorksheet — first-time + replays', () => {
         expect(res.statusCode).toBe(200);
         expect(res.body).toEqual({ success: true, idempotent: true });
         expect(batchServiceMocks.onWorksheetPdfComplete).not.toHaveBeenCalled();
+        warnSpy.mockRestore();
     });
 
-    it('cross-state replay: /fail after /complete already succeeded → idempotent, neither counter fires twice', async () => {
+    it('cross-state replay: /fail after /complete already succeeded → idempotent, neither counter fires twice, observability log fires with route=fail', async () => {
         // Row is already COMPLETED (transition happened on a prior /complete
         // call) → updateMany finds nothing in non-terminal state → idempotent.
         prismaMocks.generatedWorksheet.updateMany.mockResolvedValueOnce({ count: 0 });
         prismaMocks.generatedWorksheet.findUnique.mockResolvedValueOnce({ id: 'ws-1' });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
         const res = makeRes();
         await failWorksheet(makeReq({ id: 'ws-1' }, { batchId: 'b-1' }), asExpressRes(res));
@@ -213,6 +230,12 @@ describe('failWorksheet — first-time + replays', () => {
         // "transient 503 on /complete → consumer falls back to /fail"
         // scenario from corrupting the batch counter.
         expect(batchServiceMocks.onWorksheetPdfComplete).not.toHaveBeenCalled();
+        // route='fail' distinguishes the /fail-replay class on the dashboard.
+        expect(warnSpy).toHaveBeenCalledWith(
+            '[ws-gen] idempotent replay',
+            expect.objectContaining({ id: 'ws-1', route: 'fail', batchId: 'b-1' })
+        );
+        warnSpy.mockRestore();
     });
 
     it('returns 404 when row does not exist', async () => {
