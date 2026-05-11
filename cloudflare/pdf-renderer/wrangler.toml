@@ -7,6 +7,13 @@ compatibility_flags = ["nodejs_compat"]
 # - WORKSHEET_CREATION_WORKER_TOKEN
 # - WORKSHEET_CREATION_BACKEND_BASE_URL
 
+# R2_PUBLIC_BASE_URL is the public origin (scheme + host, no trailing
+# slash) for `PDF_BUCKET`. It MUST match the bound bucket — a mismatch
+# silently serves 404s to students fetching their PDF. Update this in
+# lockstep with any bucket swap.
+[vars]
+R2_PUBLIC_BASE_URL = "https://pub-c3c6a680b09a42b8aaa905a95ab0b07c.r2.dev"
+
 browser = { binding = "BROWSER" }
 
 [[r2_buckets]]
@@ -42,6 +49,14 @@ invocation_logs = true
 #   - lower concurrency caps to keep test pipelines predictable
 [env.staging]
 name = "pdf-renderer-staging"
+
+# Staging currently reuses the prod r2.dev origin because the staging
+# bucket (`worksheet-grading-files-staging`) does not yet have public
+# access enabled. This preserves prior behavior — when staging gets its
+# own public origin, swap this in and the bucket binding below in one
+# commit.
+[env.staging.vars]
+R2_PUBLIC_BASE_URL = "https://pub-c3c6a680b09a42b8aaa905a95ab0b07c.r2.dev"
 
 [env.staging.browser]
 binding = "BROWSER"

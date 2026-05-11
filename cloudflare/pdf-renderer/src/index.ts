@@ -7,6 +7,11 @@ interface Env {
     PDF_BUCKET: R2Bucket;
     WORKSHEET_CREATION_BACKEND_BASE_URL: string;
     WORKSHEET_CREATION_WORKER_TOKEN: string;
+    // Origin (scheme + host, no trailing slash) of the public R2 endpoint
+    // for `PDF_BUCKET`. The worker emits `${R2_PUBLIC_BASE_URL}/${key}`
+    // back to the backend, so it MUST match the bucket bound above —
+    // a mismatch silently serves 404s to students fetching the PDF.
+    R2_PUBLIC_BASE_URL: string;
 }
 
 interface QueueMessageV1 {
@@ -68,7 +73,7 @@ export default {
                 });
 
                 // 5. Construct public URL and notify backend
-                const pdfUrl = `https://pub-c3c6a680b09a42b8aaa905a95ab0b07c.r2.dev/${key}`;
+                const pdfUrl = `${env.R2_PUBLIC_BASE_URL}/${key}`;
 
                 await backend.markComplete(worksheetId, pdfUrl, batchId);
                 message.ack();
