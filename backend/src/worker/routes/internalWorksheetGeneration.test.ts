@@ -95,38 +95,40 @@ describe('GET /internal/worksheet-generation/:id/data', () => {
   });
 });
 
-describe('POST /internal/worksheet-generation/:id/complete', () => {
+describe('POST /internal/worksheet-generation/:id/complete — first-time transitions', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('rejects body without pdfUrl', async () => {
-    const app = mountApp({ generatedWorksheet: { update: vi.fn() } });
+    const app = mountApp({ generatedWorksheet: { updateMany: vi.fn() } });
     const res = await postJson(app, '/internal/worksheet-generation/w1/complete', {});
     expect(res.status).toBe(400);
   });
 
-  it('marks the worksheet COMPLETED and records pdfUrl when no batchId', async () => {
-    const update = vi.fn().mockResolvedValue({});
+  it('uses a status-guarded updateMany so replays are no-ops', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn();
     const app = mountApp({
-      generatedWorksheet: { update },
+      generatedWorksheet: { updateMany, findUnique: vi.fn() },
       worksheetBatch: { update: batchUpdate },
     });
     const res = await postJson(app, '/internal/worksheet-generation/w1/complete', {
-      pdfUrl: 'https://cdn/worksheet.pdf',
+      pdfUrl: 'https://cdn/x.pdf',
     });
     expect(res.status).toBe(200);
-    expect(update).toHaveBeenCalledWith({
-      where: { id: 'w1' },
-      data: { pdfUrl: 'https://cdn/worksheet.pdf', status: 'COMPLETED' },
+    expect(await res.json()).toEqual({ success: true });
+    // Conditional WHERE guards against double-write on CF Queue replays.
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'w1', status: { notIn: ['COMPLETED', 'FAILED'] } },
+      data: { pdfUrl: 'https://cdn/x.pdf', status: 'COMPLETED' },
     });
     expect(batchUpdate).not.toHaveBeenCalled();
   });
 
   it('accepts an explicit batchId: null (pdf-renderer wire format)', async () => {
-    const update = vi.fn().mockResolvedValue({});
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn();
     const app = mountApp({
-      generatedWorksheet: { update },
+      generatedWorksheet: { updateMany, findUnique: vi.fn() },
       worksheetBatch: { update: batchUpdate },
     });
     const res = await postJson(app, '/internal/worksheet-generation/w1/complete', {
@@ -138,14 +140,14 @@ describe('POST /internal/worksheet-generation/:id/complete', () => {
   });
 
   it('increments completedWorksheets on the batch when batchId is provided', async () => {
-    const update = vi.fn().mockResolvedValue({});
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn().mockResolvedValue({
       completedWorksheets: 2,
       failedWorksheets: 0,
       totalWorksheets: 5,
     });
     const app = mountApp({
-      generatedWorksheet: { update },
+      generatedWorksheet: { updateMany, findUnique: vi.fn() },
       worksheetBatch: { update: batchUpdate },
     });
     const res = await postJson(app, '/internal/worksheet-generation/w1/complete', {
@@ -160,9 +162,7 @@ describe('POST /internal/worksheet-generation/:id/complete', () => {
   });
 
   it('marks batch COMPLETED when total worksheets are done', async () => {
-    const update = vi.fn().mockResolvedValue({});
-    // First call returns the batch state post-increment (threshold reached),
-    // the inline helper then issues the second update to flip status.
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi
       .fn()
       .mockResolvedValueOnce({
@@ -172,7 +172,7 @@ describe('POST /internal/worksheet-generation/:id/complete', () => {
       })
       .mockResolvedValueOnce({});
     const app = mountApp({
-      generatedWorksheet: { update },
+      generatedWorksheet: { updateMany, findUnique: vi.fn() },
       worksheetBatch: { update: batchUpdate },
     });
     const res = await postJson(app, '/internal/worksheet-generation/w1/complete', {
@@ -188,10 +188,12 @@ describe('POST /internal/worksheet-generation/:id/complete', () => {
   });
 
   it('still returns 200 when the batch callback fails (non-fatal)', async () => {
-    const update = vi.fn().mockResolvedValue({});
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn().mockRejectedValue(new Error('db down'));
+    // Silence console.error so test output stays readable.
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const app = mountApp({
-      generatedWorksheet: { update },
+      generatedWorksheet: { updateMany, findUnique: vi.fn() },
       worksheetBatch: { update: batchUpdate },
     });
     const res = await postJson(app, '/internal/worksheet-generation/w1/complete', {
@@ -199,17 +201,120 @@ describe('POST /internal/worksheet-generation/:id/complete', () => {
       batchId: 'b1',
     });
     expect(res.status).toBe(200);
+    errSpy.mockRestore();
   });
 });
 
-describe('POST /internal/worksheet-generation/:id/fail', () => {
+describe('POST /internal/worksheet-generation/:id/complete — idempotent replays + 404', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns 404 when updateMany count=0 AND the row does not exist', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const batchUpdate = vi.fn();
+    const app = mountApp({
+      generatedWorksheet: { updateMany, findUnique },
+      worksheetBatch: { update: batchUpdate },
+    });
+    const res = await postJson(
+      app,
+      '/internal/worksheet-generation/missing/complete',
+      { pdfUrl: 'https://cdn/x.pdf', batchId: 'b1' }
+    );
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ success: false, error: 'Worksheet not found' });
+    expect(batchUpdate).not.toHaveBeenCalled();
+  });
+
+  it('returns {success:true, idempotent:true} when row exists and is already terminal', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const findUnique = vi.fn().mockResolvedValue({ id: 'w1' });
+    const batchUpdate = vi.fn();
+    // Capture PostHog calls for the new redelivery-observability assertion.
+    const fetchSpy = vi.fn(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
+      async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    try {
+      const app = mountApp({
+        generatedWorksheet: { updateMany, findUnique },
+        worksheetBatch: { update: batchUpdate },
+      });
+      const res = await app.request(
+        '/internal/worksheet-generation/w1/complete',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Worksheet-Creation-Token': WORKER_TOKEN,
+          },
+          body: JSON.stringify({ pdfUrl: 'https://cdn/x.pdf', batchId: 'b1' }),
+        },
+        { WORKSHEET_CREATION_WORKER_TOKEN: WORKER_TOKEN, POSTHOG_API_KEY: 'phc-test' }
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true, idempotent: true });
+      // CRITICAL: replays must NOT increment the batch counter.
+      expect(batchUpdate).not.toHaveBeenCalled();
+      // Observability: PostHog event fires so the dashboard can plot
+      // CF Queue redelivery rate.
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+      expect(body.event).toBe('grading_pipeline');
+      expect(body.properties.stage).toBe('worksheet_pdf_callback_replayed');
+      expect(body.properties.route).toBe('complete');
+      expect(body.properties.batchId).toBe('b1');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('three replayed /complete calls increment the batch counter exactly once', async () => {
+    // First call: PENDING → COMPLETED (count=1).
+    // Next two: row already terminal (count=0, findUnique returns the row).
+    const updateMany = vi
+      .fn()
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 });
+    const findUnique = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'w1' })
+      .mockResolvedValueOnce({ id: 'w1' });
+    const batchUpdate = vi.fn().mockResolvedValue({
+      completedWorksheets: 1,
+      failedWorksheets: 0,
+      totalWorksheets: 5,
+    });
+    const app = mountApp({
+      generatedWorksheet: { updateMany, findUnique },
+      worksheetBatch: { update: batchUpdate },
+    });
+    for (let i = 0; i < 3; i++) {
+      const res = await postJson(app, '/internal/worksheet-generation/w1/complete', {
+        pdfUrl: 'https://cdn/x.pdf',
+        batchId: 'b1',
+      });
+      expect(res.status).toBe(200);
+    }
+    expect(batchUpdate).toHaveBeenCalledTimes(1);
+    expect(batchUpdate).toHaveBeenCalledWith({
+      where: { id: 'b1' },
+      data: { completedWorksheets: { increment: 1 } },
+    });
+  });
+});
+
+describe('POST /internal/worksheet-generation/:id/fail — first-time + replays', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('accepts an explicit batchId: null on /fail (pdf-renderer wire format)', async () => {
-    const update = vi.fn().mockResolvedValue({});
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn();
     const app = mountApp({
-      generatedWorksheet: { update },
+      generatedWorksheet: { updateMany, findUnique: vi.fn() },
       worksheetBatch: { update: batchUpdate },
     });
     const res = await postJson(app, '/internal/worksheet-generation/w1/fail', {
@@ -220,33 +325,33 @@ describe('POST /internal/worksheet-generation/:id/fail', () => {
     expect(batchUpdate).not.toHaveBeenCalled();
   });
 
-  it('marks the worksheet FAILED even without a batchId', async () => {
-    const update = vi.fn().mockResolvedValue({});
+  it('marks the worksheet FAILED via status-guarded updateMany even without a batchId', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn();
     const app = mountApp({
-      generatedWorksheet: { update },
+      generatedWorksheet: { updateMany, findUnique: vi.fn() },
       worksheetBatch: { update: batchUpdate },
     });
     const res = await postJson(app, '/internal/worksheet-generation/w1/fail', {
       error: 'render crashed',
     });
     expect(res.status).toBe(200);
-    expect(update).toHaveBeenCalledWith({
-      where: { id: 'w1' },
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'w1', status: { notIn: ['COMPLETED', 'FAILED'] } },
       data: { status: 'FAILED' },
     });
     expect(batchUpdate).not.toHaveBeenCalled();
   });
 
   it('increments failedWorksheets on the batch when batchId is provided', async () => {
-    const update = vi.fn().mockResolvedValue({});
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn().mockResolvedValue({
       completedWorksheets: 3,
       failedWorksheets: 1,
       totalWorksheets: 5,
     });
     const app = mountApp({
-      generatedWorksheet: { update },
+      generatedWorksheet: { updateMany, findUnique: vi.fn() },
       worksheetBatch: { update: batchUpdate },
     });
     const res = await postJson(app, '/internal/worksheet-generation/w1/fail', {
@@ -257,5 +362,69 @@ describe('POST /internal/worksheet-generation/:id/fail', () => {
       where: { id: 'b1' },
       data: { failedWorksheets: { increment: 1 } },
     });
+  });
+
+  it('cross-state replay: /fail after the row already went COMPLETED → idempotent, no counter, observability event fires', async () => {
+    // updateMany returns count=0 because the row is COMPLETED (terminal).
+    // findUnique returns the row → idempotent reply, no failedWorksheets bump.
+    // Protects against the "transient 503 on /complete made the consumer
+    // fall back to /fail even though /complete actually succeeded
+    // server-side" scenario. Also asserts the PostHog observability event
+    // fires with route='fail' so the dashboard can distinguish
+    // /complete-replay vs /fail-replay.
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const findUnique = vi.fn().mockResolvedValue({ id: 'w1' });
+    const batchUpdate = vi.fn();
+    const fetchSpy = vi.fn(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args needed to type mock.calls
+      async (..._args: Parameters<typeof fetch>) => new Response(null, { status: 200 })
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    try {
+      const app = mountApp({
+        generatedWorksheet: { updateMany, findUnique },
+        worksheetBatch: { update: batchUpdate },
+      });
+      const res = await app.request(
+        '/internal/worksheet-generation/w1/fail',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Worksheet-Creation-Token': WORKER_TOKEN,
+          },
+          body: JSON.stringify({ batchId: 'b1' }),
+        },
+        { WORKSHEET_CREATION_WORKER_TOKEN: WORKER_TOKEN, POSTHOG_API_KEY: 'phc-test' }
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true, idempotent: true });
+      expect(batchUpdate).not.toHaveBeenCalled();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+      expect(body.event).toBe('grading_pipeline');
+      expect(body.properties.stage).toBe('worksheet_pdf_callback_replayed');
+      expect(body.properties.route).toBe('fail');
+      expect(body.properties.batchId).toBe('b1');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('returns 404 when /fail is called for a row that does not exist', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const batchUpdate = vi.fn();
+    const app = mountApp({
+      generatedWorksheet: { updateMany, findUnique },
+      worksheetBatch: { update: batchUpdate },
+    });
+    const res = await postJson(app, '/internal/worksheet-generation/missing/fail', {
+      batchId: 'b1',
+    });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ success: false, error: 'Worksheet not found' });
+    expect(batchUpdate).not.toHaveBeenCalled();
   });
 });
