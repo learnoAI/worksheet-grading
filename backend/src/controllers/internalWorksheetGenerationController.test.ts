@@ -119,7 +119,7 @@ describe('completeWorksheet — first-time transitions', () => {
         expect(batchServiceMocks.onWorksheetPdfComplete).not.toHaveBeenCalled();
     });
 
-    it('rolls back when the batch counter throws — returns 500 so consumers retry', async () => {
+    it('rolls back when the batch counter throws — returns 503 so consumers retry', async () => {
         // Regression for the leak that S28's idempotency fix narrowed but
         // did not eliminate: if `onWorksheetPdfComplete` throws AFTER the
         // row went terminal, the row would have stayed terminal forever
@@ -127,8 +127,11 @@ describe('completeWorksheet — first-time transitions', () => {
         // the row already terminal and skip the counter, leaving the
         // batch stuck on RENDERING_PDFS. Wrapping both writes in
         // $transaction means a counter failure rolls back the status
-        // flip too; the controller surfaces a 5xx so the renderer's
-        // queue redelivers and the next attempt re-runs both writes.
+        // flip too; the controller surfaces 503 specifically so the
+        // pdf-renderer's existing retry-token match
+        // (`errorMsg.includes('503')`) triggers `message.retry()` — a
+        // generic 500 would fall through to `message.ack()` and lose
+        // the failure.
         prismaMocks.generatedWorksheet.updateMany.mockResolvedValueOnce({ count: 1 });
         batchServiceMocks.onWorksheetPdfComplete.mockRejectedValueOnce(new Error('db down'));
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -136,7 +139,7 @@ describe('completeWorksheet — first-time transitions', () => {
         const res = makeRes();
         await completeWorksheet(makeReq({ id: 'ws-1' }, { pdfUrl: 'x', batchId: 'b-1' }), asExpressRes(res));
 
-        expect(res.statusCode).toBe(500);
+        expect(res.statusCode).toBe(503);
         expect(res.body).toEqual({ success: false, error: 'Failed to record completion' });
         expect(errSpy).toHaveBeenCalled();
         errSpy.mockRestore();

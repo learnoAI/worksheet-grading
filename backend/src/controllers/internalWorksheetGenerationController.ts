@@ -101,8 +101,11 @@ export async function completeWorksheet(req: Request, res: Response): Promise<Re
             return { transitioned: true as const };
         });
     } catch (err) {
+        // 503 (not 500) so the pdf-renderer's retry-token match catches
+        // it and triggers `message.retry()` — see the worker route for
+        // the full rationale.
         console.error('[ws-gen] /complete transaction failed:', err);
-        return res.status(500).json({ success: false, error: 'Failed to record completion' });
+        return res.status(503).json({ success: false, error: 'Failed to record completion' });
     }
 
     if (!txResult.transitioned) {
@@ -163,8 +166,10 @@ export async function failWorksheet(req: Request, res: Response): Promise<Respon
             return { transitioned: true as const };
         });
     } catch (err) {
+        // 503 so the renderer's retry-token match triggers; see
+        // `completeWorksheet` for the rationale.
         console.error('[ws-gen] /fail transaction failed:', err);
-        return res.status(500).json({ success: false, error: 'Failed to record failure' });
+        return res.status(503).json({ success: false, error: 'Failed to record failure' });
     }
 
     if (!txResult.transitioned) {

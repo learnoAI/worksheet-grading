@@ -197,7 +197,7 @@ describe('POST /internal/worksheet-generation/:id/complete — first-time transi
     });
   });
 
-  it('rolls back when the batch counter throws — returns 500 so CF Queue retries', async () => {
+  it('rolls back when the batch counter throws — returns 503 so CF Queue retries', async () => {
     // Regression for the leak that S28's idempotency fix narrowed but
     // did not eliminate: if `onWorksheetPdfComplete` throws AFTER the
     // row went terminal, the row would have stayed terminal forever
@@ -205,7 +205,11 @@ describe('POST /internal/worksheet-generation/:id/complete — first-time transi
     // the row already terminal and skip the counter, leaving the
     // batch stuck on RENDERING_PDFS. Wrapping both writes in
     // $transaction means a counter failure rolls back the status
-    // flip too. The route surfaces a 5xx so the CF Queue redelivers.
+    // flip too. The route surfaces 503 specifically so the
+    // pdf-renderer's existing retry-token match
+    // (`errorMsg.includes('503')`) triggers `message.retry()`; a
+    // generic 500 would fall through to `message.ack()` and lose the
+    // failure.
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const batchUpdate = vi.fn().mockRejectedValue(new Error('db down'));
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -228,7 +232,7 @@ describe('POST /internal/worksheet-generation/:id/complete — first-time transi
       pdfUrl: 'https://cdn/x.pdf',
       batchId: 'b1',
     });
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     expect(await res.json()).toEqual({
       success: false,
       error: 'Failed to record completion',

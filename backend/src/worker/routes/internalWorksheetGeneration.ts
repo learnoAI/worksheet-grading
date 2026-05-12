@@ -130,11 +130,14 @@ internalWorksheetGeneration.post(
         return { transitioned: true as const };
       });
     } catch (err) {
-      // Transaction rolled back. Returning 5xx so the CF Queue
-      // redelivers; the next attempt sees the row still non-terminal
-      // and retries both writes together.
+      // Transaction rolled back. Returning 503 (not 500) so the
+      // pdf-renderer Worker's existing retry-token match
+      // (`errorMsg.includes('503')`) triggers `message.retry()` on the
+      // CF Queue; the next attempt sees the row still non-terminal
+      // and retries both writes together. 500 would otherwise fall
+      // through to `message.ack()` and the failure would be lost.
       console.error('[ws-gen] /complete transaction failed:', err);
-      return c.json({ success: false, error: 'Failed to record completion' }, 500);
+      return c.json({ success: false, error: 'Failed to record completion' }, 503);
     }
 
     if (!txResult.transitioned) {
@@ -203,8 +206,10 @@ internalWorksheetGeneration.post(
         return { transitioned: true as const };
       });
     } catch (err) {
+      // 503 so the renderer's retry-token match triggers; see
+      // `/complete` for the rationale.
       console.error('[ws-gen] /fail transaction failed:', err);
-      return c.json({ success: false, error: 'Failed to record failure' }, 500);
+      return c.json({ success: false, error: 'Failed to record failure' }, 503);
     }
 
     if (!txResult.transitioned) {
