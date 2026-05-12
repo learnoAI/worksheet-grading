@@ -95,17 +95,52 @@ internalWorksheetGeneration.post(
     const id = c.req.param('id');
     const { pdfUrl, batchId } = c.req.valid('json');
 
+    // Transactional bundle: the row transition and the batch-counter
+    // increment commit together or roll back together. Without this,
+    // a transient failure on `onWorksheetPdfComplete` after the
+    // status flip would leave the row terminal forever while the
+    // counter stayed short — the idempotency guard above means
+    // subsequent retries would find the row already terminal and
+    // skip the counter, leaving the batch permanently stuck on
+    // `RENDERING_PDFS`. With the transaction, a counter failure
+    // rolls the status back to non-terminal, the CF Queue redelivers,
+    // and the next attempt re-runs both writes.
+    //
     // Conditional UPDATE: only transition non-terminal rows. Atomic at
-    // the row level (single SQL statement). When `count === 0` either
-    // the row doesn't exist OR the status was already terminal —
-    // differentiate with a follow-up findUnique so legitimate 404s
+    // the row level (single SQL statement under Postgres
+    // READ COMMITTED). When `count === 0` either the row doesn't
+    // exist OR the status was already terminal — differentiate with a
+    // follow-up findUnique outside the transaction so legitimate 404s
     // still surface.
-    const result = await prisma.generatedWorksheet.updateMany({
-      where: { id, status: { notIn: TERMINAL_STATUSES } },
-      data: { pdfUrl, status: 'COMPLETED' },
-    });
+    let txResult: { transitioned: boolean };
+    try {
+      txResult = await prisma.$transaction(async (tx) => {
+        const update = await tx.generatedWorksheet.updateMany({
+          where: { id, status: { notIn: TERMINAL_STATUSES } },
+          data: { pdfUrl, status: 'COMPLETED' },
+        });
 
-    if (result.count === 0) {
+        if (update.count === 0) {
+          return { transitioned: false as const };
+        }
+
+        if (batchId) {
+          await onWorksheetPdfComplete(tx, batchId, false);
+        }
+        return { transitioned: true as const };
+      });
+    } catch (err) {
+      // Transaction rolled back. Returning 503 (not 500) so the
+      // pdf-renderer Worker's existing retry-token match
+      // (`errorMsg.includes('503')`) triggers `message.retry()` on the
+      // CF Queue; the next attempt sees the row still non-terminal
+      // and retries both writes together. 500 would otherwise fall
+      // through to `message.ack()` and the failure would be lost.
+      console.error('[ws-gen] /complete transaction failed:', err);
+      return c.json({ success: false, error: 'Failed to record completion' }, 503);
+    }
+
+    if (!txResult.transitioned) {
       const exists = await prisma.generatedWorksheet.findUnique({
         where: { id },
         select: { id: true },
@@ -129,17 +164,6 @@ internalWorksheetGeneration.post(
       return c.json({ success: true, idempotent: true }, 200);
     }
 
-    // First-time transition only — fire side effects.
-    if (batchId) {
-      try {
-        await onWorksheetPdfComplete(prisma, batchId, false);
-      } catch (err) {
-        // Pre-existing leak: see matching comment in the Express
-        // controller. Out of scope for the idempotency fix.
-        console.error('[ws-gen] onWorksheetPdfComplete error:', err);
-      }
-    }
-
     return c.json({ success: true }, 200);
   }
 );
@@ -158,12 +182,37 @@ internalWorksheetGeneration.post(
     // returns idempotent without incrementing failedWorksheets, so a
     // consumer that mis-recovers from a transient 503 on /complete by
     // calling /fail cannot corrupt the batch counter.
-    const result = await prisma.generatedWorksheet.updateMany({
-      where: { id, status: { notIn: TERMINAL_STATUSES } },
-      data: { status: 'FAILED' },
-    });
+    //
+    // Transactional bundle — same rationale as /complete above. The
+    // row transition and the batch-counter increment commit together
+    // or roll back together; a transient failure on
+    // `onWorksheetPdfComplete` no longer strands the row in a
+    // terminal state while the counter stays short.
+    let txResult: { transitioned: boolean };
+    try {
+      txResult = await prisma.$transaction(async (tx) => {
+        const update = await tx.generatedWorksheet.updateMany({
+          where: { id, status: { notIn: TERMINAL_STATUSES } },
+          data: { status: 'FAILED' },
+        });
 
-    if (result.count === 0) {
+        if (update.count === 0) {
+          return { transitioned: false as const };
+        }
+
+        if (batchId) {
+          await onWorksheetPdfComplete(tx, batchId, true);
+        }
+        return { transitioned: true as const };
+      });
+    } catch (err) {
+      // 503 so the renderer's retry-token match triggers; see
+      // `/complete` for the rationale.
+      console.error('[ws-gen] /fail transaction failed:', err);
+      return c.json({ success: false, error: 'Failed to record failure' }, 503);
+    }
+
+    if (!txResult.transitioned) {
       const exists = await prisma.generatedWorksheet.findUnique({
         where: { id },
         select: { id: true },
@@ -181,14 +230,6 @@ internalWorksheetGeneration.post(
         )
       );
       return c.json({ success: true, idempotent: true }, 200);
-    }
-
-    if (batchId) {
-      try {
-        await onWorksheetPdfComplete(prisma, batchId, true);
-      } catch (err) {
-        console.error('[ws-gen] onWorksheetPdfComplete error:', err);
-      }
     }
 
     return c.json({ success: true }, 200);

@@ -90,6 +90,27 @@ export default {
                 const errorMsg = error instanceof Error ? error.message : 'Unknown error';
                 console.error(`PDF render failed for ${worksheetId}:`, errorMsg);
 
+                const isRetryable =
+                    errorMsg.includes('429') ||
+                    errorMsg.includes('503') ||
+                    errorMsg.includes('timeout');
+
+                // For retryable errors, retry without calling markFailed.
+                // This matters specifically when the failure happened in
+                // `backend.markComplete` (PDF rendered + uploaded fine,
+                // backend hit a transient DB blip) — calling markFailed
+                // here would flip the row to FAILED even though the PDF
+                // exists, and ack the message so the failure is lost.
+                // Retrying re-runs the whole render (idempotent — same
+                // R2 key) and the next attempt's markComplete succeeds.
+                if (isRetryable) {
+                    message.retry();
+                    continue;
+                }
+
+                // Non-retryable: mark the row FAILED so the batch counter
+                // advances and the batch can close, then ack the message
+                // so the queue doesn't keep redelivering a known-bad job.
                 if (worksheetId) {
                     try {
                         await backend.markFailed(worksheetId, errorMsg, batchId);
@@ -97,13 +118,7 @@ export default {
                         console.error('Failed to mark worksheet as failed:', e);
                     }
                 }
-
-                // Retry on transient errors
-                if (errorMsg.includes('429') || errorMsg.includes('503') || errorMsg.includes('timeout')) {
-                    message.retry();
-                } else {
-                    message.ack();
-                }
+                message.ack();
             }
         }
     }

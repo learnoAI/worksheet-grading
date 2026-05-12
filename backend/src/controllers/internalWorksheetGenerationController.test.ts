@@ -1,11 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const prismaMocks = vi.hoisted(() => ({
+// Controllers wrap their writes in `prisma.$transaction(cb)`. The
+// pass-through shim invokes the callback with the same mock so per-model
+// spies (`updateMany`, etc.) capture both transactional and direct calls.
+const prismaMocks: {
     generatedWorksheet: {
-        findUnique: vi.fn(),
-        updateMany: vi.fn(),
-    },
-}));
+        findUnique: ReturnType<typeof vi.fn>;
+        updateMany: ReturnType<typeof vi.fn>;
+    };
+    $transaction: (cb: (tx: unknown) => unknown) => Promise<unknown>;
+} = vi.hoisted(() => {
+    const mocks = {
+        generatedWorksheet: {
+            findUnique: vi.fn(),
+            updateMany: vi.fn(),
+        },
+        $transaction: async (cb: (tx: unknown) => unknown) => cb(mocks),
+    };
+    return mocks;
+});
 
 vi.mock('../utils/prisma', () => ({
     default: prismaMocks,
@@ -90,7 +103,7 @@ describe('completeWorksheet — first-time transitions', () => {
             data: { pdfUrl: 'https://r2/...pdf', status: 'COMPLETED' },
         });
         // Batch counter fires (failed=false).
-        expect(batchServiceMocks.onWorksheetPdfComplete).toHaveBeenCalledWith('b-1', false);
+        expect(batchServiceMocks.onWorksheetPdfComplete).toHaveBeenCalledWith(prismaMocks, 'b-1', false);
         // Replay-detection follow-up not needed when count>0.
         expect(prismaMocks.generatedWorksheet.findUnique).not.toHaveBeenCalled();
     });
@@ -106,7 +119,19 @@ describe('completeWorksheet — first-time transitions', () => {
         expect(batchServiceMocks.onWorksheetPdfComplete).not.toHaveBeenCalled();
     });
 
-    it('swallows onWorksheetPdfComplete errors but still 200s', async () => {
+    it('rolls back when the batch counter throws — returns 503 so consumers retry', async () => {
+        // Regression for the leak that S28's idempotency fix narrowed but
+        // did not eliminate: if `onWorksheetPdfComplete` throws AFTER the
+        // row went terminal, the row would have stayed terminal forever
+        // while the counter never moved — subsequent retries would find
+        // the row already terminal and skip the counter, leaving the
+        // batch stuck on RENDERING_PDFS. Wrapping both writes in
+        // $transaction means a counter failure rolls back the status
+        // flip too; the controller surfaces 503 specifically so the
+        // pdf-renderer's existing retry-token match
+        // (`errorMsg.includes('503')`) triggers `message.retry()` — a
+        // generic 500 would fall through to `message.ack()` and lose
+        // the failure.
         prismaMocks.generatedWorksheet.updateMany.mockResolvedValueOnce({ count: 1 });
         batchServiceMocks.onWorksheetPdfComplete.mockRejectedValueOnce(new Error('db down'));
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -114,8 +139,8 @@ describe('completeWorksheet — first-time transitions', () => {
         const res = makeRes();
         await completeWorksheet(makeReq({ id: 'ws-1' }, { pdfUrl: 'x', batchId: 'b-1' }), asExpressRes(res));
 
-        expect(res.statusCode).toBe(200);
-        expect(res.body).toEqual({ success: true });
+        expect(res.statusCode).toBe(503);
+        expect(res.body).toEqual({ success: false, error: 'Failed to record completion' });
         expect(errSpy).toHaveBeenCalled();
         errSpy.mockRestore();
     });
@@ -176,7 +201,7 @@ describe('completeWorksheet — idempotent replays + 404', () => {
             expect(res.statusCode).toBe(200);
         }
         expect(batchServiceMocks.onWorksheetPdfComplete).toHaveBeenCalledTimes(1);
-        expect(batchServiceMocks.onWorksheetPdfComplete).toHaveBeenCalledWith('b-1', false);
+        expect(batchServiceMocks.onWorksheetPdfComplete).toHaveBeenCalledWith(prismaMocks, 'b-1', false);
         // 2 replays → exactly 2 warns.
         expect(warnSpy).toHaveBeenCalledTimes(2);
         warnSpy.mockRestore();
@@ -196,7 +221,7 @@ describe('failWorksheet — first-time + replays', () => {
             where: { id: 'ws-1', status: { notIn: ['COMPLETED', 'FAILED'] } },
             data: { status: 'FAILED' },
         });
-        expect(batchServiceMocks.onWorksheetPdfComplete).toHaveBeenCalledWith('b-1', true);
+        expect(batchServiceMocks.onWorksheetPdfComplete).toHaveBeenCalledWith(prismaMocks, 'b-1', true);
     });
 
     it('replay of /fail after the worksheet is already FAILED → idempotent + no counter', async () => {

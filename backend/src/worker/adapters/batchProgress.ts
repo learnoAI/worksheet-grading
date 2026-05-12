@@ -17,8 +17,18 @@
  * the service) lands when `/internal/question-bank/*` routes ship.
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { isUniqueConstraintError } from '../lib/prismaErrors';
+
+/**
+ * A handle that can issue the writes this module performs. Accepts either
+ * the regular `PrismaClient` or a `Prisma.TransactionClient` so callers
+ * can bundle these writes into a larger transaction. The
+ * `internalWorksheetGeneration` `/complete` + `/fail` routes pass a tx
+ * client so the worksheet-status transition and the batch-counter update
+ * commit together — see the call site for the leak this guards against.
+ */
+type BatchProgressDb = PrismaClient | Prisma.TransactionClient;
 
 /**
  * Called by the PDF renderer after a single worksheet PDF is done (or
@@ -28,7 +38,7 @@ import { isUniqueConstraintError } from '../lib/prismaErrors';
  * Exact translation of `worksheetBatchService.onWorksheetPdfComplete`.
  */
 export async function onWorksheetPdfComplete(
-  prisma: PrismaClient,
+  db: BatchProgressDb,
   batchId: string,
   failed: boolean
 ): Promise<void> {
@@ -36,14 +46,14 @@ export async function onWorksheetPdfComplete(
     ? { failedWorksheets: { increment: 1 } }
     : { completedWorksheets: { increment: 1 } };
 
-  const batch = await prisma.worksheetBatch.update({
+  const batch = await db.worksheetBatch.update({
     where: { id: batchId },
     data: updateData,
   });
 
   const totalDone = batch.completedWorksheets + batch.failedWorksheets;
   if (totalDone >= batch.totalWorksheets) {
-    await prisma.worksheetBatch.update({
+    await db.worksheetBatch.update({
       where: { id: batchId },
       data: { status: 'COMPLETED' },
     });

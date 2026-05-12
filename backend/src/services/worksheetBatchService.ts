@@ -271,20 +271,32 @@ async function assembleAndEnqueuePdfs(batchId: string): Promise<void> {
 /**
  * Called when a PDF rendering completes for a worksheet.
  * Updates batch progress, marks batch complete when all done.
+ *
+ * Accepts either the module-singleton Prisma client OR a
+ * `Prisma.TransactionClient` so callers can bundle the worksheet-row
+ * transition and this counter update into a single transaction —
+ * see `internalWorksheetGenerationController` for the leak this
+ * guards against (mirror of the Hono worker route).
  */
-export async function onWorksheetPdfComplete(batchId: string, failed: boolean): Promise<void> {
+type BatchProgressDb = typeof prisma | Prisma.TransactionClient;
+
+export async function onWorksheetPdfComplete(
+    db: BatchProgressDb,
+    batchId: string,
+    failed: boolean
+): Promise<void> {
     const updateData = failed
         ? { failedWorksheets: { increment: 1 } }
         : { completedWorksheets: { increment: 1 } };
 
-    const batch = await prisma.worksheetBatch.update({
+    const batch = await db.worksheetBatch.update({
         where: { id: batchId },
         data: updateData
     });
 
     const totalDone = batch.completedWorksheets + batch.failedWorksheets;
     if (totalDone >= batch.totalWorksheets) {
-        await prisma.worksheetBatch.update({
+        await db.worksheetBatch.update({
             where: { id: batchId },
             data: { status: 'COMPLETED' }
         });
