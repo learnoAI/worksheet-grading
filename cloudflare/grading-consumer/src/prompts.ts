@@ -32,8 +32,11 @@ function formatQuestions(extracted: ExtractedQuestions): string {
 
 function formatQuestionsWithAnswers(extracted: ExtractedQuestions, bookAnswers: string[]): string {
   return extracted.questions
-    .map((q, i) => {
-      const correct = i < bookAnswers.length ? bookAnswers[i] : 'Answer not available';
+    .map((q) => {
+      const answerIndex = q.question_number - 1;
+      const correct = answerIndex >= 0 && answerIndex < bookAnswers.length
+        ? bookAnswers[answerIndex]
+        : 'Answer not available';
       return `Question ${q.question_number}: ${q.question}\nStudent Answer: ${q.student_answer}\nCorrect Answer: ${correct}\n`;
     })
     .join('\n');
